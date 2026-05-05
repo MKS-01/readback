@@ -1,0 +1,36 @@
+ollama:
+  model: "gemma4:26b"
+  host: "http://localhost:11434"
+  system_prompt: |
+    You are a conversational voice assistant. Speak naturally and concisely.
+    Use complete sentences. Avoid bullet points, markdown, code blocks, or special characters.
+    Keep responses under 3-4 sentences unless explicitly asked for more depth.
+    Never start a sentence with asterisks, hyphens, or other punctuation.
+
+csm:
+  speaker_id: 0
+  temperature: 0.9
+  max_audio_ms: 15000
+  voice_prompt: "conversational_a"   # null = random voice each turn
+  torch_device: "auto"               # "mps" | "cpu" | "auto"
+  repo_path: "vendor/csm"            # path to cloned SesameAILabs/csm
+
+whisper:
+  model: "base.en"                   # tiny.en, base.en, small.en, medium.en
+  compute_type: "int8"               # int8 recommended for Apple Silicon CPU
+
+audio:
+  sample_rate: 16000                 # whisper expects 16kHz
+  output_sample_rate: 24000          # CSM outputs at 24kHz
+  input_device: null                 # null = system default
+  output_device: null
+
+vad:
+  aggressiveness: 2                  # 0 (permissive) to 3 (aggressive)
+  silence_threshold_ms: 700
+  speech_trigger_ms: 300             # sustained speech to trigger interrupt
+
+ui:
+  default_mode: "voice"              # "voice" | "text"
+  toggle_key: "f4"
+  history_turns: 10                  # max turns kept in Ollama context
