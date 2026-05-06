@@ -69,12 +69,12 @@ def download_models(config_path: Path):
     WhisperModel(cfg.whisper.model, device="cpu", compute_type=cfg.whisper.compute_type)
     click.echo("✓ Whisper ready")
 
-    click.echo("Downloading CSM-1B (~6.2GB)...")
-    from huggingface_hub import snapshot_download
+    click.echo("Downloading Kokoro-82M (~330MB) + voice pack...")
+    from local_tts.tts.synthesizer import Synthesizer
 
-    snapshot_download(repo_id="sesame/csm-1b")
-    snapshot_download(repo_id="meta-llama/Llama-3.2-1B")
-    click.echo("✓ CSM-1B ready")
+    synth = Synthesizer(cfg.kokoro)
+    synth.load()
+    click.echo(f"✓ Kokoro ready (voice: {cfg.kokoro.voice}, device: {synth.device})")
     click.echo("\nAll models downloaded. Run: local-tts run")
 
 
@@ -89,8 +89,8 @@ def test_tts(config_path: Path, text: str):
     from local_tts.tts.synthesizer import Synthesizer
 
     cfg = Config.load(config_path)
-    synth = Synthesizer(cfg.csm)
-    click.echo("Loading CSM model...")
+    synth = Synthesizer(cfg.kokoro)
+    click.echo("Loading Kokoro model...")
     synth.load()
     click.echo(f"Device: {synth.device}, Sample rate: {synth.sample_rate}")
     click.echo(f"Synthesizing: {text!r}")

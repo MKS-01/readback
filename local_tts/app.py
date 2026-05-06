@@ -32,7 +32,7 @@ class ConversationApp:
         self.display = Display(self.state)
         self.transcriber = Transcriber(cfg.whisper)
         self.llm = LLMClient(cfg.ollama)
-        self.synthesizer = Synthesizer(cfg.csm)
+        self.synthesizer = Synthesizer(cfg.kokoro)
         self.recorder = Recorder(
             cfg.audio, cfg.vad, self.state, self.transcription_queue
         )

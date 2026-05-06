@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "local-tts"
 version = "0.1.0"
-description = "Sesame-like local voice conversation using CSM + Ollama on Apple Silicon"
+description = "Local voice conversation using Kokoro TTS + Ollama on Apple Silicon"
 requires-python = ">=3.10"
 authors = [{ name = "mks" }]
 
@@ -23,6 +23,9 @@ dependencies = [
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "huggingface-hub>=0.28.0",
+    "kokoro>=0.9.4",
+    "misaki[en]>=0.9.4",
+    "soundfile>=0.12.1",
 ]
 
 [project.scripts]

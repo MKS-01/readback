@@ -1,5 +1,5 @@
 ollama:
-  model: "gemma4:26b"
+  model: "gemma4:26b"  # qwen3:8b
   host: "http://localhost:11434"
   system_prompt: |
     You are a conversational voice assistant. Speak naturally and concisely.
@@ -7,13 +7,11 @@ ollama:
     Keep responses under 3-4 sentences unless explicitly asked for more depth.
     Never start a sentence with asterisks, hyphens, or other punctuation.
 
-csm:
-  speaker_id: 0
-  temperature: 0.9
-  max_audio_ms: 15000
-  voice_prompt: "conversational_a"   # null = random voice each turn
-  torch_device: "auto"               # "mps" | "cpu" | "auto"
-  repo_path: "vendor/csm"            # path to cloned SesameAILabs/csm
+kokoro:
+  voice: "af_bella"                  # af_heart, af_bella, af_sarah, am_michael, bf_emma, bm_george, ...
+  lang_code: "a"                     # "a"=American Eng, "b"=British, "j"=Japanese, "z"=Mandarin
+  speed: 1.0
+  torch_device: "cpu"                # cpu is fastest for kokoro on Apple Silicon (mps iSTFT falls back to cpu anyway)
 
 whisper:
   model: "base.en"                   # tiny.en, base.en, small.en, medium.en
@@ -28,7 +26,12 @@ audio:
 vad:
   aggressiveness: 2                  # 0 (permissive) to 3 (aggressive)
   silence_threshold_ms: 700
-  speech_trigger_ms: 300             # sustained speech to trigger interrupt
+  speech_trigger_ms: 300
+  # Interrupt-during-AI-speech tuning. Speaker bleeds into mic; we gate by both
+  # duration and loudness so the AI doesn't interrupt itself.
+  allow_interrupt: true              # set false to disable interrupts entirely
+  interrupt_speech_ms: 900           # how long sustained speech must last to interrupt
+  interrupt_rms_threshold: 0.05      # min mic loudness (0-1); raise if AI still self-interrupts
 
 ui:
   default_mode: "voice"              # "voice" | "text"

@@ -11,7 +11,6 @@ from local_tts.state import AppState, Phase
 
 FRAME_DURATION_MS = 30
 MIN_SPEECH_FRAMES_TO_START = 10        # ~300ms of speech to begin utterance
-SPEECH_FRAMES_FOR_INTERRUPT = 15       # ~450ms during SPEAKING triggers interrupt
 
 
 class Recorder:
@@ -30,6 +29,7 @@ class Recorder:
         self.sample_rate = audio_cfg.sample_rate
         self.frame_samples = int(self.sample_rate * FRAME_DURATION_MS / 1000)  # 480 @ 16kHz
         self.silence_frames_threshold = int(vad_cfg.silence_threshold_ms / FRAME_DURATION_MS)
+        self.interrupt_frames_threshold = int(vad_cfg.interrupt_speech_ms / FRAME_DURATION_MS)
 
         self.vad = webrtcvad.Vad(vad_cfg.aggressiveness)
         self._raw_queue: queue.Queue[bytes] = queue.Queue()
@@ -40,9 +40,12 @@ class Recorder:
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
             pass  # ignore overflow warnings
+        mono = indata[:, 0]
+        # Compute RMS (loudness) for interrupt gating against speaker bleed
+        rms = float(np.sqrt(np.mean(mono * mono))) if mono.size else 0.0
         # Convert float32 [-1, 1] to int16 PCM bytes for webrtcvad
-        pcm = (indata[:, 0] * 32767).astype(np.int16).tobytes()
-        self._raw_queue.put(pcm)
+        pcm = (mono * 32767).astype(np.int16).tobytes()
+        self._raw_queue.put((pcm, rms))
 
     def start(self):
         self._stream = sd.InputStream(
@@ -78,7 +81,7 @@ class Recorder:
 
         while self.state.is_running():
             try:
-                frame = self._raw_queue.get(timeout=0.1)
+                frame, rms = self._raw_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
 
@@ -93,11 +96,12 @@ class Recorder:
             is_speech = self.vad.is_speech(frame, self.sample_rate)
             phase = self.state.get_phase()
 
-            # Interrupt detection: sustained speech while AI is SPEAKING
+            # Interrupt detection: sustained AND loud speech while AI is SPEAKING.
+            # Loudness gate filters out the AI's own voice bleeding from speaker into mic.
             if phase == Phase.SPEAKING:
-                if is_speech:
+                if self.vad_cfg.allow_interrupt and is_speech and rms >= self.vad_cfg.interrupt_rms_threshold:
                     interrupt_speech_count += 1
-                    if interrupt_speech_count >= SPEECH_FRAMES_FOR_INTERRUPT:
+                    if interrupt_speech_count >= self.interrupt_frames_threshold:
                         self.state.request_interrupt()
                         interrupt_speech_count = 0
                 else:
