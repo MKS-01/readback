@@ -1,3 +1,4 @@
+import threading
 import warnings
 from typing import Optional
 
@@ -15,20 +16,70 @@ warnings.filterwarnings(
     category=RuntimeWarning,
 )
 
+# Models we expose through the web UI's runtime picker. Values here must be
+# names that faster-whisper resolves to a CTranslate2 model on HuggingFace
+# (see https://github.com/SYSTRAN/faster-whisper for the full list).
+SUPPORTED_MODELS = (
+    "tiny",
+    "base",
+    "small",
+    "medium",
+    "large-v3-turbo",
+    "large-v3",
+)
+
 
 class Transcriber:
     def __init__(self, cfg: WhisperConfig):
         self.cfg = cfg
         self._model = None
+        self._current_model_name: Optional[str] = None
+        # Serializes the actual `WhisperModel(...)` ctor call across threads
+        # (web sessions can both trigger a swap). Reads of `self._model` in
+        # `transcribe()` are an atomic single-attr load and don't need it.
+        self._swap_lock = threading.Lock()
+
+    @property
+    def current_model(self) -> str:
+        return self._current_model_name or self.cfg.model
 
     def load(self):
         from faster_whisper import WhisperModel
 
-        self._model = WhisperModel(
-            self.cfg.model,
-            device="cpu",  # CTranslate2 ARM NEON is fastest path on Apple Silicon
-            compute_type=self.cfg.compute_type,
-        )
+        with self._swap_lock:
+            if self._model is not None and self._current_model_name == self.cfg.model:
+                return
+            self._model = WhisperModel(
+                self.cfg.model,
+                device="cpu",  # CTranslate2 ARM NEON is fastest path on Apple Silicon
+                compute_type=self.cfg.compute_type,
+            )
+            self._current_model_name = self.cfg.model
+
+    def swap_model(self, name: str) -> str:
+        """Hot-swap to a different Whisper checkpoint. Blocks while the new
+        weights load (~5-15s on first download, ~1-3s if cached). Returns the
+        name actually loaded. Safe to call concurrently — the lock serializes
+        the load step, and `transcribe()` always reads the latest reference.
+        """
+        from faster_whisper import WhisperModel
+
+        if name not in SUPPORTED_MODELS:
+            raise ValueError(
+                f"Unsupported Whisper model {name!r}; pick from {SUPPORTED_MODELS}"
+            )
+        with self._swap_lock:
+            if self._current_model_name == name and self._model is not None:
+                return name
+            new_model = WhisperModel(
+                name, device="cpu", compute_type=self.cfg.compute_type,
+            )
+            # Atomic ref swap — any in-flight transcribe() finishes against
+            # the old model and the next call picks up the new one.
+            self._model = new_model
+            self._current_model_name = name
+            self.cfg.model = name
+        return name
 
     def transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
         if self._model is None:
@@ -40,14 +91,15 @@ class Transcriber:
             # faster-whisper expects 16kHz; resample if needed
             audio = self._resample(audio, sample_rate, 16000)
 
-        segments, _info = self._model.transcribe(
+        beam = max(1, int(self.cfg.beam_size))
+        # Capture the active model under one atomic read so a mid-call swap
+        # can't yank it out from under us.
+        model = self._model
+        segments, _info = model.transcribe(
             audio,
             language="en",
-            # Wider beam + best_of substantially improves accuracy on accented
-            # English at a modest latency cost. With large-v3-turbo on M-series
-            # CPU this still finishes well inside the LLM step.
-            beam_size=10,
-            best_of=10,
+            beam_size=beam,
+            best_of=beam,
             patience=1.0,
             # Default fallback temperatures; kept explicit so it's obvious we
             # rely on the schedule (0.0 → 1.0) for low-confidence retries.

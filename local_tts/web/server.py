@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 
 from local_tts.config import Config
 from local_tts.llm.client import LLMClient
-from local_tts.stt.transcriber import Transcriber
+from local_tts.stt.transcriber import SUPPORTED_MODELS, Transcriber
 from local_tts.tts.synthesizer import Synthesizer
 
 log = logging.getLogger("local_tts.web")
@@ -101,6 +101,8 @@ class Session:
             "type": "config",
             "voice": self.cfg.kokoro.voice,
             "model": self.cfg.ollama.model,
+            "stt_model": self.models.transcriber.current_model,
+            "stt_models_available": list(SUPPORTED_MODELS),
         })
         await self.send_phase("idle")
 
@@ -141,6 +143,53 @@ class Session:
             self._reset_vad()
             self.interrupt_event.clear()
             self.pipeline_task = asyncio.create_task(self._run_pipeline(text=user_text))
+        elif kind == "set_stt_model":
+            await self._handle_stt_swap(payload.get("model"))
+
+    async def _handle_stt_swap(self, name: Optional[str]):
+        """Hot-swap the Whisper model. Refuses to swap mid-pipeline so an
+        in-flight transcribe can't get its model yanked."""
+        if not name:
+            return
+        if name not in SUPPORTED_MODELS:
+            await self.send_json({
+                "type": "stt_model",
+                "state": "error",
+                "model": name,
+                "message": f"Unsupported model {name!r}",
+            })
+            return
+        if self.pipeline_task and not self.pipeline_task.done():
+            await self.send_json({
+                "type": "stt_model",
+                "state": "error",
+                "model": name,
+                "message": "Wait for the current response to finish, then try again.",
+            })
+            return
+        if self.models.transcriber.current_model == name:
+            await self.send_json({
+                "type": "stt_model", "state": "ready", "model": name,
+            })
+            return
+        await self.send_json({
+            "type": "stt_model", "state": "loading", "model": name,
+        })
+        try:
+            loaded = await asyncio.to_thread(
+                self.models.transcriber.swap_model, name,
+            )
+            await self.send_json({
+                "type": "stt_model", "state": "ready", "model": loaded,
+            })
+        except Exception as e:
+            log.exception("stt swap failed")
+            await self.send_json({
+                "type": "stt_model",
+                "state": "error",
+                "model": name,
+                "message": str(e),
+            })
 
     async def _handle_audio(self, data: bytes):
         """Append incoming Int16 PCM, slice into VAD frames, segment utterances."""

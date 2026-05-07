@@ -32,7 +32,20 @@ const els = {
   showMeter: document.getElementById("show-meter"),
   showCaptions: document.getElementById("show-captions"),
   micSelect: document.getElementById("mic-select"),
+  sttSelect: document.getElementById("stt-select"),
+  sttStatus: document.getElementById("stt-status"),
   themeSwatches: document.getElementById("theme-swatches"),
+};
+
+// Display labels for the STT picker. Keys must stay in sync with
+// SUPPORTED_MODELS in local_tts/stt/transcriber.py.
+const STT_MODEL_LABELS = {
+  "tiny": "Tiny — fastest (<300ms), low accuracy",
+  "base": "Base — fast (~300ms)",
+  "small": "Small — fast + decent (~300-500ms)",
+  "medium": "Medium — balanced (~500-800ms)",
+  "large-v3-turbo": "Large v3 Turbo — accurate (~700-1100ms)",
+  "large-v3": "Large v3 — max accuracy (~1500-2500ms)",
 };
 
 const state = {
@@ -61,6 +74,10 @@ const state = {
   speakingRaf: 0,
   // accumulated AI response (sentences arrive one at a time)
   aiAccum: "",
+  // STT model picker state
+  sttModel: null,
+  sttModelsAvailable: [],
+  sttSwapping: false,
   // three.js brain controller (set after async init)
   brain: null,
 };
@@ -462,6 +479,21 @@ function handleControl(msg) {
       }
       if (msg.model) els.model.textContent = msg.model;
       if (msg.output_sample_rate) state.outSampleRate = msg.output_sample_rate;
+      if (msg.stt_models_available) {
+        state.sttModelsAvailable = msg.stt_models_available;
+        populateSttSelect(msg.stt_model);
+        // If user has a saved pref that differs from the server-side default,
+        // request a swap once the page is connected.
+        if (prefs.sttModel && prefs.sttModel !== msg.stt_model
+            && state.sttModelsAvailable.includes(prefs.sttModel)) {
+          requestSttSwap(prefs.sttModel);
+        } else {
+          state.sttModel = msg.stt_model;
+        }
+      }
+      break;
+    case "stt_model":
+      handleSttModelEvent(msg);
       break;
     case "phase":
       setPhase(msg.value);
@@ -775,6 +807,7 @@ const defaultPrefs = {
   showCaptions: true,
   theme: "jarvis",
   micId: null,            // null = browser default
+  sttModel: null,         // null = use whatever the server has loaded
 };
 
 function loadPrefs() {
@@ -846,6 +879,72 @@ els.themeSwatches.addEventListener("click", (e) => {
   applyTheme(sw.dataset.theme);
   savePrefs(prefs);
 });
+
+// ---------- STT model picker ----------
+
+function populateSttSelect(activeModel) {
+  if (!els.sttSelect) return;
+  els.sttSelect.innerHTML = "";
+  for (const name of state.sttModelsAvailable) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = STT_MODEL_LABELS[name] || name;
+    els.sttSelect.appendChild(opt);
+  }
+  if (activeModel && state.sttModelsAvailable.includes(activeModel)) {
+    els.sttSelect.value = activeModel;
+  }
+}
+
+function setSttStatus(text, kind) {
+  if (!els.sttStatus) return;
+  els.sttStatus.textContent = text || "";
+  els.sttStatus.classList.remove("loading", "error");
+  if (kind) els.sttStatus.classList.add(kind);
+}
+
+function requestSttSwap(name) {
+  if (!name || name === state.sttModel) return;
+  state.sttSwapping = true;
+  els.sttSelect.disabled = true;
+  setSttStatus("loading…", "loading");
+  send({ type: "set_stt_model", model: name });
+}
+
+function handleSttModelEvent(msg) {
+  switch (msg.state) {
+    case "loading":
+      state.sttSwapping = true;
+      els.sttSelect.disabled = true;
+      setSttStatus("loading " + msg.model + "…", "loading");
+      break;
+    case "ready":
+      state.sttSwapping = false;
+      state.sttModel = msg.model;
+      els.sttSelect.disabled = false;
+      els.sttSelect.value = msg.model;
+      setSttStatus("ready", "");
+      // Persist after the server confirms the swap actually succeeded.
+      prefs.sttModel = msg.model;
+      savePrefs(prefs);
+      // Clear the "ready" hint after a moment so the row goes quiet.
+      setTimeout(() => setSttStatus("", ""), 1400);
+      break;
+    case "error":
+      state.sttSwapping = false;
+      els.sttSelect.disabled = false;
+      // Roll the dropdown back to whatever's actually loaded.
+      if (state.sttModel) els.sttSelect.value = state.sttModel;
+      setSttStatus(msg.message || "swap failed", "error");
+      break;
+  }
+}
+
+if (els.sttSelect) {
+  els.sttSelect.addEventListener("change", () => {
+    requestSttSwap(els.sttSelect.value);
+  });
+}
 
 // ---------- Microphone selection ----------
 

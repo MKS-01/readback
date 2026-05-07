@@ -106,7 +106,9 @@ The dock pill at the bottom has four controls:
 - **Type** — open a text-input popover; submitting bypasses STT but you still hear a voice response. Triggered mid-response, it interrupts the AI first.
 - **Pause / Resume** — true pause: stops the mic, drains playback, interrupts the AI, freezes the call timer, and disables the other controls. Click again to pick up where you left off.
 
-The gear icon (top-right) opens settings: microphone picker, theme (Jarvis cyan / Hacker green), orb size, and toggles for the mic meter and captions. Preferences persist in `localStorage`.
+The gear icon (top-right) opens settings: microphone picker, **voice model** (Whisper STT — `tiny` / `base` / `small` / `medium` / `large-v3-turbo` / `large-v3`, hot-swappable while idle), theme (Jarvis cyan / Hacker green), orb size, and toggles for the mic meter and captions. Preferences persist in `localStorage` (the saved STT pick is re-applied on every page load).
+
+> **Picking a Whisper model.** On Apple Silicon CPU (faster-whisper has no MPS backend), the encoder dominates and "distilled" models aren't always faster than `medium`. Pick by latency target — `medium` ≈ 500–800ms, `large-v3-turbo` ≈ 500–900ms, `large-v3` ≈ 1500–2500ms. The accompanying `whisper.beam_size` (default `5`) lets you trade ±200–400ms for accuracy.
 
 ## Configuration
 
@@ -122,7 +124,9 @@ Edit `config.yaml` to change Ollama model & system prompt, Kokoro voice, Whisper
 | Stage | Estimate |
 |---|---|
 | VAD silence detect / PTT release | ~200–700 ms |
-| Whisper `large-v3-turbo` @ beam_size=10 (5s audio) | ~700–1100 ms |
+| Whisper `large-v3-turbo` @ beam_size=5 (5s audio) | ~500–900 ms |
+| Whisper `medium` @ beam_size=5 (5s audio)         | ~500–800 ms |
+| Whisper `small` @ beam_size=5 (5s audio)          | ~300–500 ms |
 | First LLM sentence (qwen3:4b) | ~300 ms |
 | Kokoro synthesis of first sentence | ~300–500 ms |
 | **Total to first spoken word** | ~1.5–3 s depending on LLM |

@@ -124,15 +124,26 @@ local-tts/
 
 ### STT (stt/transcriber.py)
 - `WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")` —
-  distilled large-v3, near-large-v3 accuracy at ~the size and speed of
-  `medium` (~1.6GB). Multilingual variant (no `.en`) is dramatically better
-  on accented English. **faster-whisper / CTranslate2 has no MPS backend,
+  default checkpoint. **faster-whisper / CTranslate2 has no MPS backend,
   so Whisper is CPU-only on Mac regardless of Apple GPU availability.**
   Sizes: tiny ~75MB, base ~150MB, small ~480MB, medium ~1.5GB,
-  large-v3-turbo ~1.6GB, large-v3 ~3GB.
-- `beam_size=10, best_of=10, patience=1.0` — wide beam search; runs
-  comfortably on M-series CPU and the LLM step still dominates total
-  latency.
+  large-v3-turbo ~1.6GB, large-v3 ~3GB. On CPU the encoder dominates and
+  `large-v3-turbo` (full large encoder, 4 decoder layers) is often only
+  marginally faster than `medium` — the "6× faster than large-v3" claim
+  is GPU-bound. Pick `medium` if `large-v3-turbo` feels sluggish.
+- Runtime model picker: `Transcriber.swap_model(name)` hot-swaps
+  checkpoints under a `threading.Lock`. `transcribe()` reads the model
+  reference under a single atomic load so an in-flight call finishes
+  against the old weights — no half-swap. The web UI exposes this via
+  the `set_stt_model` WS message and a select in the settings panel;
+  `SUPPORTED_MODELS` is the curated allowlist (tiny, base, small,
+  medium, large-v3-turbo, large-v3). Per-call config edits to
+  `cfg.model` survive only the process lifetime.
+- `beam_size` configurable via `whisper.beam_size` (default 5). 5 keeps
+  total STT latency in the 500-1000ms window for `medium`-class models;
+  bump to 10 for max accuracy on `large-v3-turbo` / `large-v3` if you
+  don't mind +200-400ms. `best_of` mirrors `beam_size` and `patience=1.0`
+  is hardcoded.
 - `no_speech_threshold=0.6, log_prob_threshold=-1.0,
   compression_ratio_threshold=2.4` — reject low-confidence segments as
   empty so faint speaker-bleed buffers stop hallucinating "Yeah." /
@@ -194,11 +205,12 @@ this exists alongside the CLI:
 WebSocket protocol (`/ws`):
 - Client → server:
   - binary frames: Int16 PCM @ 16kHz, mono (mic audio)
-  - JSON text frames: `{"type": "mute"|"unmute"|"interrupt"|"text_input", "text": "..."}`
+  - JSON text frames: `{"type": "mute"|"unmute"|"interrupt"|"text_input"|"set_stt_model", "text": "...", "model": "..."}`
 - Server → client:
   - binary frames: Float32 PCM @ 24kHz, mono (TTS output)
   - JSON text frames: `phase`, `transcript {role: user|assistant}`, `level`,
-    `config`, `error`
+    `config {voice, model, stt_model, stt_models_available}`, `error`,
+    `stt_model {state: loading|ready|error, model, message?}`
 
 Server (`web/server.py::Session`):
 - Accumulates incoming Int16 bytes, slices into 30ms frames for webrtcvad,
@@ -231,7 +243,12 @@ Frontend (`web/static/`):
 UI controls:
 - **Settings (gear icon, top-right)**: Microphone picker (lists all
   audioinputs via `enumerateDevices`, restarts capture with `{deviceId:
-  {exact: id}}` on change, persists in `localStorage`); Theme swatches
+  {exact: id}}` on change, persists in `localStorage`); STT/Voice model
+  picker (`tiny`/`base`/`small`/`medium`/`large-v3-turbo`/`large-v3`,
+  fires `set_stt_model` over WS, server replies with
+  `{type: "stt_model", state: "loading|ready|error"}`, dropdown
+  disables while loading, persists to `prefs.sttModel` only after
+  server confirms `ready`); Theme swatches
   (jarvis cyan / hacker green); Orb size slider (120–380 px);
   Mic-meter and Captions toggles.
 - **Dock pill (bottom)**: `[Mute · Skip · Type · Pause]`. Skip is enabled
@@ -275,7 +292,9 @@ Best naturalness picks: **af_heart**, **af_bella**, **bf_emma**.
 | Stage | Estimate |
 |---|---|
 | VAD silence detection | 700ms |
-| Whisper large-v3-turbo @ beam_size=10 (5s audio) | ~700-1100ms |
+| Whisper large-v3-turbo @ beam_size=5 (5s audio)  | ~500-900ms  |
+| Whisper medium @ beam_size=5 (5s audio)          | ~500-800ms  |
+| Whisper small @ beam_size=5 (5s audio)           | ~300-500ms  |
 | First LLM sentence | ~600-900ms |
 | Kokoro synthesis of first sentence | ~300-500ms |
 | **Total to first spoken word** | ~2.5-3 seconds |

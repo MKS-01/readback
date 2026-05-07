@@ -18,12 +18,19 @@ whisper:
   # significantly better. Sizes (int8): tiny ~75MB, base ~150MB, small ~480MB,
   # medium ~1.5GB, large-v3-turbo ~1.6GB, large-v3 ~3GB.
   #
-  # 'large-v3-turbo' is a distilled large-v3: near-large-v3 accuracy at
-  # roughly the size and speed of medium. Best speed/quality pick on
-  # M-series CPUs with adequate RAM. Drop to 'small' or 'base' for lower
-  # latency on tight machines.
+  # On Apple Silicon CPU (no MPS for faster-whisper), "distilled" models
+  # like large-v3-turbo aren't always faster than `medium` because the
+  # encoder dominates CPU time and turbo has a larger encoder. Pick by
+  # latency target:
+  #   tiny / base   — <300ms, low accuracy
+  #   small         — ~300-500ms, decent
+  #   medium        — ~500-800ms, balanced (recommended for chat)
+  #   large-v3-turbo — ~700-1100ms, slightly more accurate than medium
+  #   large-v3      — ~1500-2500ms, max accuracy
+  # The web UI exposes a runtime picker that overrides this on a per-call basis.
   model: "large-v3-turbo"
   compute_type: "int8"               # int8 recommended for Apple Silicon CPU
+  beam_size: 5                       # 5 = balanced, 10 = max accuracy +200-400ms
 
 audio:
   sample_rate: 16000                 # whisper expects 16kHz

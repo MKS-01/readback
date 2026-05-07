@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>local-tts</title>
-  <link rel="stylesheet" href="/static/styles.css?v=10" />
+  <link rel="stylesheet" href="/static/styles.css?v=11" />
 </head>
 <body>
   <header class="hdr">
@@ -58,6 +58,14 @@
     <div class="settings-row">
       <label for="mic-select">Microphone</label>
       <select id="mic-select"></select>
+    </div>
+
+    <div class="settings-row">
+      <label for="stt-select">
+        Voice model
+        <span id="stt-status" class="settings-hint" aria-live="polite"></span>
+      </label>
+      <select id="stt-select"></select>
     </div>
 
     <div class="settings-row">
@@ -142,6 +150,6 @@
     }
   }
   </script>
-  <script type="module" src="/static/app.js?v=10"></script>
+  <script type="module" src="/static/app.js?v=11"></script>
 </body>
 </html>

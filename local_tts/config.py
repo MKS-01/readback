@@ -27,6 +27,11 @@ class KokoroConfig(BaseModel):
 class WhisperConfig(BaseModel):
     model: str = "large-v3-turbo"
     compute_type: Literal["int8", "float16", "float32"] = "int8"
+    # Beam size + best_of govern the speed/accuracy tradeoff. 5 is a good
+    # default that keeps total STT latency in the 500-1000ms window on
+    # M-series CPUs for `medium`-class models. Bump to 10 for max accuracy
+    # on `large-v3-turbo` / `large-v3` if you don't mind +200-400ms.
+    beam_size: int = 5
 
 
 class AudioConfig(BaseModel):

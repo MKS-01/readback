@@ -735,6 +735,18 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
   cursor: pointer;
 }
 .settings-row select:focus { outline: 1px solid var(--accent); outline-offset: 0; }
+.settings-row select:disabled { opacity: 0.5; cursor: progress; }
+
+.settings-hint {
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--text-mute);
+  margin-left: 8px;
+  text-transform: none;
+}
+.settings-hint.loading { color: var(--accent); }
+.settings-hint.error { color: var(--danger); }
 
 .range-row {
   display: grid;
