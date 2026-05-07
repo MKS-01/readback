@@ -25,7 +25,7 @@ class KokoroConfig(BaseModel):
 
 
 class WhisperConfig(BaseModel):
-    model: str = "base.en"
+    model: str = "large-v3-turbo"
     compute_type: Literal["int8", "float16", "float32"] = "int8"
 
 
@@ -41,9 +41,20 @@ class VADConfig(BaseModel):
     silence_threshold_ms: int = 700
     speech_trigger_ms: int = 300
     # Interrupt-during-AI-speech tuning (echo from speaker bleeds into mic).
+    # Only used when input.mode == "vad"; PTT mode uses the key for interrupt.
     allow_interrupt: bool = True
     interrupt_speech_ms: int = 900          # how long sustained speech must last to interrupt
     interrupt_rms_threshold: float = 0.05   # min loudness (0-1) — gates out speaker bleed
+
+
+class InputConfig(BaseModel):
+    mode: Literal["ptt", "vad"] = "ptt"     # ptt = push-to-talk; vad = continuous
+    # PTT key MUST NOT conflict with normal typing — pynput captures globally
+    # on macOS, so e.g. "space" would fire every time you type a space in any
+    # other app. Right Option/Alt is unmodified and effectively never typed.
+    # Other safe choices: "alt_r", "cmd_r", "ctrl_r", "f1"–"f12", "caps_lock".
+    ptt_key: str = "alt_r"
+    min_recording_ms: int = 200             # ignore PTT taps shorter than this
 
 
 class UIConfig(BaseModel):
@@ -58,6 +69,7 @@ class Config(BaseModel):
     whisper: WhisperConfig = WhisperConfig()
     audio: AudioConfig = AudioConfig()
     vad: VADConfig = VADConfig()
+    input: InputConfig = InputConfig()
     ui: UIConfig = UIConfig()
 
     @classmethod

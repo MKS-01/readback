@@ -1,5 +1,6 @@
 import re
-from typing import Iterator
+import threading
+from typing import Iterator, Optional
 
 import ollama
 
@@ -45,8 +46,17 @@ class LLMClient:
         self.cfg = cfg
         self._client = ollama.Client(host=cfg.host)
 
-    def stream_tokens(self, history: list[dict]) -> Iterator[str]:
-        """Yield raw text tokens from Ollama. History should include system + turns."""
+    def stream_tokens(
+        self,
+        history: list[dict],
+        stop_event: Optional[threading.Event] = None,
+    ) -> Iterator[str]:
+        """Yield raw text tokens from Ollama. History should include system + turns.
+
+        If `stop_event` is provided and gets set mid-stream, the generator
+        breaks early and closes the underlying HTTP stream — used by the web
+        server's interrupt path so we don't keep burning tokens after Skip.
+        """
         messages = [{"role": "system", "content": self.cfg.system_prompt}] + history
         try:
             response = self._client.chat(
@@ -56,15 +66,21 @@ class LLMClient:
                 options={"temperature": 0.7},
             )
             for chunk in response:
+                if stop_event is not None and stop_event.is_set():
+                    break
                 content = chunk.get("message", {}).get("content", "")
                 if content:
                     yield _strip_markdown(content)
         except Exception as e:
             yield f"Sorry, I hit an error talking to Ollama: {e}"
 
-    def stream_response(self, history: list[dict]) -> Iterator[str]:
+    def stream_response(
+        self,
+        history: list[dict],
+        stop_event: Optional[threading.Event] = None,
+    ) -> Iterator[str]:
         """Yield complete sentences as they're produced."""
-        yield from stream_sentences(self.stream_tokens(history))
+        yield from stream_sentences(self.stream_tokens(history, stop_event))
 
     def list_models(self) -> list[str]:
         try:

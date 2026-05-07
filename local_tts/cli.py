@@ -101,5 +101,26 @@ def test_tts(config_path: Path, text: str):
     click.echo("Done.")
 
 
+@cli.command("web")
+@click.option("--config", "config_path", type=click.Path(path_type=Path), default=Path("config.yaml"))
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8000, show_default=True, type=int)
+@click.option("--model", default=None, help="Override Ollama model")
+def web(config_path: Path, host: str, port: int, model: Optional[str]):
+    """Launch the browser UI (sesame-style call interface) at http://HOST:PORT."""
+    import uvicorn
+
+    from local_tts.config import Config
+    from local_tts.web.server import create_app
+
+    cfg = Config.load(config_path)
+    if model:
+        cfg.ollama.model = model
+
+    app = create_app(cfg)
+    click.echo(f"\n  ▸ open http://{host}:{port} in your browser\n")
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
 if __name__ == "__main__":
     cli()

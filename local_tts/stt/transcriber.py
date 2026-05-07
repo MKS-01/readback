@@ -1,8 +1,19 @@
+import warnings
 from typing import Optional
 
 import numpy as np
 
 from local_tts.config import WhisperConfig
+
+# faster-whisper's mel-spectrogram step (`mel_filters @ magnitudes`) emits
+# RuntimeWarnings when the audio buffer is near-silent: log(0) becomes -inf,
+# tiny floats overflow, etc. Whisper handles the resulting NaN/-inf internally
+# and still produces a correct transcription, so suppress the noise.
+warnings.filterwarnings(
+    "ignore",
+    message=r"(divide by zero|overflow|invalid value) encountered in matmul",
+    category=RuntimeWarning,
+)
 
 
 class Transcriber:
@@ -32,7 +43,22 @@ class Transcriber:
         segments, _info = self._model.transcribe(
             audio,
             language="en",
-            beam_size=1,           # greedy — lower latency
+            # Wider beam + best_of substantially improves accuracy on accented
+            # English at a modest latency cost. With large-v3-turbo on M-series
+            # CPU this still finishes well inside the LLM step.
+            beam_size=10,
+            best_of=10,
+            patience=1.0,
+            # Default fallback temperatures; kept explicit so it's obvious we
+            # rely on the schedule (0.0 → 1.0) for low-confidence retries.
+            temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+            # Reject low-confidence / silent buffers as empty rather than let
+            # Whisper hallucinate ("Yeah.", "Thanks for watching.", etc.) on
+            # the faint speaker-bleed picked up right after AI speech ends.
+            no_speech_threshold=0.6,
+            log_prob_threshold=-1.0,
+            compression_ratio_threshold=2.4,
+            condition_on_previous_text=False,  # avoid prior-segment bias
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300},
         )

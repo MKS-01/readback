@@ -1,4 +1,5 @@
 import os
+import warnings
 from typing import Optional
 
 import numpy as np
@@ -7,6 +8,20 @@ from local_tts.config import KokoroConfig
 
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+# Kokoro's model definitions emit harmless warnings on every load:
+#  - RNN dropout=0.2 with num_layers=1 (dropout is a no-op there)
+#  - torch.nn.utils.weight_norm deprecated in favor of parametrizations
+# Both are internal to Kokoro/PyTorch and don't affect runtime correctness.
+warnings.filterwarnings(
+    "ignore",
+    message=".*dropout option adds dropout after all but last recurrent layer.*",
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*torch\\.nn\\.utils\\.weight_norm.*deprecated.*",
+    category=FutureWarning,
+)
 
 
 def _select_device(pref: str) -> str:
@@ -36,7 +51,12 @@ class Synthesizer:
         from kokoro import KPipeline
 
         self.device = _select_device(self.cfg.torch_device)
-        self._pipeline = KPipeline(lang_code=self.cfg.lang_code, device=self.device)
+        # Pass repo_id explicitly to suppress Kokoro's "Defaulting repo_id..." warning.
+        self._pipeline = KPipeline(
+            lang_code=self.cfg.lang_code,
+            repo_id="hexgrad/Kokoro-82M",
+            device=self.device,
+        )
         # Warm voice pack so first synth doesn't pay the download cost
         self._pipeline.load_voice(self.cfg.voice)
 

@@ -1,0 +1,778 @@
+:root {
+  --bg: #04070b;
+  --bg-elev: #0a1118;
+  --bg-pill: #0c151e;
+  --line: rgba(125, 211, 252, 0.18);
+  --text: #d6f1ff;
+  --text-dim: #6b8aa0;
+  --text-mute: #4a6072;
+  --danger: #ff5d5d;
+  --radius-pill: 999px;
+  --orb-size: 240px;          /* tunable via settings panel */
+
+  --font-display: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ===== themes ============================================================
+   Two HUD-inspired themes:
+     jarvis  — cool electric cyan, the Stark workshop look
+     hacker  — phosphor green, terminal/Matrix vibe
+   Every theme defines:
+     --accent, --accent-dim, --accent-glow, --user, --ai-text
+     --grid-line, --bg-tint
+     --orb-{idle,listen,think,speak}-{1,2,3} (3-stop gradient per phase)
+     --orb-{listen,think,speak}-glow (rgba ring color per phase)
+=========================================================================== */
+
+body.theme-jarvis {
+  --accent: #4dd0ff;
+  --accent-dim: #2d8db0;
+  --accent-glow: rgba(77, 208, 255, 0.55);
+  --user: #ffd089;
+  --ai-text: #c8ecff;
+  --grid-line: rgba(77, 208, 255, 0.07);
+  --bg-tint: rgba(77, 208, 255, 0.06);
+  --line: rgba(77, 208, 255, 0.38);
+
+  --orb-idle-1: #cdeeff; --orb-idle-2: #4dd0ff; --orb-idle-3: #0a3a52;
+  --orb-listen-1: #d4f4ff; --orb-listen-2: #6ddbff; --orb-listen-3: #0e4a66;
+  --orb-listen-glow: rgba(109, 219, 255, 0.6);
+  --orb-think-1: #b6cfff; --orb-think-2: #5878d4; --orb-think-3: #0c1f4a;
+  --orb-think-glow: rgba(88, 120, 212, 0.5);
+  --orb-speak-1: #e1f6ff; --orb-speak-2: #4dd0ff; --orb-speak-3: #1d83ad;
+  --orb-speak-glow: rgba(77, 208, 255, 0.7);
+}
+
+body.theme-hacker {
+  --accent: #39ff14;
+  --accent-dim: #1aa830;
+  --accent-glow: rgba(57, 255, 20, 0.5);
+  --user: #b6f0a0;
+  --ai-text: #c4ffb0;
+  --grid-line: rgba(57, 255, 20, 0.06);
+  --bg-tint: rgba(20, 60, 20, 0.07);
+  --line: rgba(57, 255, 20, 0.38);
+
+  --orb-idle-1: #c8ffb6; --orb-idle-2: #39ff14; --orb-idle-3: #0a4a08;
+  --orb-listen-1: #d4ffc4; --orb-listen-2: #6dff45; --orb-listen-3: #115810;
+  --orb-listen-glow: rgba(109, 255, 69, 0.55);
+  --orb-think-1: #b6e6a0; --orb-think-2: #4abf3c; --orb-think-3: #0a2e10;
+  --orb-think-glow: rgba(74, 191, 60, 0.45);
+  --orb-speak-1: #e0ffd4; --orb-speak-2: #39ff14; --orb-speak-3: #156b1c;
+  --orb-speak-glow: rgba(57, 255, 20, 0.6);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 32%, var(--bg-tint), transparent 75%),
+    radial-gradient(ellipse 90% 80% at 50% 95%, rgba(0, 0, 0, 0.4), transparent 70%),
+    var(--bg);
+  overflow-x: hidden;
+}
+
+/* Faint horizontal scan line that drifts across the viewport. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--accent-glow) 50%,
+    transparent 100%
+  );
+  opacity: 0.04;
+  height: 140px;
+  animation: scanline 9s linear infinite;
+  mix-blend-mode: screen;
+}
+@keyframes scanline {
+  0%   { transform: translateY(-20vh); }
+  100% { transform: translateY(120vh); }
+}
+
+/* ---------- header ---------- */
+
+.hdr {
+  text-align: center;
+  padding: 28px 16px 0;
+  position: relative;
+  z-index: 2;
+}
+
+.hdr-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 14px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  text-transform: uppercase;
+  text-shadow: 0 0 12px var(--accent-glow);
+}
+
+.hdr-title #assistant-name { text-transform: uppercase; }
+
+.timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--accent);
+  opacity: 0.9;
+  letter-spacing: 0.1em;
+}
+
+.hdr-sub {
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--text-mute);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+#model-name { color: var(--accent-dim); }
+
+/* ---------- stage ---------- */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  gap: 28px;
+  position: relative;
+  z-index: 2;
+}
+
+.orb-wrap {
+  position: relative;
+  width: min(60vmin, var(--orb-size));
+  aspect-ratio: 1;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  margin: 36px 0 16px;
+}
+
+/* HUD rings — concentric dashed/solid circles around the orb */
+.hud-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.hud-ring.r1 {
+  inset: -8%;
+  border: 1px dashed var(--accent);
+  opacity: 0.65;
+  animation: spin 24s linear infinite;
+}
+.hud-ring.r2 {
+  inset: -16%;
+  border: 1.5px solid transparent;
+  border-top-color: var(--accent);
+  border-left-color: var(--accent-dim);
+  opacity: 0.85;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+  animation: spin 32s linear infinite reverse;
+}
+.hud-ring.r3 {
+  inset: -24%;
+  border: 1px dotted var(--accent);
+  opacity: 0.45;
+  animation: spin 60s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* HUD corner brackets framing the orb */
+.hud-corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+}
+.hud-corner.tl { top: -32px; left: -32px;  border-right: 0; border-bottom: 0; }
+.hud-corner.tr { top: -32px; right: -32px; border-left:  0; border-bottom: 0; }
+.hud-corner.bl { bottom: -32px; left: -32px;  border-right: 0; border-top: 0; }
+.hud-corner.br { bottom: -32px; right: -32px; border-left:  0; border-top: 0; }
+
+.orb {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%,
+      var(--orb-idle-2) 0%, transparent 65%);
+  box-shadow:
+    0 0 80px 6px var(--accent-glow),
+    inset 0 0 60px rgba(0, 0, 0, 0.6);
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1),
+              filter 200ms ease,
+              box-shadow 300ms ease,
+              background 400ms ease;
+  opacity: 0.85;
+  will-change: transform, filter;
+  --scale: 1;
+  transform: scale(var(--scale));
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+  display: block;
+}
+
+/* Three.js renders the brain into this canvas. The canvas fills the orb;
+   bloom postprocessing produces the holographic glow. Theme colour is
+   pushed to the GPU via JS reading var(--accent). */
+.brain-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  display: block;
+  border-radius: 50%;
+}
+
+/* phase: idle - subtle breathing */
+.orb.idle {
+  animation: breathe 4.5s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { filter: saturate(0.85) brightness(0.9); transform: scale(0.98); }
+  50%      { filter: saturate(1)    brightness(1);    transform: scale(1.02); }
+}
+
+/* phase: listening — brighter brain glow, more spike traffic */
+.orb.listening {
+  animation: none;
+  background:
+    radial-gradient(circle at 50% 50%,
+      var(--orb-listen-2) 0%, transparent 65%);
+  box-shadow:
+    0 0 100px 8px var(--orb-listen-glow),
+    inset 0 0 60px rgba(0, 0, 0, 0.55);
+  opacity: 0.95;
+}
+
+/* phase: thinking — heavier pulse, more saturation */
+.orb.thinking {
+  animation: think 2.4s ease-in-out infinite;
+  background:
+    radial-gradient(circle at 50% 50%,
+      var(--orb-think-2) 0%, transparent 65%);
+  box-shadow:
+    0 0 90px 6px var(--orb-think-glow),
+    inset 0 0 60px rgba(0, 0, 0, 0.55);
+  opacity: 1;
+}
+@keyframes think {
+  0%, 100% { transform: scale(0.97); }
+  50%      { transform: scale(1.02); }
+}
+
+/* phase: speaking - container scales with TTS amplitude via JS (--scale) */
+.orb.speaking {
+  animation: none;
+  background:
+    radial-gradient(circle at 50% 50%,
+      var(--orb-speak-2) 0%, transparent 65%);
+  box-shadow:
+    0 0 130px 10px var(--orb-speak-glow),
+    inset 0 0 60px rgba(0, 0, 0, 0.55);
+  opacity: 1;
+}
+
+/* ---------- mic meter (live input level) ---------- */
+
+.mic-meter {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 4px;
+  height: 22px;
+  opacity: 0.55;
+  transition: opacity 200ms ease;
+}
+.mic-meter.hidden { display: none; }
+.mic-meter .bar {
+  display: block;
+  width: 4px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--accent-dim);
+  transition: height 80ms ease-out, background 200ms ease;
+  will-change: height;
+}
+.mic-meter.active .bar {
+  background: linear-gradient(180deg, var(--accent), var(--accent-dim));
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+.mic-meter.muted { opacity: 0.2; }
+
+/* ---------- captions: terminal-style "data readout" ----------------------
+   Each AI sentence is appended as its own .ai-sentence line, prefixed with
+   a chevron and faded in. Looks like streaming console output rather than
+   a wall of text.
+========================================================================== */
+
+.captions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  width: 100%;
+  max-width: 720px;
+  min-height: 56px;
+  font-family: var(--font-display);
+}
+.captions.hidden { visibility: hidden; }
+
+.caption-frame {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 14px 16px 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
+    rgba(10, 16, 24, 0.32);
+  backdrop-filter: blur(8px) saturate(1.05);
+  -webkit-backdrop-filter: blur(8px) saturate(1.05);
+  box-shadow:
+    inset 0 0 24px rgba(0, 0, 0, 0.35),
+    0 0 18px rgba(0, 0, 0, 0.45);
+}
+.caption-frame.ai-frame { min-height: 64px; padding-bottom: 18px; }
+
+.caption-label {
+  position: absolute;
+  top: -8px;
+  left: 14px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  color: var(--accent);
+  background: var(--bg);
+  text-transform: uppercase;
+  text-shadow: 0 0 6px var(--accent-glow);
+}
+.caption-frame:empty + .caption,
+.caption-frame .caption:empty { min-height: 1.4em; }
+
+.caption {
+  line-height: 1.55;
+  max-width: 100%;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  font-family: var(--font-display);
+}
+.caption.show { opacity: 1; }
+
+.caption.user {
+  color: var(--user);
+  font-weight: 500;
+  font-size: 13.5px;
+}
+.caption.user::before {
+  content: "> ";
+  color: var(--accent-dim);
+}
+
+.caption.ai {
+  color: var(--ai-text, var(--text-dim));
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* Grow with content but never push the dock off-screen. */
+  max-height: min(34vh, 360px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-dim) transparent;
+}
+.caption.ai::-webkit-scrollbar { width: 6px; }
+.caption.ai::-webkit-scrollbar-thumb { background: var(--accent-dim); border-radius: 3px; }
+.caption.ai::-webkit-scrollbar-track { background: transparent; }
+
+/* Each streamed sentence is its own line that fades + slides in. */
+.ai-sentence {
+  opacity: 0;
+  transform: translateY(4px);
+  animation: line-in 280ms ease forwards;
+  position: relative;
+  padding-left: 16px;
+}
+.ai-sentence::before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--accent);
+  opacity: 0.7;
+  text-shadow: 0 0 6px var(--accent-glow);
+}
+@keyframes line-in {
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 640px) {
+  .caption.ai { font-size: 13.5px; max-height: 28vh; }
+}
+
+/* Copy button sits at the bottom-right of the response frame. */
+.copy-btn {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(10, 16, 24, 0.55);
+  color: var(--accent-dim);
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease, transform 100ms ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.copy-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(10, 16, 24, 0.8);
+}
+.copy-btn:active { transform: scale(0.96); }
+.copy-btn[hidden] { display: none; }
+.copy-btn svg { display: block; }
+.copy-btn.copied {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ---------- dock ---------- */
+
+.dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px 28px;
+  position: relative;             /* anchor for the popover */
+  z-index: 2;
+}
+
+.dock-pill {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-pill);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 6px;
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 0 24px var(--accent-glow);
+}
+
+.dock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 9px 18px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, transform 100ms ease;
+}
+.dock-btn:hover { background: rgba(255, 255, 255, 0.04); color: var(--accent); }
+.dock-btn:active { transform: scale(0.97); }
+.dock-btn svg { display: block; }
+
+.dock-btn.muted { color: var(--danger); }
+.dock-btn.muted svg { color: var(--danger); }
+
+.dock-btn.skip { color: var(--accent); }
+.dock-btn.skip svg { color: var(--accent); }
+.dock-btn:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+  cursor: default;
+}
+
+.dock-btn.end { color: var(--danger); }
+.dock-btn.end svg { color: var(--danger); filter: drop-shadow(0 0 6px rgba(255, 93, 93, 0.45)); }
+.dock-btn.end:hover { color: var(--danger); }
+.dock-btn.end.paused { color: var(--accent); }
+.dock-btn.end.paused svg { color: var(--accent); filter: drop-shadow(0 0 6px var(--accent-glow)); }
+
+.dock-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+  margin: 0 4px;
+}
+
+.dock-foot {
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.dock-foot::before { content: "[ "; color: var(--accent-dim); }
+.dock-foot::after  { content: " ]"; color: var(--accent-dim); }
+
+/* ---------- text input popover (slides up from the Type button) ---------- */
+
+.text-input-popover {
+  position: absolute;
+  bottom: calc(100% + 12px);      /* clear gap above the dock pill */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: min(560px, calc(100% - 32px));
+  padding: 6px 6px 6px 16px;
+  background: var(--bg-pill);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.6),
+    0 0 18px var(--accent-glow);
+  opacity: 1;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              opacity 160ms ease,
+              border-color 150ms ease;
+}
+.text-input-popover[hidden] {
+  display: flex !important;       /* keep flex for transition */
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 14px);
+}
+.text-input-popover:focus-within {
+  border-color: var(--accent);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.6),
+    0 0 24px var(--accent-glow);
+}
+
+.text-input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  letter-spacing: 0.02em;
+  padding: 8px 0;
+  min-width: 0;
+}
+.text-input::placeholder { color: var(--text-mute); }
+
+.text-send {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #04070b;
+  border: 0;
+  cursor: pointer;
+  transition: transform 100ms ease, background 150ms ease, opacity 150ms ease;
+  flex-shrink: 0;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.text-send:hover { transform: scale(1.05); }
+.text-send:active { transform: scale(0.95); }
+.text-send:disabled { opacity: 0.4; pointer-events: none; }
+
+/* Type button (in the dock) */
+.dock-btn.type { color: var(--text-dim); }
+.dock-btn.type.active {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ---------- ended state ----------
+   Don't gut the orb-wrap visually — the user needs to see the UI is intact
+   after ending a call. Only the orb itself dims; HUD framing stays. */
+
+body.ended .orb { opacity: 0.5; filter: grayscale(0.3); transition: opacity 600ms ease, filter 600ms ease; }
+body.ended .hud-ring { animation-play-state: paused; opacity: 0.35; }
+body.ended .dock-pill { opacity: 0.5; pointer-events: none; }
+body.ended .dock-btn.end { pointer-events: none; }
+body.ended .text-input-popover { opacity: 0; pointer-events: none; }
+
+/* ---------- settings ---------- */
+
+.settings-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-pill);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 150ms ease, transform 100ms ease, background 150ms ease, box-shadow 200ms ease;
+  z-index: 5;
+}
+.settings-btn:hover {
+  color: var(--accent);
+  background: var(--bg-elev);
+  box-shadow: 0 0 14px var(--accent-glow);
+}
+.settings-btn:active { transform: scale(0.95); }
+
+.settings-panel {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  width: 280px;
+  background: var(--bg-pill);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.6),
+    0 0 22px var(--accent-glow);
+  z-index: 4;
+  font-size: 13px;
+}
+.settings-panel[hidden] { display: none; }
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings-row.inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+.settings-row label {
+  color: var(--accent-dim);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.settings-row.inline label {
+  text-transform: none;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  font-family: var(--font-body);
+}
+.settings-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.settings-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px; height: 16px;
+}
+.settings-row select {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-row select:focus { outline: 1px solid var(--accent); outline-offset: 0; }
+
+.range-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+.settings-val {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mute);
+  font-size: 12px;
+  min-width: 32px;
+  text-align: right;
+  font-family: var(--font-display);
+}
+
+/* theme color swatches in dropdown — purely cosmetic */
+.theme-swatches {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.theme-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+.theme-swatch:hover { transform: scale(1.1); }
+.theme-swatch.active { border-color: var(--text); box-shadow: 0 0 10px var(--accent-glow); }
+.theme-swatch[data-theme="jarvis"] { background: radial-gradient(circle at 35% 30%, #cdeeff, #1a6f8e 70%); }
+.theme-swatch[data-theme="hacker"] { background: radial-gradient(circle at 35% 30%, #c8ffb6, #0d6e22 70%); }
+
+@media (prefers-reduced-motion: reduce) {
+  .orb { animation: none !important; transition: none !important; }
+  .hud-ring { animation: none !important; }
+  body::before { animation: none !important; }
+  .ai-sentence { animation: none !important; opacity: 1; transform: none; }
+}

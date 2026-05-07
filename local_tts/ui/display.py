@@ -8,6 +8,7 @@ from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
+from local_tts.config import InputConfig
 from local_tts.state import AppState, InputMode, Phase
 
 PHASE_LABELS = {
@@ -18,12 +19,25 @@ PHASE_LABELS = {
     Phase.SPEAKING: ("green", "Speaking..."),
 }
 
+_PTT_KEY_LABELS = {
+    "alt_r": "RIGHT OPTION", "alt_l": "LEFT OPTION", "alt": "OPTION",
+    "cmd_r": "RIGHT ⌘", "cmd_l": "LEFT ⌘", "cmd": "⌘",
+    "ctrl_r": "RIGHT CTRL", "ctrl_l": "LEFT CTRL", "ctrl": "CTRL",
+    "shift_r": "RIGHT SHIFT", "shift_l": "LEFT SHIFT", "shift": "SHIFT",
+    "space": "SPACE", "caps_lock": "CAPS LOCK",
+}
+
+
+def _ptt_label(key: str) -> str:
+    return _PTT_KEY_LABELS.get(key.lower(), key.upper())
+
 
 class Display:
     """Rich live display: rolling conversation history + current phase indicator."""
 
-    def __init__(self, state: AppState, max_messages: int = 20):
+    def __init__(self, state: AppState, input_cfg: InputConfig, max_messages: int = 20):
         self.state = state
+        self.input_cfg = input_cfg
         self.console = Console()
         self.messages: deque[tuple[str, str]] = deque(maxlen=max_messages)
         self._current_ai: str = ""
@@ -100,7 +114,10 @@ class Display:
         status_text.append(label, style=f"bold {color}")
         status_text.append("   ")
         status_text.append(f"[{mode_label}]", style=f"bold {mode_color}")
-        status_text.append("   F4: toggle mode  Ctrl+C: quit", style="dim")
+        status_text.append("   ")
+        if mode == InputMode.VOICE and self.input_cfg.mode == "ptt":
+            status_text.append(f"Hold {_ptt_label(self.input_cfg.ptt_key)} to talk  ·  ", style="dim")
+        status_text.append("F4: toggle mode  ·  Ctrl+C: quit", style="dim")
 
         items.append(Panel(status_text, border_style=color, padding=(0, 1)))
         return Group(*items)

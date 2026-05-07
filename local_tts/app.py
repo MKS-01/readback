@@ -29,12 +29,12 @@ class ConversationApp:
         self.playback_queue: queue.Queue = queue.Queue()
 
         # Components
-        self.display = Display(self.state)
+        self.display = Display(self.state, cfg.input)
         self.transcriber = Transcriber(cfg.whisper)
         self.llm = LLMClient(cfg.ollama)
         self.synthesizer = Synthesizer(cfg.kokoro)
         self.recorder = Recorder(
-            cfg.audio, cfg.vad, self.state, self.transcription_queue
+            cfg.audio, cfg.vad, cfg.input, self.state, self.transcription_queue
         )
         self.player = Player(cfg.audio, self.state, self.playback_queue)
 
@@ -55,6 +55,12 @@ class ConversationApp:
             self.display.notify(
                 f"Ready. Device: {self.synthesizer.device}. Ollama model: {self.cfg.ollama.model}"
             )
+            if self.cfg.input.mode == "ptt":
+                self.display.notify(
+                    f"PTT key: {self.cfg.input.ptt_key}. If it doesn't respond, grant "
+                    "Accessibility permission to your terminal app in System Settings → "
+                    "Privacy & Security → Accessibility."
+                )
 
             self.player.start()
             self.recorder.start()
@@ -117,17 +123,40 @@ class ConversationApp:
         except Exception:
             return
 
-        target_key = self.cfg.ui.toggle_key.lower()
+        toggle_key = self.cfg.ui.toggle_key.lower()
+        ptt_key = self.cfg.input.ptt_key.lower()
+        ptt_enabled = self.cfg.input.mode == "ptt"
+
+        def matches(key, name: str) -> bool:
+            k = (getattr(key, "name", None) or getattr(key, "char", None) or "")
+            return k.lower() == name.lower()
 
         def on_press(key):
             try:
-                name = getattr(key, "name", "").lower()
-                if name == target_key:
+                if matches(key, toggle_key):
                     self.toggle_mode()
+                    return
+                if (
+                    ptt_enabled
+                    and self.state.get_mode() == InputMode.VOICE
+                    and matches(key, ptt_key)
+                ):
+                    self.recorder.ptt_press()
             except Exception:
                 pass
 
-        self._key_listener = keyboard.Listener(on_press=on_press)
+        def on_release(key):
+            try:
+                if (
+                    ptt_enabled
+                    and self.state.get_mode() == InputMode.VOICE
+                    and matches(key, ptt_key)
+                ):
+                    self.recorder.ptt_release()
+            except Exception:
+                pass
+
+        self._key_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
         self._key_listener.daemon = True
         self._key_listener.start()
 
