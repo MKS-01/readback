@@ -34,7 +34,11 @@ from fastapi.staticfiles import StaticFiles
 from local_tts.config import Config
 from local_tts.llm.client import LLMClient
 from local_tts.stt.transcriber import SUPPORTED_MODELS, Transcriber
-from local_tts.tts.synthesizer import Synthesizer
+from local_tts.tts.synthesizer import (
+    SUPPORTED_VOICES,
+    SUPPORTED_VOICE_NAMES,
+    Synthesizer,
+)
 
 log = logging.getLogger("local_tts.web")
 
@@ -99,7 +103,10 @@ class Session:
     async def run(self):
         await self.send_json({
             "type": "config",
-            "voice": self.cfg.kokoro.voice,
+            "voice": self.models.synth.current_voice,
+            "voices_available": [
+                {"id": v, "label": label} for v, label in SUPPORTED_VOICES
+            ],
             "model": self.cfg.ollama.model,
             "stt_model": self.models.transcriber.current_model,
             "stt_models_available": list(SUPPORTED_MODELS),
@@ -145,6 +152,8 @@ class Session:
             self.pipeline_task = asyncio.create_task(self._run_pipeline(text=user_text))
         elif kind == "set_stt_model":
             await self._handle_stt_swap(payload.get("model"))
+        elif kind == "set_voice":
+            await self._handle_voice_swap(payload.get("voice"))
 
     async def _handle_stt_swap(self, name: Optional[str]):
         """Hot-swap the Whisper model. Refuses to swap mid-pipeline so an
@@ -188,6 +197,51 @@ class Session:
                 "type": "stt_model",
                 "state": "error",
                 "model": name,
+                "message": str(e),
+            })
+
+    async def _handle_voice_swap(self, name: Optional[str]):
+        """Switch the Kokoro voice. Refuses mid-pipeline so an in-flight
+        synth can't have its pipeline rebuilt under it."""
+        if not name:
+            return
+        if name not in SUPPORTED_VOICE_NAMES:
+            await self.send_json({
+                "type": "voice",
+                "state": "error",
+                "voice": name,
+                "message": f"Unsupported voice {name!r}",
+            })
+            return
+        if self.pipeline_task and not self.pipeline_task.done():
+            await self.send_json({
+                "type": "voice",
+                "state": "error",
+                "voice": name,
+                "message": "Wait for the current response to finish, then try again.",
+            })
+            return
+        if self.models.synth.current_voice == name:
+            await self.send_json({
+                "type": "voice", "state": "ready", "voice": name,
+            })
+            return
+        await self.send_json({
+            "type": "voice", "state": "loading", "voice": name,
+        })
+        try:
+            loaded = await asyncio.to_thread(
+                self.models.synth.swap_voice, name,
+            )
+            await self.send_json({
+                "type": "voice", "state": "ready", "voice": loaded,
+            })
+        except Exception as e:
+            log.exception("voice swap failed")
+            await self.send_json({
+                "type": "voice",
+                "state": "error",
+                "voice": name,
                 "message": str(e),
             })
 

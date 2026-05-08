@@ -34,6 +34,8 @@ const els = {
   micSelect: document.getElementById("mic-select"),
   sttSelect: document.getElementById("stt-select"),
   sttStatus: document.getElementById("stt-status"),
+  voiceSelect: document.getElementById("voice-select"),
+  voiceStatus: document.getElementById("voice-status"),
   themeSwatches: document.getElementById("theme-swatches"),
 };
 
@@ -78,6 +80,10 @@ const state = {
   sttModel: null,
   sttModelsAvailable: [],
   sttSwapping: false,
+  // Kokoro voice picker state
+  voice: null,
+  voicesAvailable: [],   // [{id, label}]
+  voiceSwapping: false,
   // three.js brain controller (set after async init)
   brain: null,
 };
@@ -471,14 +477,20 @@ function send(obj) {
 function handleControl(msg) {
   switch (msg.type) {
     case "config":
-      if (msg.voice) {
-        const pretty = msg.voice.replace(/^[abefhijpz][fm]_/, "");
-        const voiceLabel = pretty.charAt(0).toUpperCase() + pretty.slice(1);
-        if (els.voiceName) els.voiceName.textContent = voiceLabel;
-        document.title = `Second Brain · ${voiceLabel}`;
-      }
+      if (msg.voice) updateVoiceLabel(msg.voice);
       if (msg.model) els.model.textContent = msg.model;
       if (msg.output_sample_rate) state.outSampleRate = msg.output_sample_rate;
+      if (msg.voices_available) {
+        state.voicesAvailable = msg.voices_available;
+        populateVoiceSelect(msg.voice);
+        const validIds = state.voicesAvailable.map((v) => v.id);
+        if (prefs.voice && prefs.voice !== msg.voice
+            && validIds.includes(prefs.voice)) {
+          requestVoiceSwap(prefs.voice);
+        } else {
+          state.voice = msg.voice;
+        }
+      }
       if (msg.stt_models_available) {
         state.sttModelsAvailable = msg.stt_models_available;
         populateSttSelect(msg.stt_model);
@@ -494,6 +506,9 @@ function handleControl(msg) {
       break;
     case "stt_model":
       handleSttModelEvent(msg);
+      break;
+    case "voice":
+      handleVoiceEvent(msg);
       break;
     case "phase":
       setPhase(msg.value);
@@ -799,8 +814,8 @@ els.orb.addEventListener("click", () => {
 
 // ---------- Settings ----------
 
-const PREFS_KEY = "local-tts.prefs.v3";
-const THEMES = ["jarvis", "hacker"];
+const PREFS_KEY = "local-tts.prefs.v4";
+const THEMES = ["jarvis", "hacker", "amber"];
 const defaultPrefs = {
   orbSize: 240,
   showMeter: true,
@@ -808,6 +823,7 @@ const defaultPrefs = {
   theme: "jarvis",
   micId: null,            // null = browser default
   sttModel: null,         // null = use whatever the server has loaded
+  voice: null,            // null = use whatever the server has loaded
 };
 
 function loadPrefs() {
@@ -828,8 +844,10 @@ function applyTheme(name) {
   if (!THEMES.includes(name)) name = "jarvis";
   for (const t of THEMES) document.body.classList.remove("theme-" + t);
   document.body.classList.add("theme-" + name);
-  for (const sw of els.themeSwatches.querySelectorAll(".theme-swatch")) {
-    sw.classList.toggle("active", sw.dataset.theme === name);
+  for (const card of els.themeSwatches.querySelectorAll(".theme-card")) {
+    const active = card.dataset.theme === name;
+    card.classList.toggle("active", active);
+    card.setAttribute("aria-checked", active ? "true" : "false");
   }
   prefs.theme = name;
 }
@@ -874,9 +892,9 @@ els.showCaptions.addEventListener("change", () => {
 });
 
 els.themeSwatches.addEventListener("click", (e) => {
-  const sw = e.target.closest(".theme-swatch");
-  if (!sw) return;
-  applyTheme(sw.dataset.theme);
+  const card = e.target.closest(".theme-card");
+  if (!card) return;
+  applyTheme(card.dataset.theme);
   savePrefs(prefs);
 });
 
@@ -943,6 +961,80 @@ function handleSttModelEvent(msg) {
 if (els.sttSelect) {
   els.sttSelect.addEventListener("change", () => {
     requestSttSwap(els.sttSelect.value);
+  });
+}
+
+// ---------- Voice (Kokoro TTS) picker ----------
+
+function updateVoiceLabel(voice) {
+  if (!voice) return;
+  // Strip the lang/gender prefix (af_, am_, bf_, bm_, ...) for the header.
+  const pretty = voice.replace(/^[abefhijpz][fm]_/, "");
+  const display = pretty.charAt(0).toUpperCase() + pretty.slice(1);
+  if (els.voiceName) els.voiceName.textContent = display;
+  document.title = `Second Brain · ${display}`;
+}
+
+function populateVoiceSelect(activeVoice) {
+  if (!els.voiceSelect) return;
+  els.voiceSelect.innerHTML = "";
+  for (const { id, label } of state.voicesAvailable) {
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = label;
+    els.voiceSelect.appendChild(opt);
+  }
+  const ids = state.voicesAvailable.map((v) => v.id);
+  if (activeVoice && ids.includes(activeVoice)) {
+    els.voiceSelect.value = activeVoice;
+  }
+}
+
+function setVoiceStatus(text, kind) {
+  if (!els.voiceStatus) return;
+  els.voiceStatus.textContent = text || "";
+  els.voiceStatus.classList.remove("loading", "error");
+  if (kind) els.voiceStatus.classList.add(kind);
+}
+
+function requestVoiceSwap(name) {
+  if (!name || name === state.voice) return;
+  state.voiceSwapping = true;
+  els.voiceSelect.disabled = true;
+  setVoiceStatus("loading…", "loading");
+  send({ type: "set_voice", voice: name });
+}
+
+function handleVoiceEvent(msg) {
+  switch (msg.state) {
+    case "loading":
+      state.voiceSwapping = true;
+      els.voiceSelect.disabled = true;
+      setVoiceStatus("loading…", "loading");
+      break;
+    case "ready":
+      state.voiceSwapping = false;
+      state.voice = msg.voice;
+      els.voiceSelect.disabled = false;
+      els.voiceSelect.value = msg.voice;
+      updateVoiceLabel(msg.voice);
+      setVoiceStatus("ready", "");
+      prefs.voice = msg.voice;
+      savePrefs(prefs);
+      setTimeout(() => setVoiceStatus("", ""), 1400);
+      break;
+    case "error":
+      state.voiceSwapping = false;
+      els.voiceSelect.disabled = false;
+      if (state.voice) els.voiceSelect.value = state.voice;
+      setVoiceStatus(msg.message || "swap failed", "error");
+      break;
+  }
+}
+
+if (els.voiceSelect) {
+  els.voiceSelect.addEventListener("change", () => {
+    requestVoiceSwap(els.voiceSelect.value);
   });
 }
 

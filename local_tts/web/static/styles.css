@@ -63,6 +63,25 @@ body.theme-hacker {
   --orb-speak-glow: rgba(57, 255, 20, 0.6);
 }
 
+body.theme-amber {
+  --accent: #ffb02e;
+  --accent-dim: #b87900;
+  --accent-glow: rgba(255, 176, 46, 0.55);
+  --user: #ffe4a3;
+  --ai-text: #ffe1b8;
+  --grid-line: rgba(255, 176, 46, 0.06);
+  --bg-tint: rgba(255, 140, 0, 0.06);
+  --line: rgba(255, 176, 46, 0.38);
+
+  --orb-idle-1: #ffe4a3; --orb-idle-2: #ffb02e; --orb-idle-3: #4a2a00;
+  --orb-listen-1: #fff0c4; --orb-listen-2: #ffc658; --orb-listen-3: #5a3500;
+  --orb-listen-glow: rgba(255, 198, 88, 0.6);
+  --orb-think-1: #f5d49a; --orb-think-2: #d18a2a; --orb-think-3: #3a1d00;
+  --orb-think-glow: rgba(209, 138, 42, 0.5);
+  --orb-speak-1: #fff1cc; --orb-speak-2: #ffb02e; --orb-speak-3: #6e3d00;
+  --orb-speak-glow: rgba(255, 176, 46, 0.7);
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -675,7 +694,9 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
   position: fixed;
   top: 64px;
   right: 16px;
-  width: 280px;
+  width: 300px;
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
   background: var(--bg-pill);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -688,7 +709,12 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
     0 0 22px var(--accent-glow);
   z-index: 4;
   font-size: 13px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-dim) transparent;
 }
+.settings-panel::-webkit-scrollbar { width: 6px; }
+.settings-panel::-webkit-scrollbar-thumb { background: var(--accent-dim); border-radius: 3px; }
+.settings-panel::-webkit-scrollbar-track { background: transparent; }
 .settings-panel[hidden] { display: none; }
 .settings-row {
   display: flex;
@@ -763,24 +789,95 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
   font-family: var(--font-display);
 }
 
-/* theme color swatches in dropdown — purely cosmetic */
-.theme-swatches {
-  display: flex;
+/* Theme picker — labeled cards. Each card shows a color disk preview of the
+   theme's accent gradient with the theme's name underneath; the active card
+   gets an accent border + glow. Each card's preview swatch is rendered with
+   its own colors (independent of the currently-applied theme) so the user
+   can see what they're selecting. */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-top: 4px;
 }
-.theme-swatch {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 2px solid transparent;
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: transform 120ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  transition: transform 120ms ease, border-color 150ms ease,
+              background 150ms ease, color 150ms ease, box-shadow 200ms ease;
 }
-.theme-swatch:hover { transform: scale(1.1); }
-.theme-swatch.active { border-color: var(--text); box-shadow: 0 0 10px var(--accent-glow); }
-.theme-swatch[data-theme="jarvis"] { background: radial-gradient(circle at 35% 30%, #cdeeff, #1a6f8e 70%); }
-.theme-swatch[data-theme="hacker"] { background: radial-gradient(circle at 35% 30%, #c8ffb6, #0d6e22 70%); }
+.theme-card:hover {
+  transform: translateY(-1px);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+.theme-card.active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 1px currentColor inset, 0 0 14px rgba(0, 0, 0, 0.5);
+}
+.theme-card .theme-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+  transition: box-shadow 200ms ease, transform 120ms ease;
+}
+.theme-card:hover .theme-dot { transform: scale(1.06); }
+.theme-card .theme-name { line-height: 1; }
+
+/* Per-theme card chrome: dot gradient + the active border/glow pulled from
+   each theme's own accent. This way each option shows its own colors and the
+   active state visually matches the actual UI accent. */
+.theme-card[data-theme="jarvis"] .theme-dot {
+  background: radial-gradient(circle at 35% 30%, #cdeeff, #1a6f8e 70%);
+}
+.theme-card[data-theme="jarvis"].active {
+  border-color: #4dd0ff;
+  box-shadow: 0 0 0 1px #4dd0ff inset, 0 0 14px rgba(77, 208, 255, 0.45);
+}
+.theme-card[data-theme="jarvis"].active .theme-dot {
+  box-shadow: 0 0 12px rgba(77, 208, 255, 0.7);
+}
+
+.theme-card[data-theme="hacker"] .theme-dot {
+  background: radial-gradient(circle at 35% 30%, #c8ffb6, #0d6e22 70%);
+}
+.theme-card[data-theme="hacker"].active {
+  border-color: #39ff14;
+  box-shadow: 0 0 0 1px #39ff14 inset, 0 0 14px rgba(57, 255, 20, 0.45);
+}
+.theme-card[data-theme="hacker"].active .theme-dot {
+  box-shadow: 0 0 12px rgba(57, 255, 20, 0.7);
+}
+
+.theme-card[data-theme="amber"] .theme-dot {
+  background: radial-gradient(circle at 35% 30%, #ffe4a3, #8c5a00 70%);
+}
+.theme-card[data-theme="amber"].active {
+  border-color: #ffb02e;
+  box-shadow: 0 0 0 1px #ffb02e inset, 0 0 14px rgba(255, 176, 46, 0.45);
+}
+.theme-card[data-theme="amber"].active .theme-dot {
+  box-shadow: 0 0 12px rgba(255, 176, 46, 0.7);
+}
+
+@media (max-width: 360px) {
+  .theme-grid { grid-template-columns: repeat(2, 1fr); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .orb { animation: none !important; transition: none !important; }

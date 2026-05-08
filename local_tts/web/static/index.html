@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>local-tts</title>
-  <link rel="stylesheet" href="/static/styles.css?v=11" />
+  <link rel="stylesheet" href="/static/styles.css?v=12" />
 </head>
 <body>
   <header class="hdr">
@@ -61,8 +61,16 @@
     </div>
 
     <div class="settings-row">
+      <label for="voice-select">
+        Voice
+        <span id="voice-status" class="settings-hint" aria-live="polite"></span>
+      </label>
+      <select id="voice-select"></select>
+    </div>
+
+    <div class="settings-row">
       <label for="stt-select">
-        Voice model
+        Speech recognition
         <span id="stt-status" class="settings-hint" aria-live="polite"></span>
       </label>
       <select id="stt-select"></select>
@@ -70,9 +78,19 @@
 
     <div class="settings-row">
       <label>Theme</label>
-      <div class="theme-swatches" id="theme-swatches">
-        <span class="theme-swatch" data-theme="jarvis" title="Jarvis (cyan)"></span>
-        <span class="theme-swatch" data-theme="hacker" title="Hacker (green)"></span>
+      <div class="theme-grid" id="theme-swatches" role="radiogroup" aria-label="Theme">
+        <button type="button" class="theme-card" data-theme="jarvis" aria-label="Jarvis theme">
+          <span class="theme-dot"></span>
+          <span class="theme-name">Jarvis</span>
+        </button>
+        <button type="button" class="theme-card" data-theme="hacker" aria-label="Hacker theme">
+          <span class="theme-dot"></span>
+          <span class="theme-name">Hacker</span>
+        </button>
+        <button type="button" class="theme-card" data-theme="amber" aria-label="Amber theme">
+          <span class="theme-dot"></span>
+          <span class="theme-name">Amber</span>
+        </button>
       </div>
     </div>
 
@@ -150,6 +168,6 @@
     }
   }
   </script>
-  <script type="module" src="/static/app.js?v=11"></script>
+  <script type="module" src="/static/app.js?v=12"></script>
 </body>
 </html>
