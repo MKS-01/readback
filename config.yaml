@@ -28,7 +28,7 @@ whisper:
   #   large-v3-turbo — ~700-1100ms, slightly more accurate than medium
   #   large-v3      — ~1500-2500ms, max accuracy
   # The web UI exposes a runtime picker that overrides this on a per-call basis.
-  model: "large-v3-turbo"
+  model: "medium"
   compute_type: "int8"               # int8 recommended for Apple Silicon CPU
   beam_size: 5                       # 5 = balanced, 10 = max accuracy +200-400ms
 

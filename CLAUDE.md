@@ -13,7 +13,7 @@ Also supports text-in with voice-out mode.
 ## Stack
 - **LLM**: Ollama (already running locally, default model: `qwen3:8b`)
 - **TTS**: Kokoro-82M (`hexgrad/Kokoro-82M`) — fast, near-human, runs on CPU
-- **STT**: faster-whisper (`large-v3-turbo`, CPU int8 mode, CTranslate2 ARM NEON — no MPS backend exists)
+- **STT**: faster-whisper (`medium` default, CPU int8 mode, CTranslate2 ARM NEON — no MPS backend exists. Web UI hot-swaps to any of tiny/base/small/medium/large-v3-turbo/large-v3.)
 - **Audio I/O**: sounddevice + webrtcvad-wheels
 - **CLI/UI**: click + rich
 
@@ -123,14 +123,17 @@ local-tts/
   streamed output into `"Iamsorry"`. Keep the `\s` out of the character class.
 
 ### STT (stt/transcriber.py)
-- `WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")` —
+- `WhisperModel("medium", device="cpu", compute_type="int8")` —
   default checkpoint. **faster-whisper / CTranslate2 has no MPS backend,
   so Whisper is CPU-only on Mac regardless of Apple GPU availability.**
   Sizes: tiny ~75MB, base ~150MB, small ~480MB, medium ~1.5GB,
   large-v3-turbo ~1.6GB, large-v3 ~3GB. On CPU the encoder dominates and
   `large-v3-turbo` (full large encoder, 4 decoder layers) is often only
   marginally faster than `medium` — the "6× faster than large-v3" claim
-  is GPU-bound. Pick `medium` if `large-v3-turbo` feels sluggish.
+  is GPU-bound. `medium` is the default because it lands consistently in
+  the 500-800ms window for chat-length utterances; bump up to
+  `large-v3-turbo` from the web UI if accuracy on accented speech matters
+  more than latency.
 - Runtime model picker: `Transcriber.swap_model(name)` hot-swaps
   checkpoints under a `threading.Lock`. `transcribe()` reads the model
   reference under a single atomic load so an in-flight call finishes
