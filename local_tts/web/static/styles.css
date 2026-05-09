@@ -980,6 +980,81 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
   .theme-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ── Mobile layout (≤ 600px) ──────────────────────────────────────────────
+   Key changes:
+   1. body min-height uses dvh (dynamic viewport — shrinks with browser chrome)
+   2. .dock is fixed to the bottom of the visible viewport — no dead-zone gap
+   3. .stage aligns from the top with bottom padding to clear the fixed dock
+   4. Dock buttons are icon-only — eliminates the need to zoom to fit
+   5. Dock pill stretches full width so buttons are evenly spaced
+=========================================================================== */
+@media (max-width: 600px) {
+  /* dvh accounts for the browser address bar; svh is the safe fallback */
+  body {
+    min-height: 100svh;
+    min-height: 100dvh;
+    /* dock is fixed, so the 3rd grid row collapses — stage takes all space */
+    grid-template-rows: auto 1fr;
+  }
+
+  .hdr { padding: 14px 16px 0; }
+  .hdr-title { font-size: 18px; gap: 10px; }
+  .hdr-sub { font-size: 10px; margin-top: 3px; }
+
+  /* Align from top; bottom padding clears the fixed dock (~110px) */
+  .stage {
+    justify-content: flex-start;
+    gap: 14px;
+    padding: 0 14px 120px;
+  }
+
+  .orb-wrap { margin: 16px 0 4px; }
+
+  /* Limit AI caption height so it doesn't crowd the orb */
+  .caption.ai { max-height: 22vh; font-size: 13px; }
+  .caption.user { font-size: 12.5px; }
+
+  /* ── Fixed dock — always at the bottom of the visible viewport ────────── */
+  .dock {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    gap: 6px;
+    padding: 0 10px max(14px, env(safe-area-inset-bottom));
+    /* Gradient fade so the dock doesn't hard-cut the content behind it */
+    background: linear-gradient(to top, var(--bg) 68%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    z-index: 5;
+  }
+
+  /* Pill stretches full width — buttons share space evenly */
+  .dock-pill {
+    width: 100%;
+    justify-content: space-around;
+    padding: 4px 2px;
+  }
+
+  /* Icon-only buttons — text labels are redundant on mobile and cause overflow */
+  .dock-btn span { display: none; }
+  .dock-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 11px 0;
+    gap: 0;
+  }
+
+  .dock-sep { height: 18px; }
+  .dock-foot { font-size: 10px; letter-spacing: 0.18em; }
+
+  /* Text popover: full-width, clears the keyboard on Android */
+  .text-input-popover {
+    width: calc(100% - 20px);
+    bottom: calc(100% + 6px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .orb { animation: none !important; transition: none !important; }
   .hud-ring { animation: none !important; }
