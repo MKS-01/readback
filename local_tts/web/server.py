@@ -101,6 +101,7 @@ class Session:
         self.send_lock = asyncio.Lock()         # serialize ws sends
 
     async def run(self):
+        models_available = await asyncio.to_thread(self.models.llm.list_models)
         await self.send_json({
             "type": "config",
             "voice": self.models.synth.current_voice,
@@ -108,8 +109,10 @@ class Session:
                 {"id": v, "label": label} for v, label in SUPPORTED_VOICES
             ],
             "model": self.cfg.ollama.model,
+            "models_available": models_available,
             "stt_model": self.models.transcriber.current_model,
             "stt_models_available": list(SUPPORTED_MODELS),
+            "speed": self.cfg.kokoro.speed,
         })
         await self.send_phase("idle")
 
@@ -154,6 +157,18 @@ class Session:
             await self._handle_stt_swap(payload.get("model"))
         elif kind == "set_voice":
             await self._handle_voice_swap(payload.get("voice"))
+        elif kind == "set_speed":
+            speed = payload.get("speed")
+            if isinstance(speed, (int, float)) and 0.5 <= float(speed) <= 2.0:
+                self.cfg.kokoro.speed = float(speed)
+        elif kind == "set_model":
+            model = (payload.get("model") or "").strip()
+            if model and model != self.cfg.ollama.model:
+                old_model = self.cfg.ollama.model
+                await self.send_json({"type": "model", "state": "unloading", "model": old_model})
+                await asyncio.to_thread(self.models.llm.unload_model, old_model)
+                self.cfg.ollama.model = model
+                await self.send_json({"type": "model", "state": "ready", "model": model})
 
     async def _handle_stt_swap(self, name: Optional[str]):
         """Hot-swap the Whisper model. Refuses to swap mid-pipeline so an
@@ -439,7 +454,7 @@ class Session:
         await self.send_json({"type": "phase", "value": phase})
 
 
-def create_app(cfg: Optional[Config] = None) -> FastAPI:
+def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -> FastAPI:
     cfg = cfg or Config.load()
     models = PipelineModels(cfg)
 
@@ -467,6 +482,15 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
     @app.get("/")
     async def index():
         return FileResponse(str(STATIC_DIR / "index.html"))
+
+    if cert_path is not None:
+        @app.get("/cert.pem")
+        async def download_cert():
+            return FileResponse(
+                str(cert_path),
+                media_type="application/x-pem-file",
+                headers={"Content-Disposition": "attachment; filename=local-tts.pem"},
+            )
 
     @app.get("/api/config")
     async def get_config():

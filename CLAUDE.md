@@ -238,22 +238,28 @@ Frontend (`web/static/`):
 - Themed colors: every theme defines `--accent`, `--accent-dim`,
   `--accent-glow`, `--user`, `--ai-text`, plus 3-stop gradient + glow vars
   for each orb phase (idle / listen / think / speak). Body class
-  `.theme-<name>` swaps everything. Current themes: **jarvis** (cyan) and
-  **hacker** (green). The orb is a three.js point cloud rendered into
-  `#brain-canvas` with a bloom postprocess pass — colors are pulled at
-  runtime from `getComputedStyle(body).getPropertyValue("--accent")`.
+  `.theme-<name>` swaps everything. Current themes: **jarvis** (cyan),
+  **hacker** (green), **amber** (warm orange). The orb is a three.js point
+  cloud rendered into `#brain-canvas` with a bloom postprocess pass — colors
+  are pulled at runtime from `getComputedStyle(body).getPropertyValue("--accent")`.
 
 UI controls:
-- **Settings (gear icon, top-right)**: Microphone picker (lists all
-  audioinputs via `enumerateDevices`, restarts capture with `{deviceId:
-  {exact: id}}` on change, persists in `localStorage`); STT/Voice model
-  picker (`tiny`/`base`/`small`/`medium`/`large-v3-turbo`/`large-v3`,
-  fires `set_stt_model` over WS, server replies with
-  `{type: "stt_model", state: "loading|ready|error"}`, dropdown
-  disables while loading, persists to `prefs.sttModel` only after
-  server confirms `ready`); Theme swatches
-  (jarvis cyan / hacker green); Orb size slider (120–380 px);
-  Mic-meter and Captions toggles.
+- **Settings (gear icon, in dock pill)**: Opens as a **centered floating
+  modal** (not a bottom sheet) — `position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%)`, max-width 660 px, 18 px radius on all
+  sides, fades/scales in. Contains: Microphone picker (lists all audioinputs
+  via `enumerateDevices`, restarts capture with `{deviceId: {exact: id}}` on
+  change, persists in `localStorage`); STT/Voice model picker
+  (`tiny`/`base`/`small`/`medium`/`large-v3-turbo`/`large-v3`, fires
+  `set_stt_model` over WS, server replies with
+  `{type: "stt_model", state: "loading|ready|error"}`, dropdown disables
+  while loading, persists to `prefs.sttModel` only after server confirms
+  `ready`); Theme picker — three cards each showing a **theme-specific SVG
+  icon** (Jarvis: scanning eye, Hacker: terminal `>_`, Amber: sun) instead
+  of a colored dot; each icon is always its theme's hardcoded color so you
+  can distinguish them regardless of the active theme; active card gets a
+  matching glow border + `drop-shadow` on the icon; Orb size slider (120–380
+  px); Mic-meter and Captions toggles.
 - **Dock pill (bottom)**: `[Mute · Skip · Type · Pause]`. Skip is enabled
   only while phase is `thinking` or `speaking`. **Pause** is a true
   pause/resume toggle (not "End call"): on click it stops the mic, drains
@@ -273,8 +279,8 @@ UI controls:
   events; live evidence the mic is picking you up.
 
 Preferences (`localStorage` key `local-tts.prefs.v3`): `orbSize`,
-`showMeter`, `showCaptions`, `theme` (`jarvis` | `hacker`), `micId`. Loaded
-before connect; any saved `micId` that no longer exists falls back to
+`showMeter`, `showCaptions`, `theme` (`jarvis` | `hacker` | `amber`), `micId`.
+Loaded before connect; any saved `micId` that no longer exists falls back to
 system default. Bump the version key when the prefs schema changes.
 
 ## Voice options (Kokoro)

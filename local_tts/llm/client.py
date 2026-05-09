@@ -68,7 +68,7 @@ class LLMClient:
             for chunk in response:
                 if stop_event is not None and stop_event.is_set():
                     break
-                content = chunk.get("message", {}).get("content", "")
+                content = chunk.message.content or ""
                 if content:
                     yield _strip_markdown(content)
         except Exception as e:
@@ -82,9 +82,16 @@ class LLMClient:
         """Yield complete sentences as they're produced."""
         yield from stream_sentences(self.stream_tokens(history, stop_event))
 
+    def unload_model(self, name: str) -> None:
+        """Evict a model from Ollama's unified memory (keep_alive=0)."""
+        try:
+            self._client.generate(model=name, prompt="", keep_alive=0)
+        except Exception:
+            pass
+
     def list_models(self) -> list[str]:
         try:
             resp = self._client.list()
-            return [m.get("model", m.get("name", "")) for m in resp.get("models", [])]
+            return [m.model for m in resp.models if m.model]
         except Exception:
             return []
