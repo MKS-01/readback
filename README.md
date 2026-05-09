@@ -1,18 +1,30 @@
 # local-tts
 
-A local, on-device voice assistant — speak (or type) to your local LLM and hear it talk back. Everything runs on your machine: no cloud calls, no API keys.
+> 100% local voice assistant — speak (or type) to your LLM, hear it talk back. No cloud, no API keys.
 
-Sesame-style browser call interface with a 3D neural orb, hot-swappable voice and STT models, themes, captions, and a Pause control. The browser handles echo cancellation natively, so no PTT key or headphones are needed.
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Apple_Silicon-black?style=flat-square&logo=apple&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)
+![Local](https://img.shields.io/badge/Runs-100%25_Local-6366f1?style=flat-square)
 
-Built for Apple Silicon (M-series). Python 3.10+.
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| **LLM** | [Ollama](https://ollama.ai/) — any local chat model (`qwen3`, `llama3.2`, `gemma3`, …) |
+| **TTS** | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) — 20 voices, ~300 ms synthesis on CPU |
+| **STT** | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 6 sizes (`tiny` → `large-v3`), hot-swappable |
+| **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams audio sentence-by-sentence |
+| **Frontend** | Vanilla JS + AudioWorklet — 3D neural orb via three.js, no framework |
+| **Audio I/O** | sounddevice + WebRTC VAD |
 
 ## Features
 
-- 100% local pipeline — Ollama for the LLM, Kokoro-82M for TTS, faster-whisper for STT.
-- Real-time conversation: streaming sentence-by-sentence playback so the assistant starts speaking before the full reply is generated.
+- Real-time streaming — the assistant starts speaking before the full reply is generated.
 - 20 Kokoro voices (American + British), hot-swappable from the UI.
 - Six Whisper sizes from `tiny` to `large-v3`, hot-swappable from the UI.
-- Three themes (Jarvis cyan / Hacker green / Amber).
+- Three themes: Jarvis (cyan), Hacker (green), Amber.
+- Browser echo cancellation — no PTT key or headphones required.
 
 ## Quick start
 
@@ -21,7 +33,7 @@ Requires macOS on Apple Silicon, Python 3.10+, and [Ollama](https://ollama.ai/).
 ```bash
 # 1. Start Ollama and pull a chat model
 ollama serve &                          # or launch the Ollama desktop app
-ollama pull qwen3:4b                  # default; any chat model works
+ollama pull qwen3:4b                    # default; any chat model works
 
 # 2. Clone & install
 git clone git@github.com:MKS-01/local-tts.git
@@ -34,7 +46,7 @@ pip install -e .
 local-tts                               # http://127.0.0.1:8000
 ```
 
-No HuggingFace login needed — speech models download automatically on first run (~1.8 GB: Whisper medium + Kokoro-82M).
+Speech models download automatically on first run (~1.8 GB: Whisper medium + Kokoro-82M). No HuggingFace login needed.
 
 ## Usage
 
@@ -48,17 +60,17 @@ Open the URL, click anywhere to unlock audio, then speak.
 
 **Dock controls (bottom):**
 
-- **Mute** — toggle the mic. The server stops processing your audio.
+- **Mute** — toggle the mic.
 - **Skip** — interrupt the current AI response.
-- **Type** — open a text input that bypasses STT but still streams a voice reply. If used mid-response, it interrupts the AI first.
-- **Pause / Resume** — true pause: stops the mic, drains playback, freezes the call timer; click again to pick up where you left off.
+- **Type** — text input that bypasses STT but still streams a voice reply. Interrupts the AI if mid-response.
+- **Pause / Resume** — stops the mic, drains playback, and freezes the call timer. Click again to resume.
 
-**Settings (gear icon, in dock):** opens a centered floating panel.
+**Settings (gear icon, in dock):** opens a floating panel.
 
 - **Microphone** — every input device the browser exposes.
 - **Voice** — Kokoro TTS voice (`af_heart`, `af_bella`, `bf_emma`, `am_michael`, …). Hot-swappable while idle.
 - **Speech recognition** — Whisper STT model. Hot-swappable while idle.
-- **Theme** — Jarvis (cyan / scanning-eye icon), Hacker (green / terminal icon), or Amber (sun icon).
+- **Theme** — Jarvis (cyan / eye icon), Hacker (green / terminal icon), or Amber (sun icon).
 - **Orb size**, **Mic meter**, **Captions** toggles.
 
 All preferences persist in `localStorage`.
@@ -75,7 +87,7 @@ Edit `config.yaml` for non-UI knobs:
 | `whisper.beam_size` | 5 = balanced, 10 = max accuracy (+200–400 ms) | `5` |
 | `vad.aggressiveness` | WebRTC VAD aggressiveness 0–3 | `2` |
 
-> **Picking a Whisper model.** On Apple Silicon CPU (faster-whisper has no MPS backend), the encoder dominates and "distilled" models aren't always faster than `medium`. Rough latency on a 5-second utterance: `medium` ≈ 500–800 ms, `large-v3-turbo` ≈ 700–1100 ms, `large-v3` ≈ 1500–2500 ms. Drop to `small` or `base` for sub-300 ms STT.
+> **Picking a Whisper model.** On Apple Silicon CPU (faster-whisper has no MPS backend), the encoder dominates. Rough latency on a 5-second utterance: `medium` ≈ 500–800 ms, `large-v3-turbo` ≈ 700–1100 ms. Drop to `small` or `base` for sub-300 ms STT.
 
 ## How it works
 
@@ -87,17 +99,6 @@ browser mic → WebSocket (Int16 PCM) → VAD → Whisper → Ollama (stream)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for deeper architectural notes (interrupt handling, hot-swap locking, VAD tuning).
-
-## Latency on M5 Pro CPU
-
-Indicative — varies with the LLM and utterance length.
-
-| Stage | Estimate |
-|---|---|
-| Whisper `medium` (5 s audio, beam_size 5) | ~500–800 ms |
-| First LLM sentence (`qwen3:4b`) | ~300 ms |
-| Kokoro synthesis of first sentence | ~300–500 ms |
-| **Total to first spoken word** | **~1.5–2.5 s** |
 
 ## Changelog
 
