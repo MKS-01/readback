@@ -36,7 +36,12 @@ const els = {
   sttStatus: document.getElementById("stt-status"),
   voiceSelect: document.getElementById("voice-select"),
   voiceStatus: document.getElementById("voice-status"),
+  modelSelect: document.getElementById("model-select"),
+  modelStatus: document.getElementById("model-status"),
   themeSwatches: document.getElementById("theme-swatches"),
+  settingsClose: document.getElementById("settings-close"),
+  settingsBackdrop: document.getElementById("settings-backdrop"),
+  speedPicker: document.getElementById("speed-picker"),
 };
 
 // Display labels for the STT picker. Keys must stay in sync with
@@ -84,6 +89,9 @@ const state = {
   voice: null,
   voicesAvailable: [],   // [{id, label}]
   voiceSwapping: false,
+  // LLM model picker state
+  model: null,
+  modelsAvailable: [],
   // three.js brain controller (set after async init)
   brain: null,
 };
@@ -352,12 +360,14 @@ async function initBrain() {
   const PHASE = {
     idle:      { rotSpeed: 0.0028, bloom: 1.2, lineOp: 0.16, ptSize: 0.045 },
     listening: { rotSpeed: 0.0055, bloom: 1.4, lineOp: 0.22, ptSize: 0.05  },
-    thinking:  { rotSpeed: 0.012,  bloom: 1.7, lineOp: 0.30, ptSize: 0.055 },
+    thinking:  { rotSpeed: 0.009,  bloom: 1.6, lineOp: 0.28, ptSize: 0.052 },
     speaking:  { rotSpeed: 0.014,  bloom: 2.0, lineOp: 0.34, ptSize: 0.06  },
   };
   let target = PHASE.idle;
+  let currentPhase = "idle";
   let curRot = target.rotSpeed;
-  let pulseScale = 1;     // momentary bump from TTS amplitude
+  let pulseScale = 1;
+  let freqBuf = null;   // Uint8Array of FFT bins, set each frame during speaking
 
   function tick(t) {
     const lerp = 0.06;
@@ -367,9 +377,40 @@ async function initBrain() {
     pmat.size      += (target.ptSize - pmat.size) * lerp;
     pulseScale     += (1 - pulseScale) * 0.08;
 
-    group.rotation.y += curRot;
+    let scaleBoost = 1;
+    let rotBoost   = 1;
+
+    if (currentPhase === "thinking") {
+      // Synthetic neural oscillation — 3 beating sine waves at prime-ish periods
+      // t is DOMHighResTimeStamp in ms; periods ~3.5 s, ~2 s, ~1.2 s
+      const pulse =
+        Math.sin(t * 0.0018) * 0.05 +
+        Math.sin(t * 0.0031) * 0.03 +
+        Math.sin(t * 0.0053) * 0.015;
+      scaleBoost = 1 + pulse;
+      // Bloom breathes in sync — makes it feel like neural firing
+      bloom.strength = target.bloom + Math.abs(pulse) * 2.2;
+    } else if (currentPhase === "speaking" && freqBuf) {
+      const n = freqBuf.length;
+      const bassEnd = Math.floor(n * 0.12);  // ~0-200 Hz
+      const midEnd  = Math.floor(n * 0.45);  // ~200-3.5 kHz
+      let bass = 0, mid = 0, high = 0;
+      for (let i = 0;       i < bassEnd; i++) bass += freqBuf[i];
+      for (let i = bassEnd; i < midEnd;  i++) mid  += freqBuf[i];
+      for (let i = midEnd;  i < n;       i++) high += freqBuf[i];
+      bass /= bassEnd * 255;
+      mid  /= (midEnd - bassEnd) * 255;
+      high /= (n - midEnd) * 255;
+
+      scaleBoost = 1 + bass * 0.38;           // bass pumps the overall size
+      rotBoost   = 1 + mid  * 3.2;            // mids spin the brain faster
+      bloom.strength = target.bloom + high * 1.8;  // highs add glow sparks
+      pmat.size = target.ptSize + high * 0.045;    // high freq = bigger points
+    }
+
+    group.rotation.y += curRot * rotBoost;
     group.rotation.x = 0.18 + Math.sin(t * 0.0006) * 0.06;
-    group.scale.setScalar(pulseScale);
+    group.scale.setScalar(pulseScale * scaleBoost);
 
     composer.render();
     requestAnimationFrame(tick);
@@ -378,11 +419,15 @@ async function initBrain() {
 
   return {
     setPhase(phase) {
+      currentPhase = phase;
       target = PHASE[phase] || PHASE.idle;
+      if (phase !== "speaking") freqBuf = null;
     },
     setScale(s) {
-      // Use the audio-driven scale to spike pulseScale; eased back each frame.
       pulseScale = Math.max(pulseScale, Math.min(1.18, s));
+    },
+    setFreq(buf) {
+      freqBuf = buf;
     },
   };
 }
@@ -433,6 +478,8 @@ async function connect() {
   ws.onopen = async () => {
     els.status.textContent = "ONLINE";
     startTimer();
+    // Sync saved speed to server (server defaults to config.yaml value).
+    if (prefs.speed !== 1.0) send({ type: "set_speed", speed: prefs.speed });
     try {
       await startMic(prefs.micId);
       // Now that permission is granted, device labels become readable.
@@ -503,6 +550,26 @@ function handleControl(msg) {
           state.sttModel = msg.stt_model;
         }
       }
+      if (msg.models_available) {
+        state.modelsAvailable = msg.models_available;
+        populateModelSelect(msg.model);
+        state.model = msg.model;
+      }
+      break;
+    case "model":
+      if (msg.state === "unloading") {
+        setModelStatus("unloading…", "loading");
+        if (els.modelSelect) els.modelSelect.disabled = true;
+      } else {
+        state.model = msg.model;
+        if (els.modelSelect) {
+          els.modelSelect.value = msg.model;
+          els.modelSelect.disabled = false;
+        }
+        els.model.textContent = msg.model;
+        setModelStatus("ready", "");
+        setTimeout(() => setModelStatus("", ""), 1400);
+      }
       break;
     case "stt_model":
       handleSttModelEvent(msg);
@@ -565,7 +632,7 @@ function handleAudio(arrayBuf) {
   // Add an analyser so the orb can scale with TTS amplitude.
   if (!state.speakingAnalyser) {
     state.speakingAnalyser = ctx.createAnalyser();
-    state.speakingAnalyser.fftSize = 256;
+    state.speakingAnalyser.fftSize = 512;
     state.speakingAnalyser.connect(ctx.destination);
     runOrbAnimLoop();
   }
@@ -581,19 +648,21 @@ function handleAudio(arrayBuf) {
 }
 
 function runOrbAnimLoop() {
-  const buf = new Uint8Array(state.speakingAnalyser.frequencyBinCount);
+  const freqBuf  = new Uint8Array(state.speakingAnalyser.frequencyBinCount);
   const tick = () => {
     if (!state.speakingAnalyser) return;
-    state.speakingAnalyser.getByteTimeDomainData(buf);
-    let sum = 0;
-    for (let i = 0; i < buf.length; i++) {
-      const v = (buf[i] - 128) / 128;
-      sum += v * v;
-    }
-    const rms = Math.sqrt(sum / buf.length);
+    // Frequency-domain data for both the CSS orb ring and the three.js brain.
+    state.speakingAnalyser.getByteFrequencyData(freqBuf);
+
     if (state.phase === "speaking") {
-      const s = 1 + Math.min(0.32, rms * 2.4);
-      setOrbScale(s);
+      // Overall energy → CSS orb ring scale
+      let sum = 0;
+      for (let i = 0; i < freqBuf.length; i++) sum += freqBuf[i];
+      const energy = sum / (freqBuf.length * 255);
+      setOrbScale(1 + Math.min(0.32, energy * 2.6));
+
+      // Full FFT → brain for frequency-reactive animation
+      if (state.brain) state.brain.setFreq(freqBuf);
     }
     state.speakingRaf = requestAnimationFrame(tick);
   };
@@ -814,16 +883,17 @@ els.orb.addEventListener("click", () => {
 
 // ---------- Settings ----------
 
-const PREFS_KEY = "local-tts.prefs.v4";
+const PREFS_KEY = "local-tts.prefs.v5";
 const THEMES = ["jarvis", "hacker", "amber"];
 const defaultPrefs = {
   orbSize: 240,
   showMeter: true,
   showCaptions: true,
   theme: "jarvis",
-  micId: null,            // null = browser default
-  sttModel: null,         // null = use whatever the server has loaded
-  voice: null,            // null = use whatever the server has loaded
+  micId: null,
+  sttModel: null,
+  voice: null,
+  speed: 1.0,
 };
 
 function loadPrefs() {
@@ -852,6 +922,17 @@ function applyTheme(name) {
   prefs.theme = name;
 }
 
+function applySpeed(speed, sendToServer = false) {
+  prefs.speed = speed;
+  for (const btn of els.speedPicker.querySelectorAll(".speed-btn")) {
+    btn.classList.toggle("active", parseFloat(btn.dataset.speed) === speed);
+  }
+  if (sendToServer) {
+    send({ type: "set_speed", speed });
+    savePrefs(prefs);
+  }
+}
+
 function applyPrefs() {
   document.documentElement.style.setProperty("--orb-size", prefs.orbSize + "px");
   els.orbSize.value = prefs.orbSize;
@@ -861,17 +942,28 @@ function applyPrefs() {
   els.meter.classList.toggle("hidden", !prefs.showMeter);
   els.captions.classList.toggle("hidden", !prefs.showCaptions);
   applyTheme(prefs.theme);
+  applySpeed(prefs.speed ?? 1.0);
 }
 applyPrefs();
 
-els.settingsBtn.addEventListener("click", () => {
-  els.settingsPanel.hidden = !els.settingsPanel.hidden;
-  if (!els.settingsPanel.hidden) refreshMicList();
-});
-document.addEventListener("click", (e) => {
-  if (els.settingsPanel.hidden) return;
-  if (els.settingsPanel.contains(e.target) || els.settingsBtn.contains(e.target)) return;
+function openSettings() {
+  els.settingsPanel.hidden = false;
+  els.settingsBackdrop.hidden = false;
+  refreshMicList();
+}
+function closeSettings() {
   els.settingsPanel.hidden = true;
+  els.settingsBackdrop.hidden = true;
+}
+
+els.settingsBtn.addEventListener("click", openSettings);
+els.settingsClose.addEventListener("click", closeSettings);
+els.settingsBackdrop.addEventListener("click", closeSettings);
+
+els.speedPicker.addEventListener("click", (e) => {
+  const btn = e.target.closest(".speed-btn");
+  if (!btn) return;
+  applySpeed(parseFloat(btn.dataset.speed), true);
 });
 
 els.orbSize.addEventListener("input", () => {
@@ -1035,6 +1127,41 @@ function handleVoiceEvent(msg) {
 if (els.voiceSelect) {
   els.voiceSelect.addEventListener("change", () => {
     requestVoiceSwap(els.voiceSelect.value);
+  });
+}
+
+// ---------- LLM model picker ----------
+
+function populateModelSelect(activeModel) {
+  if (!els.modelSelect) return;
+  els.modelSelect.innerHTML = "";
+  for (const name of state.modelsAvailable) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    els.modelSelect.appendChild(opt);
+  }
+  if (activeModel && state.modelsAvailable.includes(activeModel)) {
+    els.modelSelect.value = activeModel;
+  }
+}
+
+function setModelStatus(text, kind) {
+  if (!els.modelStatus) return;
+  els.modelStatus.textContent = text || "";
+  els.modelStatus.classList.remove("loading", "error");
+  if (kind) els.modelStatus.classList.add(kind);
+}
+
+function requestModelSwap(name) {
+  if (!name || name === state.model) return;
+  setModelStatus("switching…", "loading");
+  send({ type: "set_model", model: name });
+}
+
+if (els.modelSelect) {
+  els.modelSelect.addEventListener("change", () => {
+    requestModelSwap(els.modelSelect.value);
   });
 }
 

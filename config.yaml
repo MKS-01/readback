@@ -1,5 +1,5 @@
 ollama:
-  model: "gemma4:e4b"  # was gemma4:26b / qwen3:8b
+  model: "qwen3:4b"
   host: "http://localhost:11434"
   system_prompt: |
     You are a conversational voice assistant. Speak naturally and concisely.
@@ -14,50 +14,16 @@ kokoro:
   torch_device: "cpu"                # cpu is fastest for kokoro on Apple Silicon (mps iSTFT falls back to cpu anyway)
 
 whisper:
-  # Multilingual variants (no .en suffix) handle non-US English accents
-  # significantly better. Sizes (int8): tiny ~75MB, base ~150MB, small ~480MB,
+  # Multilingual variants handle non-US English accents better.
+  # Sizes (int8): tiny ~75MB, base ~150MB, small ~480MB,
   # medium ~1.5GB, large-v3-turbo ~1.6GB, large-v3 ~3GB.
-  #
-  # On Apple Silicon CPU (no MPS for faster-whisper), "distilled" models
-  # like large-v3-turbo aren't always faster than `medium` because the
-  # encoder dominates CPU time and turbo has a larger encoder. Pick by
-  # latency target:
-  #   tiny / base   — <300ms, low accuracy
-  #   small         — ~300-500ms, decent
-  #   medium        — ~500-800ms, balanced (recommended for chat)
-  #   large-v3-turbo — ~700-1100ms, slightly more accurate than medium
-  #   large-v3      — ~1500-2500ms, max accuracy
   # The web UI exposes a runtime picker that overrides this on a per-call basis.
   model: "medium"
   compute_type: "int8"               # int8 recommended for Apple Silicon CPU
   beam_size: 5                       # 5 = balanced, 10 = max accuracy +200-400ms
 
-audio:
-  sample_rate: 16000                 # whisper expects 16kHz
-  output_sample_rate: 24000          # CSM outputs at 24kHz
-  input_device: null                 # null = system default
-  output_device: null
-
 vad:
   aggressiveness: 2                  # 0 (permissive) to 3 (aggressive)
-  silence_threshold_ms: 700
-  speech_trigger_ms: 300
-  # Below only used when input.mode == "vad". Speaker bleeds into mic;
-  # we gate by both duration and loudness so the AI doesn't interrupt itself.
-  allow_interrupt: true
-  interrupt_speech_ms: 900
-  interrupt_rms_threshold: 0.05
-
-input:
-  mode: "ptt"                        # "ptt" (push-to-talk) or "vad" (continuous)
-  # IMPORTANT: pynput captures keys globally on macOS, so the PTT key must
-  # not conflict with normal typing. Don't use "space" — every space you type
-  # anywhere on the system would fire PTT and submit a mic snippet.
-  # Safe choices: "alt_r" (right Option), "cmd_r" (right Cmd), "f1".."f12".
-  ptt_key: "alt_r"                   # right Option/Alt key
-  min_recording_ms: 200              # ignore PTT taps shorter than this
 
 ui:
-  default_mode: "voice"              # "voice" | "text"
-  toggle_key: "f4"
   history_turns: 10                  # max turns kept in Ollama context
