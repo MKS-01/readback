@@ -58,6 +58,8 @@ const STT_MODEL_LABELS = {
 const state = {
   ws: null,
   audioCtx: null,
+  audioOutputNode: null,  // MediaStreamAudioDestinationNode on Android, ctx.destination elsewhere
+  _audioEl: null,         // <audio> element for Android loudspeaker routing (prevent GC)
   micCtx: null,
   micStream: null,
   workletNode: null,
@@ -614,6 +616,21 @@ function ensureAudioCtx() {
       sampleRate: state.outSampleRate,
     });
     state.playbackTime = state.audioCtx.currentTime;
+
+    // Android routes Web Audio output to the earpiece when getUserMedia is
+    // active ("communication mode"). Piping through a MediaStream → <audio>
+    // element forces loudspeaker routing. Falls back to ctx.destination on
+    // browsers that don't support createMediaStreamDestination.
+    try {
+      const dest = state.audioCtx.createMediaStreamDestination();
+      const el = document.createElement("audio");
+      el.srcObject = dest.stream;
+      el.play().catch(() => {});
+      state.audioOutputNode = dest;
+      state._audioEl = el;
+    } catch {
+      state.audioOutputNode = state.audioCtx.destination;
+    }
   }
   return state.audioCtx;
 }
@@ -638,7 +655,7 @@ async function handleAudio(arrayBuf) {
   if (!state.speakingAnalyser) {
     state.speakingAnalyser = ctx.createAnalyser();
     state.speakingAnalyser.fftSize = 512;
-    state.speakingAnalyser.connect(ctx.destination);
+    state.speakingAnalyser.connect(state.audioOutputNode || ctx.destination);
     runOrbAnimLoop();
   }
   src.connect(state.speakingAnalyser);
