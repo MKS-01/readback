@@ -48,6 +48,35 @@ local-tts                               # http://127.0.0.1:8000
 
 Speech models download automatically on first run (~1.8 GB: Whisper medium + Kokoro-82M). No HuggingFace login needed.
 
+## Cross-device access (phone / tablet)
+
+Browsers block microphone access on plain HTTP for any non-localhost origin. Use `--auto-cert` to generate a self-signed TLS cert and serve over HTTPS:
+
+```bash
+local-tts --host 0.0.0.0 --auto-cert
+```
+
+The startup banner prints:
+- The **network URL** to open on other devices (`https://<your-mac-ip>:8000`)
+- The **SHA-256 fingerprint** to verify the cert in your browser
+- A **`/cert.pem` download link** to trust on iOS / Android / macOS
+
+**Trusting the cert on each platform:**
+
+| Device | Steps |
+|---|---|
+| **iOS** | Open `/cert.pem` link → Settings → General → VPN & Device Management → install → Certificate Trust Settings → toggle on |
+| **Android** | Open `/cert.pem` link → install as CA certificate (Settings › Security › Install from storage) |
+| **macOS** | Open `/cert.pem` → double-click downloaded file → Keychain Access → set to Always Trust |
+
+The cert is stored in `~/.local-tts/certs/` and reused across restarts. It is regenerated automatically if your LAN IP changes.
+
+To use your own cert instead (e.g. from `mkcert`):
+
+```bash
+local-tts --host 0.0.0.0 --cert cert.pem --key key.pem
+```
+
 ## Usage
 
 ```bash
@@ -102,7 +131,7 @@ See [CLAUDE.md](CLAUDE.md) for deeper architectural notes (interrupt handling, h
 
 ## Changelog
 
-- **v0.3.1** — Settings panel redesigned as a centered floating modal; theme picker uses per-theme SVG icons (eye / terminal / sun) instead of colored dots.
+- **v0.3.1** — `--auto-cert` / `--cert` / `--key` flags for HTTPS cross-device access; `/cert.pem` download endpoint for iOS/Android trust flow; settings panel redesigned as a centered floating modal; theme picker uses per-theme SVG icons.
 - **v0.3.0** — Web-only: removed CLI/PTT/terminal interfaces; simplified to a single `local-tts` command.
 - **v0.2.0** — Web UI (FastAPI + WebSocket), Kokoro-82M TTS (~10× faster than CSM-1B on Apple Silicon), voice/STT/theme pickers, Pause control.
 - **v0.1.0** — Initial CLI release: VAD-driven voice loop, Whisper + Ollama + CSM-1B, 3-thread streaming pipeline.

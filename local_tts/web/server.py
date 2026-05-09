@@ -454,7 +454,7 @@ class Session:
         await self.send_json({"type": "phase", "value": phase})
 
 
-def create_app(cfg: Optional[Config] = None) -> FastAPI:
+def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -> FastAPI:
     cfg = cfg or Config.load()
     models = PipelineModels(cfg)
 
@@ -482,6 +482,15 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
     @app.get("/")
     async def index():
         return FileResponse(str(STATIC_DIR / "index.html"))
+
+    if cert_path is not None:
+        @app.get("/cert.pem")
+        async def download_cert():
+            return FileResponse(
+                str(cert_path),
+                media_type="application/x-pem-file",
+                headers={"Content-Disposition": "attachment; filename=local-tts.pem"},
+            )
 
     @app.get("/api/config")
     async def get_config():
