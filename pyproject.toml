@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local-tts"
-version = "0.3.1"
+version = "0.3.2"
 description = "Local voice conversation using Kokoro TTS + Ollama on Apple Silicon"
 requires-python = ">=3.10"
 authors = [{ name = "mks" }]

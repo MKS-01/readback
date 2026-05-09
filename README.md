@@ -25,6 +25,7 @@
 - Six Whisper sizes from `tiny` to `large-v3`, hot-swappable from the UI.
 - Three themes: Jarvis (cyan), Hacker (green), Amber.
 - Browser echo cancellation — no PTT key or headphones required.
+- Mobile-ready — works on iPhone and Android over LAN (HTTPS, responsive layout, loudspeaker routing).
 
 ## Quick start
 
@@ -131,6 +132,7 @@ See [CLAUDE.md](CLAUDE.md) for deeper architectural notes (interrupt handling, h
 
 ## Changelog
 
+- **v0.3.2** — Mobile-responsive layout (fixed dock, icon-only buttons, HUD bracket clearance); iOS AudioContext unlock on first gesture; Android loudspeaker routing fix via `MediaStreamAudioDestinationNode`.
 - **v0.3.1** — `--auto-cert` / `--cert` / `--key` flags for HTTPS cross-device access; `/cert.pem` download endpoint for iOS/Android trust flow; settings panel redesigned as a centered floating modal; theme picker uses per-theme SVG icons.
 - **v0.3.0** — Web-only: removed CLI/PTT/terminal interfaces; simplified to a single `local-tts` command.
 - **v0.2.0** — Web UI (FastAPI + WebSocket), Kokoro-82M TTS (~10× faster than CSM-1B on Apple Silicon), voice/STT/theme pickers, Pause control.
