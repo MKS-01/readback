@@ -618,10 +618,15 @@ function ensureAudioCtx() {
   return state.audioCtx;
 }
 
-function handleAudio(arrayBuf) {
+async function handleAudio(arrayBuf) {
   // Discard audio that's already in flight when the user hits Skip / Pause.
   if (state.skipping || state.paused) return;
   const ctx = ensureAudioCtx();
+  // iOS suspends the AudioContext until a user gesture unlocks it, and again
+  // whenever the page is backgrounded. Resume before every playback attempt.
+  if (ctx.state === "suspended") {
+    try { await ctx.resume(); } catch {}
+  }
   const float32 = new Float32Array(arrayBuf);
   const buf = ctx.createBuffer(1, float32.length, state.outSampleRate);
   buf.copyToChannel(float32, 0);
@@ -1225,9 +1230,25 @@ if (navigator.mediaDevices?.addEventListener) {
 
 // ---------- Boot ----------
 
-document.addEventListener("visibilitychange", () => {
-  // No-op for now; could pause mic when hidden.
+// Resume the AudioContext when the user returns to the tab/app. iOS suspends
+// it automatically on background; without this, audio is silently dropped.
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "visible" && state.audioCtx?.state === "suspended") {
+    try { await state.audioCtx.resume(); } catch {}
+  }
 });
+
+// Unlock AudioContext on the first user gesture. iOS requires the context to be
+// resumed inside a touch/click handler before any audio can play — creating it
+// from a WebSocket callback (outside a gesture) leaves it permanently suspended.
+async function unlockAudio() {
+  const ctx = ensureAudioCtx();
+  if (ctx.state === "suspended") {
+    try { await ctx.resume(); } catch {}
+  }
+}
+document.addEventListener("touchstart", unlockAudio, { once: true, passive: true });
+document.addEventListener("click",      unlockAudio, { once: true });
 
 // Kick off three.js brain in parallel with the websocket connect — the
 // websocket doesn't need to wait for the GPU pipeline to be ready.
