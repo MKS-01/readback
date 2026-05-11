@@ -1,11 +1,39 @@
 # local-tts
 
-> 100% local voice assistant — speak (or type) to your LLM, hear it talk back. No cloud, no API keys.
+> A fully local voice assistant — speak or type to your LLM, hear it talk back. No cloud. No API keys. No data leaves your machine.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Apple_Silicon-black?style=flat-square&logo=apple&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)
 ![Local](https://img.shields.io/badge/Runs-100%25_Local-6366f1?style=flat-square)
+
+---
+
+<p align="center">
+  <img src="screenshots/screenshot-one.png" width="48%" alt="Main interface" />
+  &nbsp;
+  <img src="screenshots/screenshot-two.png" width="48%" alt="Settings panel" />
+</p>
+
+---
+
+## Why this is different
+
+Most "local AI voice" projects are either a CLI loop with no real UI, a thin wrapper around a cloud STT/TTS API, or require expensive GPU hardware. This project is none of those.
+
+| | local-tts | Typical local voice project |
+|---|---|---|
+| **UI** | Browser — 3D neural orb, live captions, one-click settings | Terminal / CLI |
+| **Cloud dependency** | None — every model runs on-device | STT or TTS calls an API |
+| **Hardware** | Apple Silicon, 24 GB+ unified memory (tested: M5 Pro 48 GB) | Often requires NVIDIA GPU |
+| **First word latency** | ~2.5 s end-to-end | 3–8 s (round-trip to cloud) |
+| **Voice / model switching** | Hot-swap in the UI, no restart | Config file edit + restart |
+| **Cross-device** | Phone + tablet over LAN via HTTPS | Localhost only |
+| **Echo cancellation** | Browser WebRTC AEC — no headphones needed | PTT key or headphones required |
+
+The pipeline is a 3-thread streaming design: Whisper transcribes while Ollama generates, and Kokoro synthesizes each sentence as it arrives — so the assistant **starts speaking before the full reply is generated**.
+
+---
 
 ## Tech stack
 
@@ -18,14 +46,7 @@
 | **Frontend** | Vanilla JS + AudioWorklet — 3D neural orb via three.js, no framework |
 | **Audio I/O** | sounddevice + WebRTC VAD |
 
-## Features
-
-- Real-time streaming — the assistant starts speaking before the full reply is generated.
-- 20 Kokoro voices (American + British), hot-swappable from the UI.
-- Six Whisper sizes from `tiny` to `large-v3`, hot-swappable from the UI.
-- Three themes: Jarvis (cyan), Hacker (green), Amber.
-- Browser echo cancellation — no PTT key or headphones required.
-- Mobile-ready — works on iPhone and Android over LAN (HTTPS, responsive layout, loudspeaker routing).
+---
 
 ## Quick start
 
@@ -49,61 +70,81 @@ local-tts                               # http://127.0.0.1:8000
 
 Speech models download automatically on first run (~1.8 GB: Whisper medium + Kokoro-82M). No HuggingFace login needed.
 
+---
+
+## Interface
+
+The UI is a single browser page — no Electron, no desktop app. Open `http://127.0.0.1:8000` after launching.
+
+**Orb** — a three.js point-cloud that reacts to phase: dim and breathing when idle, bright and active when speaking. Ghost theme: matte white/grey, no colored glow.
+
+**Live captions** — the INPUT label animates to `LISTENING_` (blinking cursor) while waiting and `PROCESSING ···` (dot reveal) while the LLM is thinking. The AI response streams in sentence by sentence.
+
+**Dock controls (bottom bar):**
+
+| Button | What it does |
+|---|---|
+| **Mute** | Toggle mic on/off |
+| **Skip** | Interrupt the current AI response immediately |
+| **Type** | Slide-up text input — bypasses STT, still gets a voice reply |
+| **Pause / Resume** | Freeze everything (mic, playback, timer) — WebSocket stays open |
+| **⚙ Settings** | Open the settings panel |
+
+### Settings panel — model & voice switching
+
+The settings panel lets you change every runtime parameter **without restarting the server**:
+
+- **Microphone** — switch between any input device the browser sees; new device activates instantly.
+- **Speech Recognition (STT model)** — swap between six Whisper checkpoints while idle:
+  - `tiny` (~75 MB) — fastest, ~150 ms, light accuracy
+  - `base` (~150 MB) — good for clear speech
+  - `small` (~480 MB) — solid balance
+  - `medium` (~1.5 GB, **default**) — 500–800 ms, recommended
+  - `large-v3-turbo` (~1.6 GB) — best for accented speech
+  - `large-v3` (~3 GB) — maximum accuracy, slower
+  - The dropdown disables while the new model loads; re-enables on server confirmation.
+- **LLM Model** — switch between any model currently pulled in Ollama. Change takes effect on the next message.
+- **Voice (TTS)** — 20 Kokoro voices, switchable while idle. Best picks:
+  - `af_bella` ★ — warm American female (default)
+  - `af_heart` ★ — expressive American female
+  - `bf_emma` ★ — natural British female
+  - `am_michael` — clear American male
+  - Full list: `af_*` (American female), `am_*` (American male), `bf_*` / `bm_*` (British)
+- **Speech Speed** — Slow / Medium / Fast, applied to every TTS synthesis call.
+- **Orb size** — 120–380 px slider.
+- **Mic meter / Captions** — toggle the 5-bar input meter and live transcript display.
+
+All preferences persist in `localStorage` and restore on next page load.
+
+---
+
 ## Cross-device access (phone / tablet)
 
-Browsers block microphone access on plain HTTP for any non-localhost origin. Use `--auto-cert` to generate a self-signed TLS cert and serve over HTTPS:
+Browsers block microphone access on plain HTTP for non-localhost origins. Use `--auto-cert` for HTTPS over LAN:
 
 ```bash
 local-tts --host 0.0.0.0 --auto-cert
 ```
 
-The startup banner prints:
-- The **network URL** to open on other devices (`https://<your-mac-ip>:8000`)
-- The **SHA-256 fingerprint** to verify the cert in your browser
-- A **`/cert.pem` download link** to trust on iOS / Android / macOS
+The startup banner prints the network URL, SHA-256 cert fingerprint, and a `/cert.pem` download link.
 
-**Trusting the cert on each platform:**
+**Trust the cert:**
 
 | Device | Steps |
 |---|---|
-| **iOS** | Open `/cert.pem` link → Settings → General → VPN & Device Management → install → Certificate Trust Settings → toggle on |
-| **Android** | Open `/cert.pem` link → install as CA certificate (Settings › Security › Install from storage) |
-| **macOS** | Open `/cert.pem` → double-click downloaded file → Keychain Access → set to Always Trust |
+| **iOS** | Open `/cert.pem` → Settings → General → VPN & Device Management → install → Certificate Trust Settings → toggle on |
+| **Android** | Open `/cert.pem` → install as CA certificate (Settings › Security › Install from storage) |
+| **macOS** | Download `/cert.pem` → Keychain Access → set to Always Trust |
 
-The cert is stored in `~/.local-tts/certs/` and reused across restarts. It is regenerated automatically if your LAN IP changes.
+Cert stored in `~/.local-tts/certs/`, reused across restarts, regenerated if your LAN IP changes.
 
-To use your own cert instead (e.g. from `mkcert`):
+To use your own cert (e.g. from `mkcert`):
 
 ```bash
 local-tts --host 0.0.0.0 --cert cert.pem --key key.pem
 ```
 
-## Usage
-
-```bash
-local-tts                               # http://127.0.0.1:8000
-local-tts --host 0.0.0.0 --port 8080
-local-tts --model qwen3:4b
-```
-
-Open the URL, click anywhere to unlock audio, then speak.
-
-**Dock controls (bottom):**
-
-- **Mute** — toggle the mic.
-- **Skip** — interrupt the current AI response.
-- **Type** — text input that bypasses STT but still streams a voice reply. Interrupts the AI if mid-response.
-- **Pause / Resume** — stops the mic, drains playback, and freezes the call timer. Click again to resume.
-
-**Settings (gear icon, in dock):** opens a floating panel.
-
-- **Microphone** — every input device the browser exposes.
-- **Voice** — Kokoro TTS voice (`af_heart`, `af_bella`, `bf_emma`, `am_michael`, …). Hot-swappable while idle.
-- **Speech recognition** — Whisper STT model. Hot-swappable while idle.
-- **Theme** — Jarvis (cyan / eye icon), Hacker (green / terminal icon), or Amber (sun icon).
-- **Orb size**, **Mic meter**, **Captions** toggles.
-
-All preferences persist in `localStorage`.
+---
 
 ## Configuration
 
@@ -113,30 +154,32 @@ Edit `config.yaml` for non-UI knobs:
 |---|---|---|
 | `ollama.model` | Any local Ollama chat model | `qwen3:4b` |
 | `kokoro.voice` | TTS voice (full list in [CLAUDE.md](CLAUDE.md)) | `af_bella` |
-| `whisper.model` | `tiny` / `base` / `small` / `medium` / `large-v3-turbo` / `large-v3` | `medium` |
+| `whisper.model` | STT checkpoint | `medium` |
 | `whisper.beam_size` | 5 = balanced, 10 = max accuracy (+200–400 ms) | `5` |
 | `vad.aggressiveness` | WebRTC VAD aggressiveness 0–3 | `2` |
 
-> **Picking a Whisper model.** On Apple Silicon CPU (faster-whisper has no MPS backend), the encoder dominates. Rough latency on a 5-second utterance: `medium` ≈ 500–800 ms, `large-v3-turbo` ≈ 700–1100 ms. Drop to `small` or `base` for sub-300 ms STT.
+> **Picking a model for speed.** On Apple Silicon CPU, `medium` lands at 500–800 ms for a 5-second utterance. Drop to `small` for sub-300 ms. `large-v3-turbo` is only marginally faster than `large-v3` on CPU — the "6× faster" claim is GPU-bound.
+
+---
 
 ## How it works
 
-The browser streams 16 kHz Int16 PCM over a WebSocket. The server runs VAD to segment utterances, transcribes with Whisper, streams the response from Ollama sentence-by-sentence, synthesizes each sentence with Kokoro, and sends Float32 PCM back to the browser for gapless playback.
-
 ```
-browser mic → WebSocket (Int16 PCM) → VAD → Whisper → Ollama (stream)
-           → sentence splitter → Kokoro → WebSocket (Float32 PCM) → browser speaker
+browser mic → WebSocket (Int16 PCM 16kHz)
+  → VAD utterance segmentation
+  → Whisper STT
+  → Ollama streaming LLM
+  → sentence splitter
+  → Kokoro TTS (per sentence)
+  → WebSocket (Float32 PCM 24kHz)
+  → browser speaker (gapless AudioBufferSourceNode queue)
 ```
 
-See [CLAUDE.md](CLAUDE.md) for deeper architectural notes (interrupt handling, hot-swap locking, VAD tuning).
+The pipeline is **streaming end-to-end**: Kokoro synthesizes each sentence the moment it arrives from Ollama, so playback starts ~2.5 s after you stop speaking — well before the full reply is generated.
 
-## Changelog
+See [CLAUDE.md](CLAUDE.md) for deeper notes on interrupt handling, hot-swap locking, VAD tuning, and Whisper hallucination mitigations.
 
-- **v0.3.2** — Mobile-responsive layout (fixed dock, icon-only buttons, HUD bracket clearance); iOS AudioContext unlock on first gesture; Android loudspeaker routing fix via `MediaStreamAudioDestinationNode`.
-- **v0.3.1** — `--auto-cert` / `--cert` / `--key` flags for HTTPS cross-device access; `/cert.pem` download endpoint for iOS/Android trust flow; settings panel redesigned as a centered floating modal; theme picker uses per-theme SVG icons.
-- **v0.3.0** — Web-only: removed CLI/PTT/terminal interfaces; simplified to a single `local-tts` command.
-- **v0.2.0** — Web UI (FastAPI + WebSocket), Kokoro-82M TTS (~10× faster than CSM-1B on Apple Silicon), voice/STT/theme pickers, Pause control.
-- **v0.1.0** — Initial CLI release: VAD-driven voice loop, Whisper + Ollama + CSM-1B, 3-thread streaming pipeline.
+---
 
 ## License
 

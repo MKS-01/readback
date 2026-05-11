@@ -235,53 +235,58 @@ Frontend (`web/static/`):
   new user turn or Skip. Container is `max-height: 34vh` with overflow auto.
   A floating **Copy** button (`#copy-btn`) writes `state.aiAccum` to the
   clipboard; it is hidden until the first sentence arrives.
-- Themed colors: every theme defines `--accent`, `--accent-dim`,
-  `--accent-glow`, `--user`, `--ai-text`, plus 3-stop gradient + glow vars
-  for each orb phase (idle / listen / think / speak). Body class
-  `.theme-<name>` swaps everything. Current themes: **jarvis** (cyan),
-  **hacker** (green), **amber** (warm orange). The orb is a three.js point
-  cloud rendered into `#brain-canvas` with a bloom postprocess pass — colors
-  are pulled at runtime from `getComputedStyle(body).getPropertyValue("--accent")`.
+- **Single theme: Ghost** — white/grey matte palette (`--accent: #f0f0f0`).
+  All colored themes (jarvis, amber, matrix) have been removed. Theme picker
+  is commented out in settings HTML for future use. `body.theme-ghost` overrides
+  `--bg`, `--text`, etc. in addition to the orb vars. The orb is a three.js
+  point cloud rendered into `#brain-canvas` with a bloom postprocess pass —
+  colors are pulled at runtime from `getComputedStyle(body).getPropertyValue("--accent")`.
+- **Ghost orb**: HUD rings hidden (`display: none`). No radial-gradient
+  background or box-shadow glow on the orb element itself. Instead, a soft
+  elliptical dark haze (rgba ~32,32,32 fading to transparent at 78%) is
+  applied per-phase via `body.theme-ghost .orb.*` rules — atmospheric depth
+  without a visible circle. Corner brackets stay at 30% opacity, no filter.
+- **Static assets served without version strings** — the FastAPI middleware
+  already sends `Cache-Control: no-cache, no-store` for all `/static/` paths,
+  so `?v=X` cache-busting is unnecessary. Do not add version suffixes to
+  `styles.css` or `app.js` links in `index.html`.
+
+UI layout:
+- **Header**: No app title or timer visible. A minimal inline line at the top
+  (`padding-top: 32px`) reads `voice BELLA · model QWEN3:4B` — label 10px
+  monospace muted, value 13px accent, dot separator. `#timer` and
+  `#assistant-name` remain in DOM (hidden) for JS timer logic.
+- **Captions**: Borderless open sections — no rectangular frames. Each section
+  has a small block label above the content and a 1px left-border accent line.
+  The INPUT label (`#input-label`) is dynamic: updates in `setPhase()` to show
+  `LISTENING_` (blinking cursor CSS animation, class `is-listening`) or
+  `PROCESSING ···` (dots-reveal CSS animation, class `is-thinking`); falls
+  back to `Input` for idle/speaking phases.
+- **Scanline**: Removed. The `body::before` scanline animation and its
+  `@keyframes scanline` are gone.
 
 UI controls:
-- **Settings (gear icon, in dock pill)**: Opens as a **centered floating
-  modal** (not a bottom sheet) — `position: fixed; top: 50%; left: 50%;
-  transform: translate(-50%, -50%)`, max-width 660 px, 18 px radius on all
-  sides, fades/scales in. Contains: Microphone picker (lists all audioinputs
-  via `enumerateDevices`, restarts capture with `{deviceId: {exact: id}}` on
-  change, persists in `localStorage`); STT/Voice model picker
-  (`tiny`/`base`/`small`/`medium`/`large-v3-turbo`/`large-v3`, fires
-  `set_stt_model` over WS, server replies with
-  `{type: "stt_model", state: "loading|ready|error"}`, dropdown disables
-  while loading, persists to `prefs.sttModel` only after server confirms
-  `ready`); Theme picker — three cards each showing a **theme-specific SVG
-  icon** (Jarvis: scanning eye, Hacker: terminal `>_`, Amber: sun) instead
-  of a colored dot; each icon is always its theme's hardcoded color so you
-  can distinguish them regardless of the active theme; active card gets a
-  matching glow border + `drop-shadow` on the icon; Orb size slider (120–380
-  px); Mic-meter and Captions toggles.
-- **Dock pill (bottom)**: `[Mute · Skip · Type · Pause]`. Skip is enabled
-  only while phase is `thinking` or `speaking`. **Pause** is a true
-  pause/resume toggle (not "End call"): on click it stops the mic, drains
-  the playback queue, sends `interrupt` to the server, freezes the call
-  timer (`pauseTimer()` accumulates elapsed ms across pauses), forces the
-  orb to `idle`, and disables the other dock buttons. The button icon swaps
-  between two-bar pause and play-triangle resume; body class `.paused` and
-  status `PAUSED` reflect the state. The WebSocket stays open — clicking
-  Resume restarts the mic with the saved `prefs.micId` and reconnects
-  `startTimer()` to the accumulated elapsed counter. `setPhase` is gated
-  by `state.paused` so late server `phase` events don't clobber `PAUSED`.
-- **Type popover**: Click "Type" → a pill-shaped input slides up from the
-  dock pill (`position: absolute` anchored). Submitting sends `text_input`
-  over WS, which bypasses STT. If pressed while AI is responding,
-  `skipCurrent()` runs first so the new question takes over.
-- **Mic meter**: 5 bars below the orb that bounce with the server's `level`
-  events; live evidence the mic is picking you up.
+- **Settings (gear icon, in dock pill)**: Centered floating modal, max-width
+  660 px, 18 px radius, dark shadow only (no accent glow). Contains:
+  Microphone picker; STT model picker; LLM model picker; Voice picker; Speech
+  Speed (Slow/Medium/Fast segmented buttons); Orb size slider (120–380 px);
+  Mic-meter and Captions toggles. Theme picker is **commented out** in HTML
+  (`<!-- THEME PICKER — reserved for future use … -->`); `els.themeSwatches`
+  is guarded with `?.` in JS so commenting it out causes no errors.
+- **Dock pill (bottom)**: `[Mute · Skip · Type · Pause · ⚙]`. No accent glow
+  on the pill. Status text below the dock (e.g. `LISTENING`) has no brackets
+  — the `::before`/`::after` pseudo-elements are empty strings.
+- **Pause** is a true pause/resume toggle: stops mic, drains playback, sends
+  `interrupt`, freezes timer, forces orb to `idle`. WebSocket stays open.
+  Resume restarts mic and reconnects timer.
+- **Type popover**: Pill-shaped input slides up from dock, no glow. Submitting
+  sends `text_input` over WS (bypasses STT). If AI is responding,
+  `skipCurrent()` runs first.
+- **Mic meter**: 5 bars below the orb driven by `level` events from server.
 
-Preferences (`localStorage` key `local-tts.prefs.v3`): `orbSize`,
-`showMeter`, `showCaptions`, `theme` (`jarvis` | `hacker` | `amber`), `micId`.
-Loaded before connect; any saved `micId` that no longer exists falls back to
-system default. Bump the version key when the prefs schema changes.
+Preferences (`localStorage` key `local-tts.prefs.v8`): `orbSize`,
+`showMeter`, `showCaptions`, `theme` (always `"ghost"`), `micId`, `sttModel`,
+`voice`, `speed`. Bump the version key whenever the prefs schema changes.
 
 ## Voice options (Kokoro)
 
@@ -444,5 +449,23 @@ turn buffer.
 ## Version history
 
 See [README.md#changelog](README.md#changelog) for user-facing release
-notes. Current version: **v0.2.0** (web UI + Kokoro + STT tuning + Pause).
+notes. Current version: **v0.3.0** (UI overhaul).
+
+### v0.3.0 — Web UI overhaul
+- **Single Ghost theme**: all colored themes (jarvis, amber, matrix) removed;
+  one clean white/grey matte theme. Theme picker commented out in settings.
+- **Header**: title and timer removed from view; shows only `voice · model`
+  inline text (no card border, no glow).
+- **Captions**: rectangular frames replaced with borderless open sections
+  (left-border line + floating label). INPUT label is dynamic — animates to
+  `LISTENING_` or `PROCESSING ···` based on phase.
+- **Ghost orb**: HUD rings removed; orb background replaced with a soft
+  elliptical atmospheric haze (no visible circle). Corner brackets dimmed.
+- **Scanline removed**: `body::before` drift animation gone.
+- **Settings**: accent glow removed from modal; labels neutral grey; speed
+  button active state simplified; theme grid uses `auto-fill`.
+- **Dock**: status text brackets removed; dock pill and text-input popover
+  glows removed.
+- **Static assets**: `?v=X` version strings removed from CSS/JS links —
+  server already sends `no-cache` headers for all `/static/` paths.
 
