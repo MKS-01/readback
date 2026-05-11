@@ -19,6 +19,7 @@ const els = {
   model: document.getElementById("model-name"),
   copyBtn: document.getElementById("copy-btn"),
   status: document.getElementById("status-text"),
+  inputLabel: document.getElementById("input-label"),
   muteBtn: document.getElementById("mute-btn"),
   skipBtn: document.getElementById("skip-btn"),
   typeBtn: document.getElementById("type-btn"),
@@ -117,6 +118,21 @@ function setPhase(phase) {
     speaking: "TRANSMITTING",
   };
   els.status.textContent = labels[phase] || phase.toUpperCase();
+
+  // Dynamic input label
+  if (els.inputLabel) {
+    els.inputLabel.classList.remove("is-listening", "is-thinking");
+    if (phase === "listening") {
+      els.inputLabel.textContent = "Listening";
+      els.inputLabel.classList.add("is-listening");
+    } else if (phase === "thinking") {
+      els.inputLabel.textContent = "Processing";
+      els.inputLabel.classList.add("is-thinking");
+    } else {
+      els.inputLabel.textContent = "Input";
+    }
+  }
+
   if (phase !== "speaking") setOrbScale(1);
   // Skip button is only meaningful while AI is responding.
   els.skipBtn.disabled = !(phase === "speaking" || phase === "thinking");
@@ -905,13 +921,13 @@ els.orb.addEventListener("click", () => {
 
 // ---------- Settings ----------
 
-const PREFS_KEY = "local-tts.prefs.v5";
-const THEMES = ["jarvis", "hacker", "amber"];
+const PREFS_KEY = "local-tts.prefs.v8";
+const THEMES = ["ghost"];
 const defaultPrefs = {
   orbSize: 240,
   showMeter: true,
   showCaptions: true,
-  theme: "jarvis",
+  theme: "ghost",
   micId: null,
   sttModel: null,
   voice: null,
@@ -933,13 +949,15 @@ function savePrefs(p) {
 const prefs = loadPrefs();
 
 function applyTheme(name) {
-  if (!THEMES.includes(name)) name = "jarvis";
+  if (!THEMES.includes(name)) name = "ghost";
   for (const t of THEMES) document.body.classList.remove("theme-" + t);
   document.body.classList.add("theme-" + name);
-  for (const card of els.themeSwatches.querySelectorAll(".theme-card")) {
-    const active = card.dataset.theme === name;
-    card.classList.toggle("active", active);
-    card.setAttribute("aria-checked", active ? "true" : "false");
+  if (els.themeSwatches) {
+    for (const card of els.themeSwatches.querySelectorAll(".theme-card")) {
+      const active = card.dataset.theme === name;
+      card.classList.toggle("active", active);
+      card.setAttribute("aria-checked", active ? "true" : "false");
+    }
   }
   prefs.theme = name;
 }
@@ -1005,7 +1023,7 @@ els.showCaptions.addEventListener("change", () => {
   savePrefs(prefs);
 });
 
-els.themeSwatches.addEventListener("click", (e) => {
+els.themeSwatches?.addEventListener("click", (e) => {
   const card = e.target.closest(".theme-card");
   if (!card) return;
   applyTheme(card.dataset.theme);
