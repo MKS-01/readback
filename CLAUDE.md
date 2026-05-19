@@ -1,471 +1,404 @@
 # local-tts — Project Context
 
-A local voice conversation app similar to sesame.com, running entirely on-device.
-Full voice loop: speak → STT → Ollama LLM → TTS → hear response.
-Also supports text-in with voice-out mode.
+A local voice + text assistant with a browser UI. Speak or type → STT → Ollama
+LLM (with optional tools) → Kokoro TTS → playback. Optional second-brain layer
+auto-files every conversation as a markdown transcript in an Obsidian vault.
+
+This project is **web-only**. The CLI is one command (`local-tts`) that boots
+a FastAPI server and serves a React UI; there is no terminal conversation mode,
+no PTT, no `click`/`rich`. If you see references to `cli.py`, `app.py`,
+`audio/recorder.py`, `ui/display.py`, or `pynput` in older docs/PRs, that
+codebase is gone.
 
 ## Hardware
-- Apple M5 Pro, 48GB unified memory
-- No CUDA. PyTorch MPS available, but **Kokoro runs faster on CPU** than MPS
-  on this machine (iSTFT op falls back to CPU and transfer overhead dominates
-  for an 82M-param model). Whisper also runs on CPU (CTranslate2 ARM NEON).
+
+- Apple M5 Pro, 48 GB unified memory (primary target).
+- No CUDA. PyTorch MPS is available, but **Kokoro runs faster on CPU** than MPS
+  on this machine — iSTFT (`aten::angle`) falls back to CPU and transfer
+  overhead dominates for an 82M-param model.
+- Whisper is CPU-only on Mac regardless (faster-whisper / CTranslate2 has no
+  MPS backend; ARM NEON int8 is the fast path).
 
 ## Stack
-- **LLM**: Ollama (already running locally, default model: `qwen3:8b`)
-- **TTS**: Kokoro-82M (`hexgrad/Kokoro-82M`) — fast, near-human, runs on CPU
-- **STT**: faster-whisper (`medium` default, CPU int8 mode, CTranslate2 ARM NEON — no MPS backend exists. Web UI hot-swaps to any of tiny/base/small/medium/large-v3-turbo/large-v3.)
-- **Audio I/O**: sounddevice + webrtcvad-wheels
-- **CLI/UI**: click + rich
 
-## Architecture: 3-Thread Streaming Pipeline
-
-```
-[Thread 1: recorder]    mic → VAD → utterance → transcription_queue
-[Thread 2: pipeline]    transcription_queue → Whisper → Ollama streaming
-                        → sentence splitter → Kokoro TTS → playback_queue
-[Thread 3: player]      playback_queue → sounddevice output
-
-Text mode:              terminal input → pipeline_thread (skips recorder/Whisper)
-
-Voice input modes (input.mode):
-  - "ptt" (default): hold the configured key to record. Mic only captures
-                     while held. PTT press during SPEAKING = interrupt + start
-                     new recording. Default key is "alt_r" (right Option) —
-                     pynput captures globally on macOS, so the key MUST NOT
-                     be one used in normal typing (never "space"!).
-  - "vad":           always-on, VAD-driven utterance detection. Interrupts use
-                     the duration + RMS gate (see VAD section).
-```
+- **LLM**: Ollama, default `qwen3:4b` (config.yaml). Tool-capable models
+  (`qwen3`, `llama3.1`, `gemma3-tools`) are required when `tools.enabled: true`.
+- **TTS**: Kokoro-82M (`hexgrad/Kokoro-82M`) on CPU; 20-voice curated picker.
+- **STT**: faster-whisper, 6-size hot-swappable picker (`tiny` → `large-v3`),
+  default `medium`, int8 CPU.
+- **Wake-word**: openWakeWord backend exists (`local_tts/wakeword/`, optional
+  `[wakeword]` extra) but the UI surface is currently hidden — see Wake-word
+  section for why and how to re-enable.
+- **Server**: FastAPI + WebSocket, single endpoint `/ws` per session.
+- **Frontend**: React 18 + TypeScript + Vite + zustand. three.js point-cloud
+  orb. Built into `local_tts/web/static/dist/`; the server serves the dist
+  build when present, falls back to the legacy `static/index.html` bundle when
+  the user hasn't run `npm run build` yet (rare; only useful for first-time
+  setup before they install Node).
 
 ## Project Structure
 
 ```
 local-tts/
-├── pyproject.toml
-├── config.yaml                  # user-editable defaults
+├── pyproject.toml             # v0.4.0; [wakeword] extras for openwakeword + onnxruntime
+├── config.yaml                # user-editable; all v0.4 features on by default
+├── README.md                  # user-facing; mirror for changelog
 │
 └── local_tts/
-    ├── cli.py                   # click: run, web, list-devices, download-models
-    ├── app.py                   # ConversationApp: thread topology + queue wiring (CLI mode)
-    ├── config.py                # Pydantic config loaded from config.yaml
-    ├── state.py                 # AppState, Phase enum, shared threading events
-    ├── audio/
-    │   ├── recorder.py          # sounddevice InputStream + webrtcvad VAD loop
-    │   └── player.py            # sounddevice playback, checks interrupt_event per chunk
-    ├── stt/transcriber.py       # faster-whisper wrapper (CPU, int8)
-    ├── llm/client.py            # ollama streaming + sentence boundary splitter
-    ├── tts/synthesizer.py       # Kokoro KPipeline wrapper (CPU)
-    ├── ui/display.py            # rich Live: conversation history + phase status (CLI)
-    └── web/                     # browser UI (FastAPI + WebSocket)
-        ├── server.py            # WS protocol, Session class, VAD-driven utterance segmentation
-        └── static/
-            ├── index.html       # sesame-style call interface
-            ├── styles.css       # dark theme, animated orb
-            ├── app.js           # WS client, mic capture, audio playback queue
-            └── recorder.worklet.js  # AudioWorklet: mic → 16k Int16 PCM
+    ├── __main__.py            # `local-tts` entry: argparse, optional --auto-cert/--cert/--key,
+    │                          # uvicorn boot, banner with TLS fingerprint
+    ├── config.py              # Pydantic config; load() drops unknown top-level keys + migrates
+    │                          # legacy `ollama.system_prompt` into the "default" persona
+    │
+    ├── llm/client.py          # LLMClient: Ollama streaming, sentence splitter,
+    │                          # persona snapshot, tool-call probe loop
+    ├── stt/transcriber.py     # faster-whisper wrapper, swap_model() under threading.Lock,
+    │                          # SUPPORTED_MODELS allowlist
+    ├── tts/synthesizer.py     # Kokoro KPipeline wrapper, swap_voice() under threading.Lock,
+    │                          # SUPPORTED_VOICES curated picker (20 voices)
+    │
+    ├── tools/                 # function-calling
+    │   ├── base.py            # Tool protocol (name, schema, run(args) -> str)
+    │   ├── registry.py        # ToolRegistry: allowlist filter + dispatch
+    │   ├── clock.py           # local time
+    │   └── web_search.py      # DDG HTML scraper; WebSearchProvider Protocol for swap-in providers
+    │
+    ├── memory/                # session persistence + topic-organized markdown export
+    │   ├── session_writer.py  # SessionWriter: JSONL mirror + finalize() writes markdown
+    │   └── topic_classifier.py  # LLM call → folder slug (sanitized regex)
+    │
+    ├── wakeword/
+    │   └── detector.py        # lazy openWakeWord wrapper; auto-downloads models and
+    │                          # forces inference_framework="onnx" (no tflite-runtime on Apple Silicon)
+    │
+    └── web/
+        ├── server.py          # FastAPI app, Session class, WS protocol, VAD utterance
+        │                      # segmentation, tools/persona/wakeword/voice swap handlers
+        ├── static/            # legacy vanilla-JS fallback + Vite output:
+        │   ├── index.html     # legacy bundle (still served if dist/ is missing)
+        │   ├── app.js         # legacy bundle (1295 lines; superseded by React)
+        │   ├── styles.css     # legacy bundle
+        │   ├── recorder.worklet.js   # AudioWorklet: mic → 16k Int16 PCM (used by BOTH bundles)
+        │   └── dist/          # Vite build output — `npm run build` writes here
+        └── frontend/          # React app source — vite build target = ../static/dist
+            ├── package.json   # react, react-dom, three, zustand
+            ├── vite.config.ts # outDir: '../static/dist'
+            └── src/
+                ├── main.tsx, App.tsx
+                ├── components/    # Header (6 chips), Dock, Captions, SettingsModal,
+                │                  # TypePopover, MicMeter, OrbContainer, Picker, icons
+                ├── lib/           # ws.ts, audioEngine.ts, brain.ts (three.js), prefs.ts
+                └── state/         # zustand store
 ```
 
 ## Critical Implementation Notes
 
+### Server pipeline (web/server.py)
+
+- Single `Session` per WebSocket connection. No threads: STT/LLM/TTS each run
+  inside `asyncio.to_thread` so the event loop stays free for the audio fan-in
+  + control messages.
+- LLM streaming runs in a producer **thread** (not coroutine) that pushes
+  finished sentences onto an `asyncio.Queue` via `loop.call_soon_threadsafe`.
+  The consumer races each `queue.get()` against an `interrupt_event` so Skip
+  takes effect mid-sentence without waiting for Ollama to finish.
+- Mic frames are dropped entirely while `pipeline_task is not None`. This is
+  the only mechanism that prevents speaker bleed from triggering the wake-word
+  detector or VAD — there is no separate "muted-during-playback" flag and no
+  300 ms grace tail. If a future change splits the pipeline so audio is
+  accepted during speaking, **this gate must be replaced** or the wake-word
+  detector will self-fire on every reply.
+- Utterance segmentation: 8 speech frames to start (~240 ms), 25 silence
+  frames to end (~750 ms), 12-frame minimum (~360 ms — drops noise blips).
+
+### Wake-word (deferred — UI hidden, backend retained)
+
+**Why hidden:** openWakeWord's bundled keywords are `alexa`, `hey_jarvis`,
+`hey_mycroft`, `hey_rhasspy`, `timer`, `weather`. Custom keywords require
+multi-hour training via openWakeWord's notebook. Free-tier custom-keyword
+support is planned via a Picovoice Porcupine backend; until then the picker
+in `SettingsModal.tsx` and the `mode` chip in `Header.tsx` are commented out
+and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
+
+**What still works:** the backend stack — `detector.py`, server WS handler
+(`set_input_mode`), `_handle_input_mode`, the `_process_frame` wake-word gate
+— is unchanged. To re-enable:
+1. Uncomment the `wakeword:` and `input:` blocks in `config.yaml`.
+2. Restore the listening-mode picker in `SettingsModal.tsx` (the prop is
+   `onChangeInputMode`; the WS message is `set_input_mode`).
+3. Restore the `mode` chip in `Header.tsx`.
+4. `pip install -e ".[wakeword]"` if not already.
+
+**Implementation notes (still accurate):**
+- Loaded lazily. `WakeWordUnavailable` raised on import or model-load
+  failure; server reports back as an `input_mode` error WS message without
+  changing the actual mode.
+- **Always uses ONNX on Apple Silicon.** `tflite-runtime` has no Apple
+  Silicon wheel. `detector.py` derives the framework: built-in keyword OR
+  `.onnx` path → onnx; only an explicit `.tflite` custom path uses tflite.
+- **Auto-downloads models** on first load via
+  `openwakeword.utils.download_models([name])` — the wheel ships no model
+  files. ~7 MB total: feature models (`melspectrogram`, `embedding`,
+  `silero_vad`) + the chosen wake word in both .tflite + .onnx variants.
+- Frame contract: `process_int16(frame: bytes)` accepts arbitrary-length
+  int16 mono PCM at 16 kHz. Internal buffer flushes 1280-sample (80 ms)
+  blocks to the detector.
+- `_reset_vad()` clears `wake_triggered` AND calls `detector.reset()` on
+  every utterance boundary, so each new utterance requires a fresh trigger.
+
+### Tools (llm/client.py + tools/)
+
+- `tools.enabled: true` switches `stream_response()` into the
+  `_stream_tokens_with_tools` branch: non-streaming probe → if `tool_calls`,
+  run + append result as `{role: "tool", name, content}` → re-probe. Capped
+  at `_MAX_TOOL_HOPS = 3`. After the cap (or when no tool_calls are returned),
+  a final streaming chat call yields tokens to the sentence splitter.
+- We deliberately don't stream during tool-call hops — partial planning
+  preamble speaks awkwardly before the actual answer.
+- `ToolRegistry.run()` never raises; tool failures become string content the
+  model can read and recover from (`[tool error] <name>: <msg>`).
+- `web_search` uses a `WebSearchProvider` Protocol (`name`, `search(query, k)`).
+  Only `DuckDuckGoProvider` ships today; `build_default_provider(name)` is
+  the only place to add Tavily/Brave. Provider parses HTML with the stdlib
+  `html.parser`, no extra deps.
+
+### Persona (llm/client.py)
+
+- `PersonaConfig` seeds three personas (`default`, `concise`, `researcher`)
+  via `_default_personas()`. A 4th `custom` slot is created on first
+  `set_custom_prompt()` call from the UI.
+- `swap_persona(name)` mirrors `Transcriber.swap_model`: `threading.Lock`,
+  atomic write of `personas.active`. `stream_tokens()` snapshots
+  `active_persona.system_prompt` once at the top so an in-flight response
+  finishes on its original prompt — no half-swap mid-sentence.
+- Legacy `ollama.system_prompt` in `config.yaml` is migrated at load time:
+  if the user has it set AND no `persona` section, the value overrides the
+  seeded `default` persona's prompt. Other seed personas stay intact.
+
+### Obsidian / session persistence (memory/)
+
+- `SessionWriter` is constructed per session unconditionally; all methods are
+  no-ops when `obsidian.enabled: false`, so wiring stays the same regardless
+  of feature state.
+- `start()` opens `<memory.session_dir>/<sid>.jsonl` (tilde-expanded) and
+  appends `{event: "start", ...}`. Each `append_turn()` appends a
+  `{event: "turn", role, text, ts}` line — crash-recovery mirror.
+- `finalize(llm)` runs at WS disconnect on a background thread
+  (`asyncio.to_thread`, fire-and-forget). On sessions with ≥2 turns it calls
+  `propose_topic(llm, summary)`; <2 turns lands in `unsorted/`.
+- Topic classifier uses `temperature=0` and `_sanitize()` regex-clamps the
+  reply to `[a-z0-9-]{1,32}`. Anything outside falls back to `UNSORTED` so
+  a hallucinated path-traversal answer can't escape the vault root.
+- Final markdown is `<vault_root>/<topic>/YYYY-MM-DD--<sid_prefix>.md` with
+  YAML frontmatter (`session_id`, `started`, `ended`, `duration_sec`, `model`,
+  `voice`, `persona`, `topic`, `turn_count`) + human-readable turn-by-turn body.
+- JSONL is deleted on successful markdown commit.
+
 ### Kokoro TTS (tts/synthesizer.py)
-- Use `kokoro.KPipeline(lang_code='a', device='cpu')` — CPU beats MPS on this 82M model
-  because iSTFT (`aten::angle`) falls back to CPU and transfer overhead dominates.
-- Default voice `af_heart`; other good options: `af_bella`, `af_sarah`, `am_michael`, `bf_emma`.
-- KPipeline is stateless — no conversational context to manage (unlike CSM).
-- First call downloads ~330MB model + voice pack from `hexgrad/Kokoro-82M`.
-- Measured RTF on M5 Pro CPU: ~0.15× (≈500ms to synth a 3.4s sentence).
 
-### Recorder (audio/recorder.py)
-- 16kHz, blocksize=480 (30ms frames — matches webrtcvad requirement)
-- Audio callback emits `(pcm_bytes, rms_float)` tuples to the recording loop.
-- Two loop implementations selected by `input.mode`:
-
-**PTT mode** (`_ptt_loop`, default):
-- Mic frames are only accumulated while `_ptt_active` event is set.
-- `ptt_press()` / `ptt_release()` are called from the pynput key listener
-  in `app.py`. Press while phase==SPEAKING also fires `state.request_interrupt()`.
-- On release, frames are submitted if duration ≥ `input.min_recording_ms`
-  (default 200ms — filters out accidental key taps).
-- No VAD analysis runs in this mode; the user defines utterance boundaries.
-
-**VAD mode** (`_vad_continuous_loop`, legacy):
-- 10 speech frames → SPEECH; 23 silence frames (~700ms) → finalize utterance
-- **Interrupt during SPEAKING phase requires BOTH:**
-  - sustained speech ≥ `vad.interrupt_speech_ms` (default 900ms / 30 frames), AND
-  - per-frame RMS ≥ `vad.interrupt_rms_threshold` (default 0.05)
-- The RMS gate filters out the AI's own playback bleeding from speaker → mic.
-  Speaker bleed typically ~0.01–0.03 RMS; direct user speech ~0.05–0.20.
-- Set `vad.allow_interrupt: false` to disable interrupts entirely.
-
-### Keyboard listener (app.py::_start_key_listener)
-- Single `pynput.keyboard.Listener` handles both PTT (press/release) and the
-  F4 voice/text toggle.
-- pynput captures keys GLOBALLY on macOS — events fire regardless of which
-  app is focused. Therefore the PTT key MUST be one not used in normal
-  typing. Default `alt_r` (right Option) is safe; `space` is catastrophic
-  (every space typed anywhere on the system fires PTT and submits a brief
-  mic snippet, which Whisper often hallucinates as "Yeah." or "Thanks for
-  watching.").
-- macOS requires Accessibility permission for the host process (Terminal,
-  iTerm, etc.). Without it, pynput may silently drop events — PTT won't
-  work and the run banner shows "This process is not trusted!". Grant via
-  System Settings → Privacy & Security → Accessibility, then restart the
-  terminal app.
-- PTT is also gated by `state.get_mode() == VOICE` so the key is ignored
-  in text mode.
-
-### Sentence streaming (llm/client.py)
-- Split on `.`, `!`, `?` followed by whitespace; min 8 chars per sentence
-- System prompt: conversational, no markdown/bullets/special chars, 3-4 sentences max
-- Trim conversation history to last 10 turns before each Ollama call
-- `_strip_markdown` regex: `^[>#\-\*]+\s*` (NOT `^[\s>#\-\*]+`). The latter
-  ate leading whitespace from per-token chunks like `" am"` → `"am"`, collapsing
-  streamed output into `"Iamsorry"`. Keep the `\s` out of the character class.
+- `KPipeline(lang_code='a', device='cpu')` — CPU beats MPS on this 82 M model
+  because iSTFT (`aten::angle`) falls back to CPU and transfer overhead
+  dominates. Don't switch this without re-benchmarking.
+- First call downloads ~330 MB model + voice pack from `hexgrad/Kokoro-82M`.
+- Voice name format: `{lang}{gender}_{name}`. First letter MUST match
+  `lang_code` — so switching between American (`a`) and British (`b`) voices
+  rebuilds the pipeline. `swap_voice()` is locked.
+- Measured RTF on M5 Pro CPU: ~0.15× (≈500 ms to synth a 3.4 s sentence).
+- `SUPPORTED_VOICES` is a curated tuple of `(id, label)` pairs (20 voices)
+  exposed via the WS `config.voices_available` payload.
 
 ### STT (stt/transcriber.py)
-- `WhisperModel("medium", device="cpu", compute_type="int8")` —
-  default checkpoint. **faster-whisper / CTranslate2 has no MPS backend,
-  so Whisper is CPU-only on Mac regardless of Apple GPU availability.**
-  Sizes: tiny ~75MB, base ~150MB, small ~480MB, medium ~1.5GB,
-  large-v3-turbo ~1.6GB, large-v3 ~3GB. On CPU the encoder dominates and
-  `large-v3-turbo` (full large encoder, 4 decoder layers) is often only
-  marginally faster than `medium` — the "6× faster than large-v3" claim
-  is GPU-bound. `medium` is the default because it lands consistently in
-  the 500-800ms window for chat-length utterances; bump up to
-  `large-v3-turbo` from the web UI if accuracy on accented speech matters
-  more than latency.
-- Runtime model picker: `Transcriber.swap_model(name)` hot-swaps
-  checkpoints under a `threading.Lock`. `transcribe()` reads the model
-  reference under a single atomic load so an in-flight call finishes
-  against the old weights — no half-swap. The web UI exposes this via
-  the `set_stt_model` WS message and a select in the settings panel;
-  `SUPPORTED_MODELS` is the curated allowlist (tiny, base, small,
-  medium, large-v3-turbo, large-v3). Per-call config edits to
-  `cfg.model` survive only the process lifetime.
-- `beam_size` configurable via `whisper.beam_size` (default 5). 5 keeps
-  total STT latency in the 500-1000ms window for `medium`-class models;
-  bump to 10 for max accuracy on `large-v3-turbo` / `large-v3` if you
-  don't mind +200-400ms. `best_of` mirrors `beam_size` and `patience=1.0`
-  is hardcoded.
-- `no_speech_threshold=0.6, log_prob_threshold=-1.0,
-  compression_ratio_threshold=2.4` — reject low-confidence segments as
-  empty so faint speaker-bleed buffers stop hallucinating "Yeah." /
-  "Thanks for watching."
-- `temperature=[0.0, 0.2, ..., 1.0]` — explicit fallback schedule for
-  low-confidence retries (this is faster-whisper's default; kept explicit
-  so future tweaks are obvious).
-- `condition_on_previous_text=False` — avoids hallucinating context bias
-  from prior segments when audio is short.
-- `vad_filter=True` suppresses Whisper's silence hallucinations.
-- Module-level `warnings.filterwarnings("ignore", ..., RuntimeWarning)`
-  silences faster-whisper's `mel_filters @ magnitudes` divide-by-zero /
-  overflow / invalid-value warnings on near-silent buffers. The math
-  produces NaN/-inf which Whisper handles internally; the warnings are noise.
 
-## Install Sequence (order matters)
+- `WhisperModel("medium", device="cpu", compute_type="int8")` default.
+  faster-whisper / CTranslate2 has no MPS backend — Whisper is CPU-only.
+- Sizes (int8): tiny ~75 MB, base ~150 MB, small ~480 MB, medium ~1.5 GB,
+  large-v3-turbo ~1.6 GB, large-v3 ~3 GB.
+- Runtime picker: `Transcriber.swap_model(name)` hot-swaps under a
+  `threading.Lock`. `transcribe()` reads `self.model` under a single atomic
+  load so an in-flight call finishes against the old weights — no half-swap.
+- `beam_size` default 5 (balanced); 10 = max accuracy at +200–400 ms.
+  `best_of` mirrors `beam_size`. `patience=1.0` is hardcoded.
+- Hallucination guards (silence-bleed):
+  `no_speech_threshold=0.6`, `log_prob_threshold=-1.0`,
+  `compression_ratio_threshold=2.4`, `condition_on_previous_text=False`,
+  `vad_filter=True, vad_parameters={"min_silence_duration_ms": 300}`.
+  If you still see "Yeah." / "Thanks for watching." artifacts, raise
+  `no_speech_threshold` toward 0.7 or `log_prob_threshold` toward -0.7.
+- Module-level `warnings.filterwarnings("ignore", ..., RuntimeWarning)`
+  silences faster-whisper's `mel_filters @ magnitudes` divide-by-zero noise
+  on near-silent buffers.
+
+### Sentence streaming (llm/client.py)
+
+- Split on `.`, `!`, `?` followed by whitespace; min 8 chars per sentence.
+- Sub-min fragments are stitched onto the next part rather than yielded —
+  prevents "Mr." or "3.14" from speaking solo.
+- `_strip_markdown` regex: `^[>#\-\*]+\s*` (NOT `^[\s>#\-\*]+`). The latter
+  ate leading whitespace from per-token chunks like `" am"` → `"am"`,
+  collapsing streamed output into `"Iamsorry"`. Keep `\s` out of the class.
+- History trimmed to `ui.history_turns * 2` messages before each Ollama call
+  (user + assistant = 1 turn).
+
+## WebSocket protocol (`/ws`)
+
+Client → server:
+- Binary: raw Int16 PCM @ 16 kHz mono (mic audio).
+- JSON: `mute`, `unmute`, `interrupt`, `text_input {text}`, `set_voice {voice}`,
+  `set_stt_model {model}`, `set_model {model}` (Ollama LLM swap),
+  `set_speed {speed}`, `set_persona {name}`, `set_persona_custom_prompt {prompt}`,
+  `set_input_mode {mode: "vad"|"wake_word"}`, `set_tools_enabled {value: bool}`,
+  `set_tool_allowed {tool, value: bool}`.
+
+Server → client:
+- Binary: raw Float32 PCM @ 24 kHz mono (TTS output).
+- JSON: `phase {value}`, `transcript {role, text, session_id}`, `level {value}`,
+  `config {session_id, voice, voices_available, model, models_available, stt_model,
+  stt_models_available, speed, persona, personas_available, tools_enabled,
+  tools_available, tools_allowed, input_mode, wakeword_model, obsidian_enabled}`,
+  `error {message}`, `stt_model {state: loading|ready|error, model, message?}`,
+  `voice {state, voice, message?}`, `model {state, model}`,
+  `persona {state, name, personas_available?, message?}`,
+  `input_mode {value, state?, message?}`,
+  `tools_enabled {value}`, `tools_allowed {value}`.
+
+### Reconnect behavior (App.tsx config-message handler)
+
+The `config` payload arrives on every connect and re-seeds the store. The
+client then **only** re-emits saved prefs for `sttModel`, `voice`, and `speed`
+that diverge from server defaults. Persona / tools-enabled / inputMode /
+customPrompt are received from the server but **not** sent back on reconnect —
+those mirror `config.yaml` on each fresh connection. If you change this, also
+update the README (the prior version of the docs claimed all of these
+round-trip and it was incorrect).
+
+## Frontend (web/frontend/)
+
+- React 18 functional components, single `App.tsx` orchestrator. The audio
+  engine, WS client, and three.js brain controller live OUTSIDE the React
+  tree as singletons; they push events into a zustand store, so React
+  re-renders never tear down the socket or audio context.
+- Header is five clickable chips (`voice` · `model` · `persona` · `tools` ·
+  `vault`). Every chip opens Settings — no separate "open settings"
+  affordance is necessary. (A sixth `mode` chip for VAD / wake-word is
+  retained in the wake-word deferral notes but currently not rendered.)
+- INPUT label animates per phase: `LISTENING_` (blinking cursor CSS) /
+  `PROCESSING ···` (dots reveal) / `Input` (fallback). The animations are
+  pure CSS classes flipped from `setPhase()`.
+- `AudioWorkletProcessor` (`recorder.worklet.js`) downsamples device-native
+  rate (typically 48 kHz) → 16 kHz Int16 in ~60 ms chunks. Output uses
+  `AudioBufferSourceNode` queued at `state.playbackTime` for gapless playback.
+  An `AnalyserNode` drives the orb scale via `requestAnimationFrame` while
+  `phase === "speaking"`.
+- **Single theme: Ghost** — `--accent: #f0f0f0`, matte white/grey. Theme
+  picker reserved (commented out in HTML); store keeps `theme: "ghost"`.
+- Prefs key: `localStorage["local-tts.prefs.v9"]`. v8→v9 migration runs once
+  in `loadPrefs()` and adds `persona`, `customPersonaPrompt`, `inputMode`,
+  `toolsEnabled`. Bump the version key whenever the prefs schema changes.
+
+## CLI
+
+```
+local-tts                                  # http://127.0.0.1:8000
+local-tts --host 0.0.0.0 --port 8000       # LAN reachable (HTTP)
+local-tts --host 0.0.0.0 --auto-cert       # LAN + auto self-signed cert; banner
+                                           # prints SHA-256 fingerprint + /cert.pem URL
+local-tts --host 0.0.0.0 --cert c.pem --key k.pem   # bring your own cert
+local-tts --model qwen3:1.7b               # override ollama.model for this run
+local-tts --config /path/to/config.yaml    # custom config
+```
+
+Auto-cert: stored at `~/.local-tts/certs/{cert,key}.pem`, regenerated when
+the detected LAN IP changes (tracked in `cert.meta.json`). Cert SAN includes
+the LAN IP, `127.0.0.1`, and `localhost`. 825-day validity matches Safari's
+trust ceiling.
+
+## Voice options (Kokoro)
+
+Voice name = `{lang}{gender}_{name}`. The first letter MUST match
+`kokoro.lang_code`.
+
+- American English (`lang_code: "a"`): `af_heart` ★, `af_bella` ★, `af_nicole`,
+  `af_sarah`, `af_aoede`, `af_kore`, `af_nova`, `af_sky`, `am_michael`,
+  `am_adam`, `am_echo`, `am_puck`
+- British English (`lang_code: "b"`): `bf_emma` ★, `bf_isabella`, `bf_alice`,
+  `bf_lily`, `bm_george`, `bm_lewis`, `bm_daniel`, `bm_fable`
+- Other langs: Japanese `j*`, Mandarin `z*`, Spanish `e*`, French `f*`,
+  Hindi `h*`, Italian `i*`, Portuguese `p*` (none in `SUPPORTED_VOICES`).
+
+Best naturalness picks: **af_heart**, **af_bella**, **bf_emma**.
+
+## Latency budget (M5 Pro targets)
+
+| Stage | Estimate |
+|---|---|
+| VAD silence-end detection | ~750 ms |
+| Whisper large-v3-turbo @ beam=5 (5s audio) | ~500–900 ms |
+| Whisper medium @ beam=5 (5s audio) | ~500–800 ms |
+| Whisper small @ beam=5 (5s audio) | ~300–500 ms |
+| First LLM sentence (qwen3:4b) | ~300–600 ms |
+| Kokoro synthesis of first sentence | ~300–500 ms |
+| **Total to first spoken word** | ~2.5–3 s |
+
+Tool-call probes add one full Ollama non-streaming round-trip per hop
+(usually 400–800 ms) before the final response streams. Three hops max.
+
+## Echo / feedback handling
+
+The web browser's `getUserMedia({ echoCancellation: true })` handles AEC, so
+there's no PTT key, no RMS gate, no headphones requirement. Hallucination
+guards in `stt/transcriber.py` (see STT section above) handle the residual
+"AI bleed picked up during LISTENING" case where Whisper would otherwise
+emit "Yeah." or "Thanks for watching." on a near-silent buffer.
+
+## Install & verification
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install torch==2.4.0 torchaudio==2.4.0
 pip install -e .
-local-tts download-models                          # whisper medium + Kokoro-82M (~1.6GB)
+pip install -e ".[wakeword]"             # optional; only needed if you re-enable the wake-word UI
+cd local_tts/web/frontend && npm install && npm run build && cd ../../..
+local-tts                                # boots; opens http://127.0.0.1:8000
 ```
 
-## Dependencies
+First launch:
+1. Whisper `medium` (~1.5 GB) + Kokoro-82M voice pack download silently.
+2. Open the page → orb breathes, "STANDBY" status.
+3. Say "hello" → orb scales to listening → "ANALYZING" → reply streams.
+4. (Tools on) Say "what time is it" → log shows `tool_call: clock -> N chars`.
+5. (Obsidian on) Have a 2+ turn convo, close tab → markdown lands at
+   `~/Documents/Obsidian/local-tts/<topic-slug>/YYYY-MM-DD--<6hex>.md`.
+6. (Wake-word) UI hidden by default; see Wake-word section to re-enable.
 
-```toml
-"torch==2.4.0", "torchaudio==2.4.0",
-"faster-whisper==1.2.1",
-"ollama==0.6.2",
-"sounddevice==0.5.5",
-"numpy>=2.0.0,<3.0.0",
-"webrtcvad-wheels==2.0.14",   # prebuilt ARM64 wheels
-"click==8.1.8", "rich==15.0.0", "pynput==1.8.1",
-"pydantic==2.13.3", "pyyaml>=6.0",
-"kokoro>=0.9.4", "misaki[en]>=0.9.4", "soundfile>=0.12.1"
-```
+## Things that look like bugs but aren't
 
-## CLI Commands
+- **Wake-word first-load delay (~2–5 s, no UI feedback).** If the UI is
+  re-enabled, `download_models` blocks the WS handler thread (it's wrapped
+  in `asyncio.to_thread`, so the event loop is free, but the UI shows no
+  spinner). Track via a new `wakeword {state: downloading|loading|ready|error}`
+  WS message when the picker is revived.
+- **Tools cause first-token delay even on tool-free answers.** The probe is
+  always non-streaming because we can't know up-front whether the model will
+  ask for a tool. Toggling tools OFF in Settings restores streaming first-token.
+- **Markdown export silently noops if `obsidian.enabled: false`.**
+  `SessionWriter` is constructed unconditionally but all methods early-return.
+  Toggle the config flag, restart the server.
+- **Persona "custom" doesn't appear in personas_available until first save.**
+  It's added to `PersonaConfig.personas` on first `set_custom_prompt` call.
+  Cosmetic only.
 
-```
-local-tts run [--model MODEL] [--text-mode] [--config path]
-local-tts web [--host 127.0.0.1] [--port 8000] [--model MODEL]   # browser UI
-local-tts list-devices        # show sounddevice input/output device indices
-local-tts list-models         # show Ollama models available on configured host
-local-tts download-models     # pre-download whisper + Kokoro models (~400MB)
-local-tts test-tts "text"     # synthesize one sentence and play it (smoke test)
-```
+## Roadmap candidates (not committed)
 
-## Web mode (local_tts/web/)
+- Round-trip persona/tools/inputMode/customPrompt prefs on reconnect (currently
+  only sttModel/voice/speed are re-emitted in `App.tsx:78-100`).
+- Wake-word download progress over WS.
+- More search providers behind `WebSearchProvider` (Tavily, Brave).
+- Long-term `memory.md` separate from session JSONL — explicit `remember(...)`
+  tool, never auto-extracted.
+- Wake-lock + PWA manifest for phone hands-free use.
 
-`local-tts web` serves a sesame-style call interface in the browser. Why
-this exists alongside the CLI:
-- **Echo cancellation is free** — `getUserMedia({ echoCancellation: true })`
-  uses the OS's AEC. No PTT key, no RMS gates, no headphones requirement.
-- **No macOS Accessibility permission** needed — the browser handles input.
-- **Cross-platform** (Mac, Linux, Windows, mobile) with no extra work.
+## Version
 
-WebSocket protocol (`/ws`):
-- Client → server:
-  - binary frames: Int16 PCM @ 16kHz, mono (mic audio)
-  - JSON text frames: `{"type": "mute"|"unmute"|"interrupt"|"text_input"|"set_stt_model", "text": "...", "model": "..."}`
-- Server → client:
-  - binary frames: Float32 PCM @ 24kHz, mono (TTS output)
-  - JSON text frames: `phase`, `transcript {role: user|assistant}`, `level`,
-    `config {voice, model, stt_model, stt_models_available}`, `error`,
-    `stt_model {state: loading|ready|error, model, message?}`
-
-Server (`web/server.py::Session`):
-- Accumulates incoming Int16 bytes, slices into 30ms frames for webrtcvad,
-  segments utterances (8 frames speech start / 25 silence end / 12 minimum).
-- `_run_pipeline(*, audio=None, text=None)` runs STT (skipped for text path)
-  → LLM → Kokoro inside `asyncio.to_thread` so the event loop stays free.
-- TTS audio is sent per-sentence as it becomes available so the client can
-  start playback before the full response is generated.
-- `interrupt` flag is `asyncio.Event` checked between sentences and is also
-  set by a `text_input` arrival mid-response.
-
-Frontend (`web/static/`):
-- Vanilla JS, no framework. `recorder.worklet.js` is an AudioWorkletProcessor
-  that downsamples mic input (device native, typically 48kHz) to 16kHz Int16
-  chunks of ~60ms each. Playback uses `AudioBufferSourceNode` queued at
-  `state.playbackTime` so chunks are gapless. An `AnalyserNode` drives the
-  orb's `--scale` CSS variable for amplitude-reactive animation.
-- AI captions accumulate sentence-by-sentence into `state.aiAccum`; reset on
-  new user turn or Skip. Container is `max-height: 34vh` with overflow auto.
-  A floating **Copy** button (`#copy-btn`) writes `state.aiAccum` to the
-  clipboard; it is hidden until the first sentence arrives.
-- **Single theme: Ghost** — white/grey matte palette (`--accent: #f0f0f0`).
-  All colored themes (jarvis, amber, matrix) have been removed. Theme picker
-  is commented out in settings HTML for future use. `body.theme-ghost` overrides
-  `--bg`, `--text`, etc. in addition to the orb vars. The orb is a three.js
-  point cloud rendered into `#brain-canvas` with a bloom postprocess pass —
-  colors are pulled at runtime from `getComputedStyle(body).getPropertyValue("--accent")`.
-- **Ghost orb**: HUD rings hidden (`display: none`). No radial-gradient
-  background or box-shadow glow on the orb element itself. Instead, a soft
-  elliptical dark haze (rgba ~32,32,32 fading to transparent at 78%) is
-  applied per-phase via `body.theme-ghost .orb.*` rules — atmospheric depth
-  without a visible circle. Corner brackets stay at 30% opacity, no filter.
-- **Static assets served without version strings** — the FastAPI middleware
-  already sends `Cache-Control: no-cache, no-store` for all `/static/` paths,
-  so `?v=X` cache-busting is unnecessary. Do not add version suffixes to
-  `styles.css` or `app.js` links in `index.html`.
-
-UI layout:
-- **Header**: No app title or timer visible. A minimal inline line at the top
-  (`padding-top: 32px`) reads `voice BELLA · model QWEN3:4B` — label 10px
-  monospace muted, value 13px accent, dot separator. `#timer` and
-  `#assistant-name` remain in DOM (hidden) for JS timer logic.
-- **Captions**: Borderless open sections — no rectangular frames. Each section
-  has a small block label above the content and a 1px left-border accent line.
-  The INPUT label (`#input-label`) is dynamic: updates in `setPhase()` to show
-  `LISTENING_` (blinking cursor CSS animation, class `is-listening`) or
-  `PROCESSING ···` (dots-reveal CSS animation, class `is-thinking`); falls
-  back to `Input` for idle/speaking phases.
-- **Scanline**: Removed. The `body::before` scanline animation and its
-  `@keyframes scanline` are gone.
-
-UI controls:
-- **Settings (gear icon, in dock pill)**: Centered floating modal, max-width
-  660 px, 18 px radius, dark shadow only (no accent glow). Contains:
-  Microphone picker; STT model picker; LLM model picker; Voice picker; Speech
-  Speed (Slow/Medium/Fast segmented buttons); Orb size slider (120–380 px);
-  Mic-meter and Captions toggles. Theme picker is **commented out** in HTML
-  (`<!-- THEME PICKER — reserved for future use … -->`); `els.themeSwatches`
-  is guarded with `?.` in JS so commenting it out causes no errors.
-- **Dock pill (bottom)**: `[Mute · Skip · Type · Pause · ⚙]`. No accent glow
-  on the pill. Status text below the dock (e.g. `LISTENING`) has no brackets
-  — the `::before`/`::after` pseudo-elements are empty strings.
-- **Pause** is a true pause/resume toggle: stops mic, drains playback, sends
-  `interrupt`, freezes timer, forces orb to `idle`. WebSocket stays open.
-  Resume restarts mic and reconnects timer.
-- **Type popover**: Pill-shaped input slides up from dock, no glow. Submitting
-  sends `text_input` over WS (bypasses STT). If AI is responding,
-  `skipCurrent()` runs first.
-- **Mic meter**: 5 bars below the orb driven by `level` events from server.
-
-Preferences (`localStorage` key `local-tts.prefs.v8`): `orbSize`,
-`showMeter`, `showCaptions`, `theme` (always `"ghost"`), `micId`, `sttModel`,
-`voice`, `speed`. Bump the version key whenever the prefs schema changes.
-
-## Voice options (Kokoro)
-
-Voice name = `{lang}{gender}_{name}`. The first letter MUST match `kokoro.lang_code`.
-
-- American English (`lang_code: "a"`): `af_heart` ★, `af_bella` ★, `af_nicole`, `af_sarah`,
-  `af_aoede`, `af_kore`, `af_nova`, `af_sky`, `am_michael`, `am_adam`, `am_echo`, `am_puck`
-- British English (`lang_code: "b"`): `bf_emma`, `bf_isabella`, `bf_alice`, `bf_lily`,
-  `bm_george`, `bm_lewis`, `bm_daniel`, `bm_fable`
-- Other langs: Japanese `j*`, Mandarin `z*`, Spanish `e*`, French `f*`, Hindi `h*`,
-  Italian `i*`, Portuguese `p*`
-
-Best naturalness picks: **af_heart**, **af_bella**, **bf_emma**.
-
-## Latency Budget (M5 Pro targets)
-
-| Stage | Estimate |
-|---|---|
-| VAD silence detection | 700ms |
-| Whisper large-v3-turbo @ beam_size=5 (5s audio)  | ~500-900ms  |
-| Whisper medium @ beam_size=5 (5s audio)          | ~500-800ms  |
-| Whisper small @ beam_size=5 (5s audio)           | ~300-500ms  |
-| First LLM sentence | ~600-900ms |
-| Kokoro synthesis of first sentence | ~300-500ms |
-| **Total to first spoken word** | ~2.5-3 seconds |
-
-If real-time feel matters more than transcription accuracy, drop Whisper
-to `small` or `base` and `beam_size=1` in `stt/transcriber.py`.
-
-## Verification Checklist
-
-1. `local-tts list-devices` → correct mic and speaker shown
-2. `local-tts download-models` → whisper + Kokoro download without error
-3. `local-tts test-tts "hello"` → hear synthesized speech in current voice
-4. `local-tts run --text-mode` → type "hello", hear spoken response
-5. `local-tts run` (voice mode, PTT default) → hold SPACE, speak, release;
-   transcription appears, response is spoken back
-6. PTT during AI speech → press SPACE while AI talks, AI stops immediately
-   and starts recording your new utterance
-7. AI does NOT self-interrupt (PTT keeps mic muted while AI speaks)
-8. F4 toggle → switch voice ↔ text mode, status bar updates
-9. macOS Accessibility permission granted to terminal app (otherwise PTT silently fails)
-
-## LLM model picks (latency vs quality)
-
-Voice loop feels real-time when LLM first-token < ~400ms. Smaller is better:
-
-| Model | First-token | Notes |
-|---|---|---|
-| `qwen3:1.7b` | ~150ms | Surprisingly capable for chit-chat |
-| `qwen3:4b` | ~300ms | Best speed/quality balance |
-| `llama3.2:3b` | ~250ms | Very natural conversation |
-| `gemma3:4b` | ~300ms | Warm/conversational tone |
-| `qwen3:8b` (default) | ~700–900ms | Best reasoning, noticeable wait |
-
-Switch at runtime: `local-tts run --model qwen3:4b` (must `ollama pull` first).
-
-## Echo / feedback handling
-
-Acoustic feedback (speaker → mic → "user" speech) is the #1 source of bugs.
-- **Best fix:** PTT mode (the default). Mic is muted unless the configured
-  `input.ptt_key` is held (default `alt_r` — right Option), so the AI
-  physically cannot trigger itself. Never set this to `space` (see PTT
-  notes above).
-- **Headphones:** eliminate the acoustic feedback path entirely. Useful with
-  either input mode.
-- **VAD mode mitigations:** the RMS gate in `audio/recorder.py` rejects quiet
-  speaker bleed. Tune `vad.interrupt_rms_threshold` upward (e.g. 0.10) if AI
-  still self-interrupts.
-- **Last resort:** set `vad.allow_interrupt: false` (VAD mode only) to disable
-  interrupts entirely.
-
-Whisper hallucinations on near-silence (e.g. "of what you.", "Yeah.",
-"Thanks for watching.") are a separate issue caused by the mic picking up
-faint AI playback during LISTENING right after SPEAKING ends. Mitigations
-already wired in `stt/transcriber.py`:
-- `vad_filter=True, vad_parameters={"min_silence_duration_ms": 300}` —
-  Whisper's internal VAD trims silent chunks before decoding.
-- `no_speech_threshold=0.6` — drop a segment if the no-speech head is
-  above this confidence.
-- `log_prob_threshold=-1.0` — drop a segment whose average log-prob is
-  below this (i.e. Whisper isn't confident in any of the tokens).
-- `compression_ratio_threshold=2.4` — drop a segment whose token-stream
-  compression ratio exceeds this (the classic "Thanks for watching"
-  hallucination has very high repetition).
-If you still see hallucinations, raise `no_speech_threshold` toward 0.7
-or push `log_prob_threshold` up toward -0.7. Beyond that, the fix is
-acoustic (headphones / lower playback volume).
-
-## Roadmap / next iterations
-
-These are the three tracks chosen for the next milestone (v0.3.0). When
-adding code here, lean toward small, reversible changes that preserve the
-two existing front-ends (CLI + web). Order is rough priority.
-
-### 1. Tools / function-calling
-
-Goal: let the assistant *do* things, not just answer. E.g. "what time is
-it?", "add milk to my list", "search the web for X", "open the project
-README".
-
-- Ollama supports function calling via the `tools=[...]` param on
-  `chat()` for tool-capable models (e.g. `qwen3`, `llama3.1`,
-  `gemma3-tools`). Streaming + tools is supported but the streamed delta
-  format includes `tool_calls` chunks that need handling alongside
-  `content` chunks.
-- New module: `local_tts/tools/` with a `Tool` protocol (`name`, `schema`,
-  `run(args) -> str`) and a registry. Built-ins to start: `clock`,
-  `web_search` (DuckDuckGo HTML, no API key), `file_read`,
-  `note_append` (writes to a local JSONL).
-- Pipeline change in `llm/client.py`: when a streamed tool_call is
-  finalized, run the tool synchronously, append the result as a `tool`
-  role message, and continue the stream. The sentence splitter must
-  ignore the tool turn so it doesn't try to TTS the JSON.
-- Voice/UX: speak a short "checking…" filler before tools that take
-  >500ms so the user isn't staring at silence.
-- Config: `tools.enabled: bool` (default false), `tools.allowed: [list]`
-  (gate destructive ones).
-
-### 2. Mobile-friendly web UI / PWA
-
-Goal: open `https://<your-mac>:8000` from your phone on the same wifi
-and have a usable call interface. Useful as a "walk around the room
-hands-free" mode.
-
-- Layout: orb shrinks to ~40vmin, dock pill becomes a thumb-reachable
-  bottom row; settings panel becomes a full-screen sheet.
-- iOS Safari needs a user gesture to start `AudioContext` — the existing
-  click-to-start path covers this; verify that the WS-binary playback
-  path also resumes correctly after the page is backgrounded
-  (`audioCtx.state === "suspended"` → `resume()` on visibilitychange).
-- HTTPS: phones won't grant `getUserMedia` on plain HTTP for non-localhost
-  origins. Add a `--cert / --key` pair to `local-tts web` and document
-  the `mkcert` flow, OR auto-generate a self-signed cert and surface the
-  fingerprint so the user can trust it once.
-- PWA: add `manifest.json` (icons, name, theme color synced to the active
-  theme accent) + a minimal service worker that caches `/static/*` so
-  the page loads offline once visited.
-- Wake-lock: while a call is active, request `navigator.wakeLock.request("screen")`
-  so the phone doesn't sleep mid-conversation.
-
-### 3. Conversation memory / persistence
-
-Goal: pick up a conversation across app restarts; optionally a long-term
-"what does the assistant know about me" store separate from the rolling
-turn buffer.
-
-- Short-term: persist the last N turns to
-  `~/.local-tts/sessions/<session-id>.jsonl`. New CLI flag
-  `local-tts run --resume [session-id]`. Web UI: a "previous calls"
-  drawer in the settings panel.
-- Long-term: a separate `~/.local-tts/memory.md` file. The assistant gets
-  a system-prompt slot for it; a small `remember(<fact>)` tool (see Tools
-  track) appends to it. Keep it human-readable so the user can edit/redact.
-- Privacy: never auto-extract memories from arbitrary turns — only write
-  when the user explicitly says "remember that…" via the tool.
-- Cap: rotate session JSONL files older than 30 days; cap memory.md at
-  200 lines and prompt the user to prune when full.
-
-## Version history
-
-See [README.md#changelog](README.md#changelog) for user-facing release
-notes. Current version: **v0.3.0** (UI overhaul).
-
-### v0.3.0 — Web UI overhaul
-- **Single Ghost theme**: all colored themes (jarvis, amber, matrix) removed;
-  one clean white/grey matte theme. Theme picker commented out in settings.
-- **Header**: title and timer removed from view; shows only `voice · model`
-  inline text (no card border, no glow).
-- **Captions**: rectangular frames replaced with borderless open sections
-  (left-border line + floating label). INPUT label is dynamic — animates to
-  `LISTENING_` or `PROCESSING ···` based on phase.
-- **Ghost orb**: HUD rings removed; orb background replaced with a soft
-  elliptical atmospheric haze (no visible circle). Corner brackets dimmed.
-- **Scanline removed**: `body::before` drift animation gone.
-- **Settings**: accent glow removed from modal; labels neutral grey; speed
-  button active state simplified; theme grid uses `auto-fill`.
-- **Dock**: status text brackets removed; dock pill and text-input popover
-  glows removed.
-- **Static assets**: `?v=X` version strings removed from CSS/JS links —
-  server already sends `no-cache` headers for all `/static/` paths.
-
+Current: **v0.4.0** (Second-brain). Set in `pyproject.toml` and
+`local_tts/__init__.py`. Bump both when releasing. See
+[README.md#changelog](README.md#changelog) for user-facing release notes.

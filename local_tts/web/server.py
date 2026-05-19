@@ -21,6 +21,8 @@ import asyncio
 import json
 import logging
 import threading
+import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -33,16 +35,44 @@ from fastapi.staticfiles import StaticFiles
 
 from local_tts.config import Config
 from local_tts.llm.client import LLMClient
+from local_tts.memory import SessionWriter
 from local_tts.stt.transcriber import SUPPORTED_MODELS, Transcriber
+from local_tts.tools import ClockTool, ToolRegistry, WebSearchTool
+from local_tts.tools.web_search import build_default_provider
 from local_tts.tts.synthesizer import (
     SUPPORTED_VOICES,
     SUPPORTED_VOICE_NAMES,
     Synthesizer,
 )
+from local_tts.wakeword import WakeWordDetector, WakeWordUnavailable
 
 log = logging.getLogger("local_tts.web")
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Vite build output. Present after `cd frontend && npm run build`.
+DIST_DIR = STATIC_DIR / "dist"
+
+# Strong refs to fire-and-forget finalize tasks. Without this set, the event
+# loop only holds weak refs and the GC can drop a task mid-execution
+# (https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task).
+# Each task removes itself on completion via add_done_callback.
+_finalize_tasks: set[asyncio.Task] = set()
+
+
+def _on_finalize_done(task: asyncio.Task) -> None:
+    _finalize_tasks.discard(task)
+    if task.cancelled():
+        log.warning("session finalize task was cancelled before completion")
+        return
+    exc = task.exception()
+    if exc is not None:
+        log.error("session finalize failed", exc_info=exc)
+        return
+    result = task.result()
+    if result is None:
+        log.info("session finalize: no markdown written (empty session or disabled)")
+    else:
+        log.info("session finalize: wrote %s", result)
 
 # VAD constants — must match webrtcvad's accepted frame sizes.
 VAD_SAMPLE_RATE = 16000
@@ -72,7 +102,14 @@ class PipelineModels:
         log.info("Loading models...")
         self.transcriber = Transcriber(self.cfg.whisper)
         self.transcriber.load()
-        self.llm = LLMClient(self.cfg.ollama)
+        # Build the tool registry up-front so toggling tools.enabled at
+        # runtime doesn't have to re-instantiate Ollama-facing state.
+        registry = ToolRegistry(self.cfg.tools)
+        registry.register(ClockTool())
+        registry.register(
+            WebSearchTool(build_default_provider(self.cfg.tools.web_search_provider))
+        )
+        self.llm = LLMClient(self.cfg.ollama, self.cfg.persona, tools=registry)
         self.synth = Synthesizer(self.cfg.kokoro)
         self.synth.load()
         self._loaded = True
@@ -86,6 +123,10 @@ class Session:
         self.ws = ws
         self.models = models
         self.cfg = models.cfg
+        # Stable identifier for this WebSocket connection. Plumbed into every
+        # transcript payload so the client can correlate turns with a session,
+        # and used by SessionWriter (Phase 3) as the file/folder key.
+        self.session_id = uuid.uuid4().hex
 
         self.vad = webrtcvad.Vad(self.cfg.vad.aggressiveness)
         self.audio_buffer = bytearray()         # raw int16 bytes from client
@@ -100,10 +141,27 @@ class Session:
         self.interrupt_event = asyncio.Event()
         self.send_lock = asyncio.Lock()         # serialize ws sends
 
+        # Listening mode + wake-word detector. The detector is created lazily
+        # only when the user switches to wake_word mode (avoids onnxruntime
+        # import for users who never use this feature).
+        self.input_mode: str = self.cfg.input.mode
+        self.wake_triggered: bool = False
+        self.wakeword_detector: Optional[WakeWordDetector] = None
+
+        # No-op when obsidian.enabled is False; otherwise records turns and
+        # writes a markdown transcript at session end.
+        self.writer = SessionWriter(
+            session_id=self.session_id,
+            obsidian=self.cfg.obsidian,
+            memory=self.cfg.memory,
+        )
+
     async def run(self):
         models_available = await asyncio.to_thread(self.models.llm.list_models)
+        tools = self.models.llm.tools
         await self.send_json({
             "type": "config",
+            "session_id": self.session_id,
             "voice": self.models.synth.current_voice,
             "voices_available": [
                 {"id": v, "label": label} for v, label in SUPPORTED_VOICES
@@ -113,8 +171,27 @@ class Session:
             "stt_model": self.models.transcriber.current_model,
             "stt_models_available": list(SUPPORTED_MODELS),
             "speed": self.cfg.kokoro.speed,
+            "persona": self.models.llm.active_persona.name,
+            "personas_available": self.models.llm.list_personas(),
+            "tools_enabled": tools.enabled if tools else False,
+            "tools_available": tools.names() if tools else [],
+            "tools_allowed": list(self.cfg.tools.allowed),
+            "input_mode": self.input_mode,
+            "wakeword_model": self.cfg.wakeword.model,
+            # Cosmetic alias; falls back to the real model name when unset.
+            "wakeword_display_name": (
+                self.cfg.wakeword.display_name or self.cfg.wakeword.model
+            ),
+            "obsidian_enabled": self.cfg.obsidian.enabled,
         })
         await self.send_phase("idle")
+
+        # Start session persistence now that we know the active model/voice/persona.
+        self.writer.start(
+            model=self.cfg.ollama.model,
+            voice=self.models.synth.current_voice,
+            persona=self.models.llm.active_persona.name,
+        )
 
         try:
             while True:
@@ -131,6 +208,19 @@ class Session:
         finally:
             if self.pipeline_task and not self.pipeline_task.done():
                 self.pipeline_task.cancel()
+            # Fire-and-forget: run finalize (which makes a topic LLM call and
+            # writes the markdown file) on a background thread so the socket
+            # close doesn't block on Ollama latency. Hold a strong reference
+            # in _finalize_tasks so the loop's weak ref doesn't let the task
+            # get GC'd before the thread finishes.
+            try:
+                task = asyncio.create_task(
+                    asyncio.to_thread(self.writer.finalize, self.models.llm)
+                )
+                _finalize_tasks.add(task)
+                task.add_done_callback(_on_finalize_done)
+            except Exception:
+                log.exception("could not schedule session finalize")
 
     async def _handle_control(self, text: str):
         try:
@@ -169,6 +259,38 @@ class Session:
                 await asyncio.to_thread(self.models.llm.unload_model, old_model)
                 self.cfg.ollama.model = model
                 await self.send_json({"type": "model", "state": "ready", "model": model})
+        elif kind == "set_tools_enabled":
+            value = bool(payload.get("value"))
+            self.cfg.tools.enabled = value
+            await self.send_json({"type": "tools_enabled", "value": value})
+        elif kind == "set_tool_allowed":
+            tool = (payload.get("tool") or "").strip()
+            value = bool(payload.get("value"))
+            if tool:
+                allowed = list(self.cfg.tools.allowed)
+                if value and tool not in allowed:
+                    allowed.append(tool)
+                elif not value and tool in allowed:
+                    allowed = [t for t in allowed if t != tool]
+                self.cfg.tools.allowed = allowed
+                await self.send_json({
+                    "type": "tools_allowed",
+                    "value": allowed,
+                })
+        elif kind == "set_persona":
+            await self._handle_persona_swap(payload.get("name"))
+        elif kind == "set_persona_custom_prompt":
+            prompt = (payload.get("prompt") or "").strip()
+            if prompt:
+                self.models.llm.set_custom_prompt(prompt)
+                await self.send_json({
+                    "type": "persona",
+                    "state": "ready",
+                    "name": "custom",
+                    "personas_available": self.models.llm.list_personas(),
+                })
+        elif kind == "set_input_mode":
+            await self._handle_input_mode(payload.get("mode"))
 
     async def _handle_stt_swap(self, name: Optional[str]):
         """Hot-swap the Whisper model. Refuses to swap mid-pipeline so an
@@ -214,6 +336,66 @@ class Session:
                 "model": name,
                 "message": str(e),
             })
+
+    async def _handle_persona_swap(self, name: Optional[str]):
+        """Switch the active persona. Refuses mid-pipeline so an in-flight
+        response can't have its system prompt yanked between sentences."""
+        if not name:
+            return
+        if self.pipeline_task and not self.pipeline_task.done():
+            await self.send_json({
+                "type": "persona",
+                "state": "error",
+                "name": name,
+                "message": "Wait for the current response to finish, then try again.",
+            })
+            return
+        try:
+            loaded = await asyncio.to_thread(self.models.llm.swap_persona, name)
+            await self.send_json({
+                "type": "persona",
+                "state": "ready",
+                "name": loaded,
+            })
+        except Exception as e:
+            await self.send_json({
+                "type": "persona",
+                "state": "error",
+                "name": name,
+                "message": str(e),
+            })
+
+    async def _handle_input_mode(self, mode: Optional[str]):
+        """Switch between VAD and wake-word listening. On wake_word selection
+        the detector is loaded synchronously; failure (e.g. openwakeword not
+        installed) reports back as an error and leaves the mode unchanged."""
+        if mode not in ("vad", "wake_word"):
+            return
+        if mode == self.input_mode:
+            await self.send_json({"type": "input_mode", "value": mode})
+            return
+        if mode == "wake_word":
+            if self.wakeword_detector is None:
+                self.wakeword_detector = WakeWordDetector(
+                    model=self.cfg.wakeword.model,
+                    threshold=self.cfg.wakeword.threshold,
+                )
+            try:
+                await asyncio.to_thread(self.wakeword_detector.load)
+            except WakeWordUnavailable as e:
+                await self.send_json({
+                    "type": "input_mode",
+                    "state": "error",
+                    "value": "vad",
+                    "message": str(e),
+                })
+                self.wakeword_detector = None
+                return
+        self.input_mode = mode
+        self.cfg.input.mode = mode
+        self.wake_triggered = False
+        self._reset_vad()
+        await self.send_json({"type": "input_mode", "value": mode})
 
     async def _handle_voice_swap(self, name: Optional[str]):
         """Switch the Kokoro voice. Refuses mid-pipeline so an in-flight
@@ -275,6 +457,25 @@ class Session:
             await self._process_frame(frame)
 
     async def _process_frame(self, frame: bytes):
+        # Wake-word gate: in wake_word mode, audio is ignored until the
+        # configured word fires. Once triggered, fall through to VAD so the
+        # utterance boundary is still detected normally.
+        if self.input_mode == "wake_word" and not self.wake_triggered:
+            if self.wakeword_detector is None:
+                return
+            try:
+                hit = self.wakeword_detector.process_int16(frame)
+            except Exception:
+                log.exception("wakeword detector error")
+                return
+            if not hit:
+                return
+            self.wake_triggered = True
+            await self.send_phase("listening")
+            self.in_speech = True
+            self.utterance_frames.append(frame)
+            return
+
         try:
             is_speech = self.vad.is_speech(frame, VAD_SAMPLE_RATE)
         except Exception:
@@ -306,6 +507,11 @@ class Session:
         self.in_speech = False
         self.speech_count = 0
         self.silence_count = 0
+        # Re-arm the wake-word gate so the next utterance requires a new trigger.
+        if self.input_mode == "wake_word":
+            self.wake_triggered = False
+            if self.wakeword_detector is not None:
+                self.wakeword_detector.reset()
 
     async def _dispatch_utterance(self, frames: list[bytes]):
         """Hand off captured audio to the STT→LLM→TTS pipeline."""
@@ -330,11 +536,17 @@ class Session:
             if not user_text:
                 await self.send_phase("idle")
                 return
-            await self.send_json({"type": "transcript", "role": "user", "text": user_text})
+            await self.send_json({
+                "type": "transcript",
+                "role": "user",
+                "text": user_text,
+                "session_id": self.session_id,
+            })
             await self.send_phase("thinking")
 
             self.history.append({"role": "user", "content": user_text})
             self.history = self.history[-self.cfg.ui.history_turns * 2:]
+            self.writer.append_turn("user", user_text, time.time())
 
             await self.send_phase("speaking")
             full_response: list[str] = []
@@ -373,7 +585,10 @@ class Session:
                         break
                     full_response.append(sentence)
                     await self.send_json({
-                        "type": "transcript", "role": "assistant", "text": sentence,
+                        "type": "transcript",
+                        "role": "assistant",
+                        "text": sentence,
+                        "session_id": self.session_id,
                     })
                     audio_arr = await self._race_with_interrupt(
                         asyncio.to_thread(self.models.synth.synthesize, sentence)
@@ -391,9 +606,11 @@ class Session:
                     producer_task.add_done_callback(lambda _t: None)
 
             if full_response and not self.interrupt_event.is_set():
+                final_text = " ".join(full_response)
                 self.history.append({
-                    "role": "assistant", "content": " ".join(full_response),
+                    "role": "assistant", "content": final_text,
                 })
+                self.writer.append_turn("assistant", final_text, time.time())
             await self.send_phase("idle")
         except asyncio.CancelledError:
             pass
@@ -411,6 +628,13 @@ class Session:
         first. The losing task is cancelled so we don't leak it.
         """
         if self.interrupt_event.is_set():
+            # awaitable might be a raw coroutine (e.g. sentence_q.get()); close
+            # it so Python doesn't emit "coroutine was never awaited" warnings.
+            if hasattr(awaitable, "close"):
+                try:
+                    awaitable.close()
+                except Exception:
+                    pass
             return None
         target = asyncio.ensure_future(awaitable)
         intr = asyncio.ensure_future(self.interrupt_event.wait())
@@ -481,6 +705,11 @@ def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -
 
     @app.get("/")
     async def index():
+        # Prefer the React build; fall back to the legacy bundle if the user
+        # hasn't run `npm run build` yet (still useful for first-time setup).
+        dist_index = DIST_DIR / "index.html"
+        if dist_index.exists():
+            return FileResponse(str(dist_index))
         return FileResponse(str(STATIC_DIR / "index.html"))
 
     if cert_path is not None:
