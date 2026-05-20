@@ -1,6 +1,9 @@
 ollama:
   model: "qwen3:4b"
   host: "http://localhost:11434"
+  # Legacy field. New installs should leave this unset and use `persona` below.
+  # If both are set, `persona` wins. When this is the only thing defined, it is
+  # promoted to the "default" persona at load time.
   system_prompt: |
     You are a conversational voice assistant. Speak naturally and concisely.
     Use complete sentences. Avoid bullet points, markdown, code blocks, or special characters.
@@ -27,3 +30,51 @@ vad:
 
 ui:
   history_turns: 10                  # max turns kept in Ollama context
+
+# ── Personas ────────────────────────────────────────────────────────────────
+# Swappable system prompts. The web UI picker exposes these by name. Defaults
+# (default / concise / researcher) are seeded automatically, so this section
+# is only needed to override or add personas.
+persona:
+  active: "default"
+
+# ── Tools ───────────────────────────────────────────────────────────────────
+# Function-calling: the LLM can ask to run tools and the result is folded
+# back into its response. Toggle per-tool via the Settings panel.
+tools:
+  enabled: true
+  allowed: ["clock", "web_search"]
+  web_search_provider: "duckduckgo"   # only provider shipped today
+
+# ── Obsidian ────────────────────────────────────────────────────────────────
+# Every call writes a markdown transcript into the vault under a topic-named
+# folder chosen by the LLM at session end. The directory is auto-created on
+# first session.
+obsidian:
+  enabled: true
+  vault_root: "~/Documents/Obsidian/local-tts"
+  topic_model: null                  # reuses ollama.model when null
+
+# ── Wake-word (deferred) ────────────────────────────────────────────────────
+# Wake-word support exists in the codebase (`local_tts/wakeword/`,
+# `[wakeword]` extras, server WS handler) but the UI surface is currently
+# hidden because openWakeWord's bundled keywords are limited to alexa /
+# hey_jarvis / hey_mycroft and custom keywords need multi-hour training.
+# We'll revisit with a Picovoice Porcupine backend that supports
+# free-tier-trained custom keywords in ~30 seconds.
+#
+# To re-enable in the current state, uncomment the block below AND restore
+# the listening-mode picker in SettingsModal.tsx + the `mode` chip in Header.tsx.
+#
+# wakeword:
+#   enabled: true
+#   model: "hey_jarvis"             # alexa, hey_jarvis, hey_mycroft, hey_rhasspy
+#   threshold: 0.5
+# input:
+#   mode: "vad"                     # "wake_word" to require trigger word on launch
+
+# ── Memory ──────────────────────────────────────────────────────────────────
+# Crash-recovery JSONL files for in-progress sessions. Rotated after keep_days.
+memory:
+  session_dir: "~/.local-tts/sessions"
+  keep_days: 30

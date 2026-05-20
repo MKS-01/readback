@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local-tts"
-version = "0.3.2"
+version = "0.4.0"
 description = "Local voice conversation using Kokoro TTS + Ollama on Apple Silicon"
 requires-python = ">=3.10"
 authors = [{ name = "mks" }]
@@ -28,6 +28,14 @@ dependencies = [
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.9",
     "cryptography>=41.0",
+]
+
+[project.optional-dependencies]
+# openwakeword + onnxruntime are big and not everyone enables the wake-word
+# listening mode. Install with `pip install -e .[wakeword]` to opt in.
+wakeword = [
+    "openwakeword>=0.6.0",
+    "onnxruntime>=1.16.0",
 ]
 
 [project.scripts]

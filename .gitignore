@@ -1,12 +1,44 @@
+# --- Python ---
 .venv/
 __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
 build/
+# `dist/` matches any directory named dist anywhere in the tree, including
+# local_tts/web/static/dist/ (Vite build output) and the package build dir.
 dist/
-vendor/csm/
+.pytest_cache/
+
+# --- Node / Vite ---
+node_modules/
+*.tsbuildinfo
+local_tts/web/frontend/dist/
+# tsc -b emits .js / .d.ts next to the .ts source for the vite config; ignore both.
+local_tts/web/frontend/vite.config.js
+local_tts/web/frontend/vite.config.d.ts
+
+# --- IDE / agent state ---
+.idea/
+.vscode/
+.claude/
+
+# --- Local state & secrets ---
 .env
+.env.local
+config.local.yaml
+
+# --- Runtime artifacts ---
+# Crash-recovery JSONLs live under ~/.local-tts/sessions/, not in the repo,
+# but ignore any accidental local copy.
+.local-tts/
+
+# --- Captured audio (sample files, debugging) ---
 *.wav
 *.mp3
+
+# --- macOS ---
 .DS_Store
+
+# --- Vendored ---
+vendor/csm/

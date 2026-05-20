@@ -1,6 +1,6 @@
 # local-tts
 
-> A fully local voice assistant — speak or type to your LLM, hear it talk back. No cloud. No API keys. No data leaves your machine.
+> A fully local voice assistant **and second brain** — speak or type to your LLM, hear it talk back, and have every conversation auto-filed in your Obsidian vault by topic. No cloud. No API keys. No data leaves your machine.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Apple_Silicon-black?style=flat-square&logo=apple&logoColor=white)
@@ -39,12 +39,14 @@ The pipeline is a 3-thread streaming design: Whisper transcribes while Ollama ge
 
 | Layer | Technology |
 |---|---|
-| **LLM** | [Ollama](https://ollama.ai/) — any local chat model (`qwen3`, `llama3.2`, `gemma3`, …) |
+| **LLM** | [Ollama](https://ollama.ai/) — any local chat model (`qwen3`, `llama3.2`, `gemma3`, …) with **function-calling / tools** |
 | **TTS** | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) — 20 voices, ~300 ms synthesis on CPU |
 | **STT** | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 6 sizes (`tiny` → `large-v3`), hot-swappable |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams audio sentence-by-sentence |
-| **Frontend** | Vanilla JS + AudioWorklet — 3D neural orb via three.js, no framework |
-| **Audio I/O** | sounddevice + WebRTC VAD |
+| **Frontend** | React + TypeScript + Vite + zustand — three.js neural orb, AudioWorklet capture |
+| **Wake-word** | [openWakeWord](https://github.com/dscripka/openWakeWord) (optional, opt-in extra) |
+| **Persistence** | Markdown export to [Obsidian](https://obsidian.md/) vault, organized by topic |
+| **Web search** | DuckDuckGo HTML (no API key, no signup) — provider interface is swappable |
 
 ---
 
@@ -64,7 +66,10 @@ python3.11 -m venv .venv && source .venv/bin/activate
 pip install torch==2.4.0 torchaudio==2.4.0
 pip install -e .
 
-# 3. Launch
+# 3. Build the React frontend (one-time; rerun after edits in local_tts/web/frontend/)
+cd local_tts/web/frontend && npm install && npm run build && cd ../../..
+
+# 4. Launch
 local-tts                               # http://127.0.0.1:8000
 ```
 
@@ -76,9 +81,11 @@ Speech models download automatically on first run (~1.8 GB: Whisper medium + Kok
 
 The UI is a single browser page — no Electron, no desktop app. Open `http://127.0.0.1:8000` after launching.
 
+**Header chips** — five clickable chips at the top show the active runtime state: `voice` · `model` · `persona` · `tools` (ON / OFF) · `vault` (ON / OFF). Tap any chip to jump straight into Settings.
+
 **Orb** — a three.js point-cloud that reacts to phase: dim and breathing when idle, bright and active when speaking. Ghost theme: matte white/grey, no colored glow.
 
-**Live captions** — the INPUT label animates to `LISTENING_` (blinking cursor) while waiting and `PROCESSING ···` (dot reveal) while the LLM is thinking. The AI response streams in sentence by sentence.
+**Live captions** — the INPUT label animates to `LISTENING_` (blinking cursor) while waiting and `PROCESSING ···` (dot reveal) while the LLM is thinking. The AI response streams in sentence by sentence. Empty input slot shows a hint matching the current listening mode.
 
 **Dock controls (bottom bar):**
 
@@ -90,7 +97,7 @@ The UI is a single browser page — no Electron, no desktop app. Open `http://12
 | **Pause / Resume** | Freeze everything (mic, playback, timer) — WebSocket stays open |
 | **⚙ Settings** | Open the settings panel |
 
-### Settings panel — model & voice switching
+### Settings panel — model, voice, persona, tools
 
 The settings panel lets you change every runtime parameter **without restarting the server**:
 
@@ -110,11 +117,61 @@ The settings panel lets you change every runtime parameter **without restarting 
   - `bf_emma` ★ — natural British female
   - `am_michael` — clear American male
   - Full list: `af_*` (American female), `am_*` (American male), `bf_*` / `bm_*` (British)
+- **Persona** — swap the system prompt at runtime. Ships with `default` (conversational, 3–4 sentences), `concise` (one sentence), `researcher` (cites specifics, asks one clarifying question), and a `custom` slot with a textarea you can edit and save.
+- **Internet research (Tools)** — master toggle plus per-tool checkboxes. When on, the LLM can call `clock` and `web_search` (DuckDuckGo, no API key) and fold results into its response.
 - **Speech Speed** — Slow / Medium / Fast, applied to every TTS synthesis call.
 - **Orb size** — 120–380 px slider.
 - **Mic meter / Captions** — toggle the 5-bar input meter and live transcript display.
 
-All preferences persist in `localStorage` and restore on next page load.
+All preferences persist in `localStorage` (key `local-tts.prefs.v9`) and restore on next page load. STT model, voice, and speech-speed prefs round-trip back to the server on reconnect; persona, tools, and listening-mode currently mirror the server's `config.yaml` values on each fresh connection.
+
+---
+
+## Second-brain features
+
+The bundled `config.yaml` ships with **tools and Obsidian export both enabled** so the first run exercises every feature. Disable individually by flipping `tools.enabled` or `obsidian.enabled` to `false`.
+
+### Obsidian vault export
+
+When `obsidian.enabled: true`, every call writes a markdown transcript into your vault, organized by topic. The folder name is chosen by the LLM at session end — so a debugging chat lands in `debug-session/`, a recipe chat lands in `recipe-ideas/`, etc.
+
+```yaml
+obsidian:
+  enabled: true
+  vault_root: ~/Documents/Obsidian/local-tts   # any path, ~ expanded
+  topic_model: null                             # null = reuse ollama.model
+```
+
+File layout:
+
+```
+~/Documents/Obsidian/local-tts/
+├── project-planning/
+│   └── 2026-05-19--7f3a9e.md
+├── recipe-ideas/
+│   └── 2026-05-18--12c3aa.md
+└── unsorted/                                    # sessions <2 turns or topic call failed
+    └── 2026-05-17--9bc40d.md
+```
+
+Each file has YAML frontmatter (`session_id`, `started`, `ended`, `duration_sec`, `model`, `voice`, `persona`, `topic`, `turn_count`) followed by the full turn-by-turn transcript — readable in any markdown editor, searchable in Obsidian's graph view.
+
+Crash-recovery JSONL files are kept at `~/.local-tts/sessions/<id>.jsonl` while a session is in progress and deleted once the markdown is committed. The topic-classification LLM call runs in `asyncio.to_thread` as a fire-and-forget task on disconnect, so closing the browser tab doesn't block.
+
+### Internet research (tools)
+
+When the Tools toggle is on, the assistant can call functions and fold their output into the response. Two ship today:
+
+- **`clock`** — local date/time. Tiny, useful for "what time is it?".
+- **`web_search`** — DuckDuckGo HTML search. No API key, no signup. The provider is behind a `WebSearchProvider` Protocol so swapping to Tavily / Brave later is one file.
+
+The LLM client does a non-streaming probe for tool_calls (max 3 hops), runs each tool, appends the result as a `tool` role message, then streams the final response. Tool round-trip content stays out of the TTS stream — the user only hears the answer, not the planning chatter.
+
+Ships **on** by default in the bundled `config.yaml`. Per-tool checkboxes in Settings let you disable individual tools without turning the whole feature off; set `tools.enabled: false` in `config.yaml` to disable entirely.
+
+### Persona switching
+
+The system prompt is one of several runtime-swappable presets (`default`, `concise`, `researcher`, `custom`). The `swap_persona` flow mirrors the `Transcriber.swap_model` pattern — `threading.Lock`, atomic ref swap, in-flight responses finish on the old prompt. Custom prompt edits round-trip from the browser back to the server and persist across reconnects.
 
 ---
 
@@ -157,6 +214,16 @@ Edit `config.yaml` for non-UI knobs:
 | `whisper.model` | STT checkpoint | `medium` |
 | `whisper.beam_size` | 5 = balanced, 10 = max accuracy (+200–400 ms) | `5` |
 | `vad.aggressiveness` | WebRTC VAD aggressiveness 0–3 | `2` |
+| `persona.active` | Active persona name | `default` |
+| `persona.personas` | List of `{name, system_prompt}` overrides | (3 seeded) |
+| `tools.enabled` | Master switch for function-calling tools | `false` |
+| `tools.allowed` | Allowlist of tool names | `[clock, web_search]` |
+| `tools.web_search_provider` | Search backend (`duckduckgo` only today) | `duckduckgo` |
+| `obsidian.enabled` | Write per-session markdown to the vault | `false` |
+| `obsidian.vault_root` | Vault path; `~` is expanded | `~/Documents/Obsidian/local-tts` |
+| `obsidian.topic_model` | Override LLM model for topic classification (null = reuse `ollama.model`) | `null` |
+| `memory.session_dir` | Crash-recovery JSONL location | `~/.local-tts/sessions` |
+| `memory.keep_days` | Rotate JSONLs older than N days | `30` |
 
 > **Picking a model for speed.** On Apple Silicon CPU, `medium` lands at 500–800 ms for a 5-second utterance. Drop to `small` for sub-300 ms. `large-v3-turbo` is only marginally faster than `large-v3` on CPU — the "6× faster" claim is GPU-bound.
 
@@ -168,16 +235,33 @@ Edit `config.yaml` for non-UI knobs:
 browser mic → WebSocket (Int16 PCM 16kHz)
   → VAD utterance segmentation
   → Whisper STT
-  → Ollama streaming LLM
+  → Ollama streaming LLM ⇄ (tools: web_search, clock — when enabled)
   → sentence splitter
   → Kokoro TTS (per sentence)
   → WebSocket (Float32 PCM 24kHz)
   → browser speaker (gapless AudioBufferSourceNode queue)
+  → (on disconnect) topic classifier → Obsidian markdown export
 ```
 
-The pipeline is **streaming end-to-end**: Kokoro synthesizes each sentence the moment it arrives from Ollama, so playback starts ~2.5 s after you stop speaking — well before the full reply is generated.
+The pipeline is **streaming end-to-end**: Kokoro synthesizes each sentence the moment it arrives from Ollama, so playback starts ~2.5 s after you stop speaking — well before the full reply is generated. Tool round-trips do one non-streaming probe (max 3 hops) before the final response streams, so "what time is it?" comes back as natural speech, not a JSON blob.
 
 See [CLAUDE.md](CLAUDE.md) for deeper notes on interrupt handling, hot-swap locking, VAD tuning, and Whisper hallucination mitigations.
+
+---
+
+## Changelog
+
+### v0.4.0 — Second brain
+- **Obsidian export.** Every call writes a markdown transcript into your vault, topic-organized via an LLM call at session end. Crash-recovery JSONL files at `~/.local-tts/sessions/`. Enabled in the bundled config.
+- **Tools / function-calling.** `clock` and `web_search` (DuckDuckGo, no API key) ship out of the box; provider interface ready for Tavily / Brave swap-ins. Per-tool checkboxes in Settings.
+- **Persona switching.** Three seed personas (`default`, `concise`, `researcher`) plus a `custom` slot with a textarea. Runtime swap mirrors `Transcriber.swap_model` — in-flight responses finish on the old prompt.
+- **React + Vite + TypeScript frontend.** Replaces the 1,295-line vanilla-JS bundle. Three.js orb and AudioWorklet stay imperative inside hooks; settings/captions/dock are now components. Five header chips surface every runtime-switchable state at a glance.
+
+### Deferred
+- **Wake-word listening.** Backend (`local_tts/wakeword/`, `[wakeword]` extras, server WS handler) is in place but the UI is hidden — openWakeWord's bundled keywords are limited to `alexa` / `hey_jarvis` / `hey_mycroft` and custom keywords need multi-hour training. Coming back with a Picovoice Porcupine backend that supports free-tier-trained custom keywords in ~30 seconds.
+
+### v0.3.0 — Web UI overhaul
+- Single Ghost theme (matte white/grey), header simplified to inline meta row, captions reworked as borderless open sections, scanline removed. See [CLAUDE.md](CLAUDE.md) for the full v0.3 design notes.
 
 ---
 
