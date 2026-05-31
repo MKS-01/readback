@@ -1,3 +1,4 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
@@ -5,8 +6,24 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-vendor/csm/
+
+# Environment
 .env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+
+# Frontend (local_tts/web/frontend/)
+node_modules/
+*.tsbuildinfo
+local_tts/web/frontend/dist/
+vite.config.d.ts
+
+# Audio artefacts
 *.wav
 *.mp3
+
+# macOS
 .DS_Store
