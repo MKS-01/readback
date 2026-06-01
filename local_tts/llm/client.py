@@ -51,6 +51,78 @@ def _strip_markdown(text: str) -> str:
     return text
 
 
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
+
+
+def _safe_emit_len(buf: str, needles: tuple[str, ...]) -> int:
+    """Length of `buf` safe to emit now — i.e. excluding any trailing suffix
+    that could be the start of one of `needles` once more tokens arrive."""
+    keep = 0
+    for n in needles:
+        for k in range(min(len(buf), len(n) - 1), 0, -1):
+            if buf[-k:] == n[:k]:
+                keep = max(keep, k)
+                break
+    return len(buf) - keep
+
+
+class _ThinkStripper:
+    """Stateful removal of `<think>…</think>` spans from a streamed token feed.
+
+    We set `think=False` on the Ollama call so reasoning normally lands in
+    `message.thinking`, never `content`. This is the belt-and-suspenders guard
+    for GGUF builds that still emit inline `<think>` tags in `content`. It
+    correctly handles a tag split across chunk boundaries by withholding a
+    trailing fragment that could be the prefix of an open/close tag.
+    """
+
+    def __init__(self):
+        self._in_think = False
+        self._buf = ""
+
+    def feed(self, text: str) -> str:
+        self._buf += text
+        out: list[str] = []
+        while self._buf:
+            if not self._in_think:
+                i = self._buf.find(_THINK_OPEN)
+                if i != -1:
+                    out.append(self._buf[:i])
+                    self._buf = self._buf[i + len(_THINK_OPEN):]
+                    self._in_think = True
+                    continue
+                cut = _safe_emit_len(self._buf, (_THINK_OPEN,))
+                out.append(self._buf[:cut])
+                self._buf = self._buf[cut:]
+                break
+            else:
+                i = self._buf.find(_THINK_CLOSE)
+                if i != -1:
+                    self._buf = self._buf[i + len(_THINK_CLOSE):]
+                    self._in_think = False
+                    continue
+                # still inside a think block — drop all but a possible partial
+                # closing-tag fragment.
+                cut = _safe_emit_len(self._buf, (_THINK_CLOSE,))
+                self._buf = self._buf[cut:]
+                break
+        return "".join(out)
+
+    def flush(self) -> str:
+        """Emit any trailing buffered text at stream end. Anything still inside
+        an unclosed `<think>` is discarded."""
+        tail = "" if self._in_think else self._buf
+        self._buf = ""
+        return tail
+
+
+def strip_think(text: str) -> str:
+    """One-shot `<think>…</think>` removal for non-streamed content."""
+    s = _ThinkStripper()
+    return s.feed(text) + s.flush()
+
+
 class LLMClient:
     def __init__(
         self,
@@ -121,11 +193,13 @@ class LLMClient:
         # mix prompts within a single response.
         system_prompt = self.active_persona.system_prompt
         messages = [{"role": "system", "content": system_prompt}] + history
+        stripper = _ThinkStripper()
         try:
             response = self._client.chat(
                 model=self.cfg.model,
                 messages=messages,
                 stream=True,
+                think=False,
                 options={"temperature": 0.7},
             )
             for chunk in response:
@@ -133,7 +207,12 @@ class LLMClient:
                     break
                 content = chunk.message.content or ""
                 if content:
-                    yield _strip_markdown(content)
+                    visible = stripper.feed(content)
+                    if visible:
+                        yield _strip_markdown(visible)
+            tail = stripper.flush()
+            if tail:
+                yield _strip_markdown(tail)
         except Exception as e:
             yield f"Sorry, I hit an error talking to Ollama: {e}"
 
@@ -182,6 +261,7 @@ class LLMClient:
                     ),
                     tools=tool_schemas,
                     stream=False,
+                    think=False,
                     options={"temperature": 0.7},
                 )
             except Exception as e:
@@ -193,7 +273,7 @@ class LLMClient:
             if not tool_calls:
                 # Model decided no tools were needed — surface its content as
                 # one big chunk to the sentence splitter.
-                content = msg.content or ""
+                content = strip_think(msg.content or "")
                 if content:
                     yield _strip_markdown(content)
                 return
@@ -236,11 +316,13 @@ class LLMClient:
         if stop_event is not None and stop_event.is_set():
             return
         messages = [{"role": "system", "content": system_prompt}] + cur_history
+        stripper = _ThinkStripper()
         try:
             response = self._client.chat(
                 model=self.cfg.model,
                 messages=messages,
                 stream=True,
+                think=False,
                 options={"temperature": 0.7},
             )
             for chunk in response:
@@ -248,7 +330,12 @@ class LLMClient:
                     break
                 content = chunk.message.content or ""
                 if content:
-                    yield _strip_markdown(content)
+                    visible = stripper.feed(content)
+                    if visible:
+                        yield _strip_markdown(visible)
+            tail = stripper.flush()
+            if tail:
+                yield _strip_markdown(tail)
         except Exception as e:
             yield f"Sorry, I hit an error talking to Ollama: {e}"
 

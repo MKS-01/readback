@@ -20,8 +20,12 @@ export interface AppState {
   voicesAvailable: VoiceOption[];
   model: string | null;
   modelsAvailable: string[];
+  sttEngine: string | null;
+  sttEnginesAvailable: string[];
   sttModel: string | null;
   sttModelsAvailable: string[];
+  turnEnabled: boolean; // Smart-Turn active server-side
+  turnWaiting: boolean; // mid-thought pause: model said "not done yet"
   persona: string | null;
   personasAvailable: string[];
   personaStatus: { text: string; kind: SwapState };
@@ -53,6 +57,7 @@ export interface AppState {
 
   // --- transcripts ---
   userCaption: string;
+  partialCaption: string; // live streaming ASR partial (Parakeet), pre-finalize
   aiSentences: string[];
   aiAccum: string;
 
@@ -71,6 +76,7 @@ export interface AppState {
   setSkipping: (skipping: boolean) => void;
   setEnded: (ended: boolean) => void;
   setUserCaption: (text: string) => void;
+  setPartialCaption: (text: string) => void;
   appendAiSentence: (text: string) => void;
   clearAiCaption: () => void;
   clearCaptions: () => void;
@@ -81,6 +87,8 @@ export interface AppState {
   setVoiceStatus: (text: string, kind?: SwapState) => void;
   setModelStatus: (text: string, kind?: SwapState) => void;
   setSttModel: (model: string) => void;
+  setSttEngine: (engine: string) => void;
+  setTurnWaiting: (waiting: boolean) => void;
   setVoice: (voice: string) => void;
   setModel: (model: string) => void;
   setPersona: (name: string) => void;
@@ -109,8 +117,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   voicesAvailable: [],
   model: null,
   modelsAvailable: [],
+  sttEngine: null,
+  sttEnginesAvailable: [],
   sttModel: null,
   sttModelsAvailable: [],
+  turnEnabled: false,
+  turnWaiting: false,
   persona: null,
   personasAvailable: [],
   personaStatus: { text: "", kind: "" },
@@ -139,6 +151,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelStatus: { text: "", kind: "" },
 
   userCaption: "",
+  partialCaption: "",
   aiSentences: [],
   aiAccum: "",
 
@@ -163,6 +176,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSkipping: (skipping) => set({ skipping }),
   setEnded: (ended) => set({ ended }),
   setUserCaption: (text) => set({ userCaption: text }),
+  setPartialCaption: (text) => set({ partialCaption: text }),
   appendAiSentence: (text) => {
     if (!text) return;
     const cur = get();
@@ -171,7 +185,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ aiSentences: sentences, aiAccum: accum });
   },
   clearAiCaption: () => set({ aiSentences: [], aiAccum: "" }),
-  clearCaptions: () => set({ userCaption: "", aiSentences: [], aiAccum: "" }),
+  clearCaptions: () =>
+    set({ userCaption: "", partialCaption: "", aiSentences: [], aiAccum: "" }),
   setMicLevel: (micLevel) => set({ micLevel }),
   setSttSwapping: (sttSwapping) => set({ sttSwapping }),
   setSttStatus: (text, kind = "") => set({ sttStatus: { text, kind } }),
@@ -179,6 +194,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setVoiceStatus: (text, kind = "") => set({ voiceStatus: { text, kind } }),
   setModelStatus: (text, kind = "") => set({ modelStatus: { text, kind } }),
   setSttModel: (sttModel) => set({ sttModel }),
+  setSttEngine: (sttEngine) => set({ sttEngine }),
+  setTurnWaiting: (turnWaiting) => set({ turnWaiting }),
   setVoice: (voice) => set({ voice }),
   setModel: (model) => set({ model }),
   setPersona: (persona) => set({ persona }),

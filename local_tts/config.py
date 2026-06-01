@@ -13,7 +13,7 @@ DEFAULT_PERSONA_PROMPT = (
 
 
 class OllamaConfig(BaseModel):
-    model: str = "qwen3:8b"
+    model: str = "nemotron-3-nano:4b"
     host: str = "http://localhost:11434"
     # Legacy: kept Optional for backward-compatibility with config.yaml files
     # that set `ollama.system_prompt`. At Config.load() time we promote it to
@@ -22,10 +22,27 @@ class OllamaConfig(BaseModel):
 
 
 class KokoroConfig(BaseModel):
+    # Retained for a possible future re-add; not wired while TTS is Qwen-only.
     voice: str = "af_heart"
     lang_code: str = "a"
     speed: float = 1.0
     torch_device: Literal["mps", "cpu", "auto"] = "cpu"
+
+
+class QwenTTSConfig(BaseModel):
+    # Qwen3-TTS via mlx-audio (MLX/Metal, 24 kHz). CustomVoice = preset speakers.
+    model: str = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+    speaker: str = "ryan"
+    speed: float = 1.0
+    # Optional voice-design instruction (e.g. "excited, fast"); None = neutral.
+    instruct: Optional[str] = None
+
+
+class TTSConfig(BaseModel):
+    # Kokoro was removed; Qwen3-TTS is the sole engine for now. Kept as a single
+    # "engine" enum so re-adding Kokoro later is a config + factory change only.
+    engine: Literal["qwen"] = "qwen"
+    qwen: QwenTTSConfig = Field(default_factory=QwenTTSConfig)
 
 
 class WhisperConfig(BaseModel):
@@ -34,8 +51,44 @@ class WhisperConfig(BaseModel):
     beam_size: int = 5
 
 
+class ParakeetConfig(BaseModel):
+    # HuggingFace id resolved by parakeet-mlx's from_pretrained. Streaming-capable
+    # NVIDIA Parakeet (MLX/Metal). v2 = English; v3 = 25 langs.
+    model: str = "mlx-community/parakeet-tdt-0.6b-v2"
+    # transcribe_stream attention context (left, right) in mel frames.
+    context_left: int = 256
+    context_right: int = 256
+    # Streaming feeds add_audio in blocks of this size. The mic delivers 30 ms
+    # frames, but Parakeet's encoder underflows on sub-~100 ms adds — we buffer
+    # to this many ms before each step. ~320 ms balances caption latency vs
+    # decode accuracy (smaller blocks degrade word boundaries).
+    stream_chunk_ms: int = 320
+
+
+class STTConfig(BaseModel):
+    # "parakeet": NVIDIA Parakeet via MLX (default, streaming-capable).
+    # "whisper":  faster-whisper (batch only). Both stay selectable at runtime.
+    engine: Literal["parakeet", "whisper"] = "parakeet"
+    whisper: WhisperConfig = Field(default_factory=WhisperConfig)
+    parakeet: ParakeetConfig = Field(default_factory=ParakeetConfig)
+
+
 class VADConfig(BaseModel):
     aggressiveness: int = Field(2, ge=0, le=3)
+
+
+class TurnConfig(BaseModel):
+    # Smart-Turn v3 semantic end-of-turn detection layered on top of the
+    # webrtcvad pause-gate. When the model can't be loaded (offline / missing
+    # deps), the pipeline gracefully falls back to finalizing on VAD pause alone.
+    enabled: bool = True
+    repo_id: str = "pipecat-ai/smart-turn-v3"
+    model_file: str = "smart-turn-v3.2-cpu.onnx"
+    # P(turn complete) >= threshold ends the turn; else keep listening.
+    threshold: float = Field(0.5, ge=0.0, le=1.0)
+    # Safety cap: force end-of-turn after this much continuous silence even if
+    # the model keeps saying "incomplete" (prevents hanging on a trailing pause).
+    max_wait_sec: float = 6.0
 
 
 class UIConfig(BaseModel):
@@ -109,9 +162,10 @@ class MemoryConfig(BaseModel):
 
 class Config(BaseModel):
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
-    kokoro: KokoroConfig = Field(default_factory=KokoroConfig)
-    whisper: WhisperConfig = Field(default_factory=WhisperConfig)
+    tts: TTSConfig = Field(default_factory=TTSConfig)
+    stt: STTConfig = Field(default_factory=STTConfig)
     vad: VADConfig = Field(default_factory=VADConfig)
+    turn: TurnConfig = Field(default_factory=TurnConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     persona: PersonaConfig = Field(default_factory=PersonaConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
@@ -128,6 +182,15 @@ class Config(BaseModel):
             return cls()
         with open(path, "r") as f:
             data = yaml.safe_load(f) or {}
+
+        # Legacy migration: pre-dual-engine config.yaml files had a top-level
+        # `whisper:` block. Capture it before the unknown-key filter drops it,
+        # then fold it into `stt.whisper` if no explicit `stt:` section exists.
+        # The engine default stays "parakeet" — we only preserve the user's
+        # Whisper model/beam choice for when they switch back to Whisper.
+        legacy_whisper = data.get("whisper")
+        had_stt_section = "stt" in data
+
         # Drop unknown top-level keys so old config.yaml files with cli-only
         # sections (audio, input) don't cause validation errors.
         known = cls.model_fields.keys()
@@ -135,6 +198,9 @@ class Config(BaseModel):
 
         had_persona_section = "persona" in data
         cfg = cls(**data)
+
+        if isinstance(legacy_whisper, dict) and not had_stt_section:
+            cfg.stt.whisper = WhisperConfig(**legacy_whisper)
 
         # Legacy migration: if a user has `ollama.system_prompt` set in their
         # config.yaml (the pre-PersonaConfig schema) and no `persona` section,

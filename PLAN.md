@@ -1,128 +1,222 @@
-# PLAN — local-tts: streaming open-model voice pipeline (Apple Silicon)
+# PLAN — local-tts: dual-ASR + dual-TTS streaming voice pipeline (Apple Silicon)
 
-> Revised after deep research — see [research.md](research.md) for evidence,
-> exact APIs, sources, and the latency budget. All major decisions confirmed
-> with the user. **Implementation is NOT started; awaiting go-ahead.**
+> Revised plan. Supersedes the original "replace Whisper / Qwen3-TTS opt-in"
+> draft. `research.md` was deleted (outdated) — its sources are folded into
+> §References below. Decisions confirmed with the user.
 
 ## Context
 
-`local-tts` is a fully **on-device** voice app (speak → STT → LLM → TTS → hear).
-This revamp modernizes it toward open NVIDIA/Qwen voice models that actually run
-on **Apple M5 Pro (48 GB, no CUDA)**, inspired by Daily.co's NVIDIA voice-agent
-blog and the voiceaiandvoiceagents.com primer. The Daily stack itself is
-Blackwell/CUDA-only, so we use the **Apple-Silicon-viable equivalents**.
+`local-tts` is a fully **on-device** voice app (speak → STT → LLM → TTS → hear),
+web-only (FastAPI + WebSocket + React). This revamp modernizes it toward open
+NVIDIA/Qwen voice models that run on **Apple M5 Pro (48 GB, no CUDA)**, inspired
+by Daily.co's NVIDIA voice-agent stack and the
+[Voice AI & Voice Agents primer](https://voiceaiandvoiceagents.com/). Daily's
+stack is Blackwell/CUDA-only, so we adopt the **Apple-Silicon-viable
+equivalents** of the same architecture.
 
-## Target stack (best-of-open, all on-device)
+### Key decisions (revised)
+- **ASR is pluggable, not a replacement.** Keep **both** Parakeet (NVIDIA, MLX)
+  and Whisper behind an `ASREngine` abstraction, toggleable from Settings.
+  **Default = Parakeet.** Parakeet is streaming-capable; Whisper stays batch.
+- **TTS is pluggable.** Add **Qwen3-TTS (mlx-audio) as the default** with
+  **Kokoro as the fallback/switch** — both an explicit Settings switch and an
+  automatic fallback to Kokoro if Qwen3-TTS can't load. ⚠ Qwen3-TTS has no
+  streaming and is much slower than Kokoro; **measure on M5 before trusting it as
+  the real-time default** (Phase 4b).
+- **LLM default = `nemotron-3-nano:4b`** (NVIDIA); `nemotron3:33b`, qwen3, etc.
+  stay selectable (the picker already lists every pulled Ollama model). Real work
+  is `think=False` + `<think>` stripping.
+- **Turn detection** = webrtcvad pre-gate + **Smart-Turn v3** (ONNX), with
+  graceful VAD-only fallback.
 
-| Stage | From | To |
+### voiceaiandvoiceagents.com coverage
+Cascade STT→LLM→TTS (kept); ~800 ms voice-to-voice ideal → ~1.2–2.0 s realistic
+fully-local target (per-stage budget below); turn detection = VAD + semantic
+(Phase 3); interruption/barge-in (existing `interrupt_event` race, kept);
+WebRTC > WebSocket noted as a future track only (this project stays WS).
+
+## Target stack
+
+| Stage | Now | After |
 |---|---|---|
-| ASR | faster-whisper (batch) | **NVIDIA Parakeet via `parakeet-mlx`** (streaming) |
-| Turn | webrtcvad batch | **webrtcvad pre-gate + Smart-Turn v3** (ONNX, ~12 ms CPU) |
-| LLM | Ollama `qwen3:4b` | **NVIDIA Nemotron** `nemotron-3-nano:4b` (`think=False`) |
-| TTS | Kokoro | **Pluggable: Kokoro (default) + Qwen3-TTS opt-in** (mlx-audio) |
-| UI | vanilla JS `web/static/` | + live partial captions, ASR/TTS engine pickers |
+| ASR | faster-whisper (batch, hardcoded) | **Pluggable: Parakeet-MLX (default, streaming) + Whisper (batch)** |
+| Turn | webrtcvad batch | **webrtcvad pre-gate + Smart-Turn v3** (ONNX, graceful fallback) |
+| LLM | Ollama `qwen3:4b` | **`nemotron-3-nano:4b`** (`think=False` + `<think>` strip); others selectable |
+| TTS | Kokoro (hardcoded) | **Qwen3-TTS (mlx-audio, 24 kHz)** — Kokoro removed for now (dep conflict; user call) |
+| UI | React pickers | + **two-level ASR engine+model picker**, **TTS engine selector**, live partial captions, turn indicator |
 
 ## Architecture
 
 ```
 mic (Int16 16k) ─ws─▶ Session
    ├ webrtcvad pause-gate (cheap speech/silence)
-   ├ Parakeet-MLX streaming ──▶ partial transcript ─ws─▶ live caption
-   └ on pause → Smart-Turn v3 (ONNX ~12 ms) ─complete?─▶ finalize
+   ├ [Parakeet] streaming ASR worker thread ──▶ partial ─ws─▶ live caption
+   │  [Whisper]  buffer frames → batch transcribe at turn end (no partials)
+   └ on VAD pause → Smart-Turn v3 (ONNX) ─complete?─▶ finalize transcript
         ▼
-   Nemotron (Ollama, think=False) ─sentences─▶ TTS engine ─Float32 24k─▶ ws ▶ play
-        TTS engine = Kokoro (default)  |  Qwen3-TTS (opt-in, mlx-audio)
+   Nemotron (Ollama, think=False, <think> stripped) ─sentences─▶ TTS engine ─F32 24k─▶ ws ▶ play
+        TTS engine = Qwen3-TTS (default, mlx-audio)  |  Kokoro (fallback/switch)
 ```
 All Parakeet (MLX) calls run on **one** worker thread (MLX/Metal isn't
-multi-thread safe); chunks in via a queue, partials out via
-`loop.call_soon_threadsafe`.
+multi-thread safe). The existing "drop mic frames while `pipeline_task is not
+None`" gate in `web/server.py` is the only speaker-bleed guard and must stay.
 
-## Implementation phases (each independently runnable; verify-in-phase)
+## Implementation phases
 
-> Per the "desk-research-only" decision, the few remaining unknowns are verified
-> *inside* the relevant phase (introspection + a quick smoke test), not upfront.
+### ✅ Phase 1 — ASR engine abstraction + Parakeet (batch) default; Whisper retained  — DONE
+- `stt/base.py`: `ASREngine` Protocol + shared `resample()`.
+- `stt/whisper_engine.py`: `WhisperEngine` (moved faster-whisper code verbatim —
+  all hallucination guards intact). `stt/parakeet_engine.py`: `ParakeetEngine`
+  wrapping `parakeet_mlx.from_pretrained`.
+- `stt/transcriber.py`: `Transcriber(STTConfig)` facade — `current_engine`,
+  `engines_available`, `models_for(engine)`, `swap_engine`, `swap_model`,
+  `transcribe`. Server talks only to the facade.
+- `config.py`: `ParakeetConfig` + `STTConfig{engine, whisper, parakeet}` (default
+  `parakeet`); legacy top-level `whisper:` migrated into `stt.whisper` at load.
+- `web/server.py`: `Transcriber(cfg.stt)`; config payload sends
+  `stt_engine`/`stt_engines_available` + active-engine model list; added
+  `set_stt_engine` handler (`_handle_stt_engine`).
+- `pyproject.toml`: added `parakeet-mlx`; kept `faster-whisper`.
+- **Verified:** parakeet-mlx `transcribe()` is file/ffmpeg-only, but
+  `StreamingParakeet.add_audio(mx.array)` takes raw 1-D PCM → we route batch
+  through `transcribe_stream`. End-to-end (Kokoro phrase → ASR):
+  **Parakeet 1097 ms (RTF 0.235), Whisper medium 2861 ms (RTF 0.612)**, both
+  transcribe correctly. `ollama` 0.6.2 already supports `think=` (no bump).
 
-### Phase 1 — Parakeet ASR engine (replace Whisper; batch first) + latency check
-- Rewrite `stt/transcriber.py` to wrap `parakeet_mlx.from_pretrained(...)` behind
-  the existing `Transcriber` surface (`SUPPORTED_MODELS`, `load`,
-  `transcribe(audio, sr)`, `_resample`, swap-lock). Default
-  `mlx-community/parakeet-tdt-0.6b-v2`.
-- **Verify in-phase:** does `transcribe()` accept a numpy float32 @16 k array, or
-  only a path? (introspect the installed pkg; if path-only, write the PCM window
-  to an in-memory/temp wav). **Measure** first-word latency vs old Whisper.
-- Deps: add `parakeet-mlx`. **Checkpoint:** UI works with Parakeet (still batch).
+### ✅ Phase 2 — Parakeet streaming + live partial transcripts (Whisper stays batch)  — DONE
+- `ParakeetEngine`: `start_stream()/feed(chunk)/partial_text/finalize()` over
+  `transcribe_stream` (`add_audio`, `.result.text`). add_audio underflows on
+  sub-~100 ms chunks, so the engine buffers mic frames to `stream_chunk_ms`
+  (default 320 ms) before each encoder step.
+- **MLX threading fix (important):** MLX binds its GPU stream to the thread that
+  first touches the device, so cross-thread calls raise "no Stream(gpu, 0)".
+  `ParakeetEngine` now owns a **single-thread executor** and runs ALL MLX work
+  (load, batch transcribe, streaming) on that one thread. This also fixed a
+  latent Phase 1 bug — the real server calls `transcribe()` via `to_thread` pool
+  threads, which would have hit the same error.
+- `Session`: dedicated ASR worker thread (`_asr_worker_loop`) feeds the stream
+  when `supports_streaming`, emits `{"type":"partial","text":…}` via
+  `call_soon_threadsafe`, and on VAD silence-end finalizes → launches the
+  pipeline with the streamed text (batch fallback if empty). `_awaiting_finalize`
+  gate blocks late frames. Whisper path untouched (batch).
+- Frontend: `partialCaption` in the store; rendered dimmed/italic in the INPUT
+  slot, replace-in-place, cleared/promoted on final transcript or idle.
+- **Verified:** engine streaming accurate (word-by-word partials, correct final);
+  Session integration test emits 59 partials and launches the pipeline with the
+  finalized text; cross-thread batch + engine swap to Whisper both work; frontend
+  builds (tsc + vite). Note: the VAD start-gate still drops the first ~240 ms
+  (pre-existing, affects batch too; masked by natural leading silence).
+- **Checkpoint:** words appear live on Parakeet; Whisper unchanged.
 
-### Phase 2 — Streaming ASR + live partial transcripts
-- Add to `Transcriber`: `start_stream()/feed(chunk)/partial_text/finalize()` over
-  `m.transcribe_stream(context_size=(256,256))` (`add_audio`, `.result.text`).
-- Rework `Session` (`web/server.py`): a dedicated ASR worker thread consumes the
-  audio queue and feeds the stream; emit `{"type":"partial","text":…}` on each
-  interim result. `web/static/{app.js,index.html}`: render the live partial in the
-  INPUT caption (replace-in-place; promote to final on turn end).
-- **Checkpoint:** words appear live while speaking.
+### ✅ Phase 3 — Smart-Turn v3 turn detection (hybrid, graceful fallback)  — DONE
+- `stt/turn.py` `TurnDetector` — pipecat-ai `smart-turn-v3.2-cpu.onnx` (Whisper-
+  tiny encoder + linear head, ~8M params) via `onnxruntime` (CPU). Contract:
+  `WhisperFeatureExtractor(chunk_length=8, do_normalize=True)` → `input_features`
+  (1,80,800) over the **last 8 s**; output sigmoid `P(turn complete)`; ≥0.5 ends.
+  `probability()`/`is_complete()`; lazy load raises `TurnDetectorUnavailable`.
+- `PipelineModels.load`: loads the detector once with graceful fallback (logs +
+  `turn_detector=None` → VAD-only) when `turn.enabled` and the model can't load.
+- `Session._process_frame`: at the webrtcvad pause (`SILENCE_FRAMES_TO_END`),
+  `_turn_is_complete()` runs Smart-Turn (off-loop via `to_thread`), re-checks
+  every `TURN_RECHECK_FRAMES` (~300 ms), and force-ends at `turn.max_wait_sec`.
+  If incomplete, keeps listening (same utterance continues through the pause) and
+  emits `{"type":"turn","state":"waiting"}`. New `TurnConfig`.
+- Deps: promoted `onnxruntime` to core; added `transformers` (feature extractor).
+- **Verified:** model returns ~0.98 on complete utterances, 0.26 on a trailing
+  "um, well", ~7-12 ms inference; deterministic gate test holds through a
+  mid-thought pause and ends once at turn end; `detector=None` cleanly falls back
+  to VAD-only.
 
-### Phase 3 — Smart-Turn v3 turn detection
-- New `stt/turn.py` — `TurnDetector` running **smart-turn-v3 ONNX** via
-  `onnxruntime` (CPU) directly (avoid pulling all of `pipecat`).
-  `is_complete(audio_window) -> bool` over a ~8 s @16 k window.
-- In `Session`: webrtcvad pause → `TurnDetector` confirms end-of-turn (else keep
-  listening); max-wait safety timeout. New `TurnConfig`. **Graceful fallback:** if
-  the ONNX model can't be sourced, finalize on VAD pause alone (pipeline still works).
-- **Verify in-phase:** v3 ONNX checkpoint id + input format. Deps: `onnxruntime`.
-- **Checkpoint:** mid-sentence pauses don't cut you off; reply fires at true end.
+### ✅ Phase 4 — LLM → Nemotron default + reasoning handling  — DONE
+- Default `ollama.model = "nemotron-3-nano:4b"` (config.yaml + `OllamaConfig`).
+- `think=False` on all three `chat(...)` calls in `llm/client.py` (ollama 0.6.2
+  supports it — no bump). New `_ThinkStripper` (stateful, withholds a trailing
+  fragment that could be a split `<think>`/`</think>` tag) applied to both
+  streaming paths; `strip_think()` one-shot for the non-streaming tool probe.
+- **Verified:** stripper unit tests pass (split tags, char-by-char, unclosed,
+  and `3 < 4 … 5 > 2` not false-matching). Live against Ollama: nemotron-3-nano
+  returns clean output, **no `<think>`**, no error; 33b/qwen3 still selectable.
+- **Caveat:** `qwen3:4b` ignores `think=False` and verbalizes its reasoning as
+  *untagged* prose (model-specific; no stripper can catch untagged text). Only
+  affects that non-default model — the default NVIDIA model is clean.
 
-### Phase 4 — LLM → Nemotron + reasoning handling + Qwen3-TTS engine
-- LLM: default `cfg.ollama.model = "nemotron-3-nano:4b"` (already pulled). In
-  `llm/client.py`: pass **`think=False`** to `ollama.chat(...)` (bump the `ollama`
-  python pkg if the venv's is too old) AND keep a defensive `<think>…</think>`
-  strip so reasoning is never sentence-split/TTS'd.
-- TTS engine abstraction: introduce a tiny TTS interface; keep Kokoro
-  `Synthesizer` as the default engine; add `tts/qwen.py` wrapping **mlx-audio**
-  (`load_model("mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit")`,
-  `generate_audio(...)` / `generate_custom_voice(...)` → float32 @ `model.sample_rate`,
-  resample to 24 k for the WS contract). Factory selects by config.
-- **Verify in-phase:** Nemotron-4b thinking behavior; **measure Qwen3-TTS-0.6B
-  latency on M5** before exposing it as a real-time choice.
-- Deps: `mlx-audio`. **Checkpoint:** Nemotron replies spoken cleanly (no `<think>`);
-  TTS engine swappable Kokoro↔Qwen3-TTS.
+### ✅ Phase 4b — Qwen3-TTS (Kokoro removed)  — DONE  *(scope changed by user)*
+- **Dependency conflict found:** mlx-audio requires `transformers>=5.5`, whose
+  import chain needs `torch.distributed.tensor.device_mesh` (torch≥2.5) — but the
+  project pins torch 2.4 for stability, and transformers 5.x breaks Kokoro
+  (`AlbertModel`). Resolution: Qwen3-TTS **runs fine on transformers 4.49**
+  (its `>=5.5` pin is conservative), so we pin `transformers<5` and keep torch 2.4.
+- **User decision mid-phase: remove Kokoro, Qwen3-TTS only for now.** So there is
+  no TTS engine abstraction with two engines — `Synthesizer(TTSConfig)` is a thin
+  facade over a single `QwenEngine` (seam kept for re-adding Kokoro later).
+- `tts/qwen_engine.py` `QwenEngine`: mlx-audio
+  `load_model("…Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit")` +
+  `generate_custom_voice(text, speaker, instruct)` → float32 @ **24 kHz**
+  (native; no resample). MLX single-thread → **owns a 1-thread executor** like
+  Parakeet. 9 preset speakers (`SUPPORTED_VOICES`); `swap_voice` is instant (just
+  a per-call arg). Warms the graph at `load()`.
+- `config.py`: `QwenTTSConfig` + `TTSConfig{engine:"qwen", qwen}`; dropped the
+  `kokoro` Config field (legacy `kokoro:`/`whisper:` blocks dropped at load).
+  `config.yaml`: `kokoro:` → `tts:`. Server `cfg.kokoro.*` → `cfg.tts.qwen.*`.
+- Deps: added `mlx-audio`, pinned `transformers<5`, removed `kokoro`/`misaki`.
+- **Measured on M5:** cold first sentence ~2.4 s (warm-up), **warm RTF ~0.21**
+  (664 ms for a 3.2 s clip), streaming first-chunk **126 ms** — viable real-time
+  default; cross-thread synth + voice swap verified.
+- **Caveat:** `speed` slider is a no-op for Qwen custom voice (only `generate()`
+  takes speed); the 9 Qwen speakers replace the 20 Kokoro voices in the picker.
 
-### Phase 5 — UI + protocol wiring for the new pickers
-- WS: `config` message carries `stt_model`/`stt_models_available` (Parakeet ids)
-  and `tts_engine`/`tts_engines_available`; add `set_tts_engine` (+ reuse the
-  mid-pipeline guard from `_handle_stt_swap`). Optional `{"type":"turn","state":…}`.
-- `web/static/`: ASR (Parakeet) info + **TTS engine selector** (Kokoro / Qwen3-TTS),
-  partial-caption rendering, optional turn indicator.
-- **Checkpoint:** settings panel switches TTS engine live.
+### ✅ Phase 5 — UI + protocol wiring (two-level ASR picker + partials)  — DONE
+- (No TTS engine selector — TTS is Qwen-only after 4b.)
+- Backend protocol (from P1/P3): `config` carries `stt_engine`,
+  `stt_engines_available`, active-engine `stt_model(s)`, `turn_enabled`;
+  `set_stt_engine` + `stt_engine {state}` messages.
+- Store: `sttEngine`, `sttEnginesAvailable`, `turnEnabled`, `turnWaiting`.
+  `App.tsx`: config reads the new fields; `stt_engine`/`turn` handlers;
+  `onSwapSttEngine`; reconnect re-emits saved `sttEngine` (before model, guarded
+  by `stt_engines_available`).
+- `SettingsModal.tsx`: two-level ASR control — engine selector (Parakeet ★ /
+  Whisper, styled like the speed picker, hidden when only one engine) + model
+  `Picker` (server filters to the active engine); `STT_MODEL_LABELS` extended
+  with Parakeet ids. Voice picker shows the 9 Qwen speakers.
+- `Captions.tsx`: live partials (P2) + "Listening — go on…" while `turnWaiting`.
+  `Header.tsx` `prettyVoice` title-cases `uncle_fu` → "Uncle Fu".
+- Prefs `v9`→`v10` (+`sttEngine`, chained legacy migration).
+- **Verified:** `npm run build` (tsc+vite) clean; in-process `TestClient` WS
+  round-trip — config has the new fields, `set_stt_engine`→whisper returns the
+  whisper model list.
 
-### Phase 6 — Cleanup, config, docs, version
-- `pyproject.toml`: **remove** `faster-whisper`; add `parakeet-mlx`, `mlx-audio`,
-  `onnxruntime`; bump `ollama`. Keep `torch`/`torchaudio` (Kokoro).
-- `config.py`: `WhisperConfig` → `ParakeetConfig`; add `TurnConfig` and a
-  `TTSConfig{engine: "kokoro"|"qwen", kokoro, qwen}`; default ollama model
-  `nemotron-3-nano:4b`. Update `cfg.whisper` references in `server.py`.
-- `config.yaml`: `whisper:` → `parakeet:`, add `turn:` + `tts:`; set the new model.
-- Update `CLAUDE.md` (architecture, STT/TTS sections, model picks, latency budget)
-  and `README.md` changelog → **v0.4.0**.
+### ✅ Phase 6 — config, deps, docs, version  — DONE
+- `pyproject.toml`: added `parakeet-mlx` + `mlx-audio`; `onnxruntime` +
+  `transformers<5` core; removed `kokoro`/`misaki`; `ollama>=0.6`; trimmed
+  redundant onnxruntime from the `[wakeword]` extra.
+- `config.py`: `STTConfig`/`ParakeetConfig`, `TTSConfig`/`QwenTTSConfig`,
+  `TurnConfig`; default Nemotron; legacy `whisper:`/`kokoro:` dropped at load.
+  `config.yaml`: `stt:` + `turn:` + `tts:` blocks.
+- `CLAUDE.md` fully updated (intro, Hardware, Stack, Project Structure, Server
+  pipeline, TTS/STT/Turn/LLM sections, WS protocol, reconnect, Frontend, Voice
+  options, latency, install + dep note, gotchas, Version). `README.md` v0.5.0
+  changelog. Versions bumped to **0.5.0** (pyproject, `__init__.py`,
+  frontend `package.json`).
+- **Verified:** `Config.load()` parses the new blocks; full-stack import clean;
+  frontend builds.
 
-## Dependencies & models (all on-device)
-- `pip install parakeet-mlx mlx-audio onnxruntime` (+ bump `ollama`). MLX/CoreML
-  are Apple-Silicon native; `onnxruntime` ships a macOS arm64 wheel.
-- First use downloads weights lazily: Parakeet ~2.5 GB; Qwen3-TTS-0.6B (only if
-  selected); Smart-Turn v3 (small). `nemotron-3-nano:4b` already pulled.
+## Latency budget (M5 — measured where noted)
 
-## Risks / verify (folded into phases)
-- parakeet-mlx numpy input (P1) · Smart-Turn v3 ONNX id/format (P3) · Nemotron-4b
-  thinking + `ollama` `think=` support (P4) · Qwen3-TTS-0.6B M5 latency (P4) ·
-  MLX single-thread discipline (P2). Each has a stated fallback.
+| Stage | Value |
+|---|---|
+| webrtcvad pause gate | ~250–700 ms (tunable) |
+| Smart-Turn v3 decision | ~12 ms (CPU) |
+| Parakeet batch finalize (4.67 s clip) | **~1.1 s cold / RTF 0.235** (measured P1); streaming cuts this |
+| Whisper medium batch (fallback engine) | **~2.9 s / RTF 0.612** (measured P1) |
+| Nemotron-3-nano:4b first token | ~200–500 ms (measure P4) |
+| Qwen3-TTS-0.6B first sentence (default) | ❓ likely ≫ Kokoro, no streaming — measure P4b |
+| Kokoro first sentence (fallback) | ~300–500 ms |
 
-## Verification (end-to-end)
-1. `local-tts web` → speak → live **partial** caption (P2), Parakeet transcript.
-2. Pausing mid-sentence doesn't cut you off; reply at true turn end (P3).
-3. Nemotron reply spoken with **no** `<think>` text (P4).
-4. Settings: switch **TTS engine** Kokoro↔Qwen3-TTS; switch ASR model (P5).
-5. Interrupt/Skip still stops playback instantly (unchanged path).
-6. `grep -ri faster.whisper local_tts/ pyproject.toml` → none (P6).
-
-## References
-See [research.md §8](research.md) for the full source list (Daily.co, Smart-Turn
-v3, voiceaiandvoiceagents, Nemotron/Ollama, parakeet-mlx, Qwen3-TTS, mlx-audio).
+## References (research.md deleted; sources captured here)
+- Daily.co — NVIDIA open voice models: https://www.daily.co/blog/building-voice-agents-with-nvidia-open-models/
+- Daily.co — Smart Turn v3 (12 ms CPU): https://www.daily.co/blog/announcing-smart-turn-v3-with-cpu-inference-in-just-12ms/
+- Voice AI & Voice Agents primer: https://voiceaiandvoiceagents.com/
+- Nemotron 3 (Ollama): https://ollama.com/library/nemotron-3-nano · Ollama thinking: https://docs.ollama.com/capabilities/thinking
+- parakeet-mlx: https://github.com/senstella/parakeet-mlx
+- Qwen3-TTS: https://github.com/QwenLM/Qwen3-TTS · mlx-audio: https://github.com/Blaizzy/mlx-audio
+- Smart-Turn: https://github.com/pipecat-ai/smart-turn

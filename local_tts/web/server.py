@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import queue
 import threading
 import time
 import uuid
@@ -36,7 +37,8 @@ from fastapi.staticfiles import StaticFiles
 from local_tts.config import Config
 from local_tts.llm.client import LLMClient
 from local_tts.memory import SessionWriter
-from local_tts.stt.transcriber import SUPPORTED_MODELS, Transcriber
+from local_tts.stt.transcriber import Transcriber
+from local_tts.stt.turn import TurnDetector, TurnDetectorUnavailable
 from local_tts.tools import ClockTool, ToolRegistry, WebSearchTool
 from local_tts.tools.web_search import build_default_provider
 from local_tts.tts.synthesizer import (
@@ -82,8 +84,12 @@ FRAME_BYTES = FRAME_SAMPLES * 2  # int16
 
 # Utterance segmentation thresholds (in 30ms frames).
 SPEECH_FRAMES_TO_START = 8       # ~240ms of speech to begin
-SILENCE_FRAMES_TO_END = 25       # ~750ms of silence to finalize
+SILENCE_FRAMES_TO_END = 25       # ~750ms of silence → candidate end-of-turn
 MIN_UTTERANCE_FRAMES = 12        # ~360ms — drop anything shorter (noise blip)
+# Smart-Turn: once a pause reaches SILENCE_FRAMES_TO_END we ask the model if the
+# turn is complete. If it says "not yet", we keep listening and re-ask every
+# TURN_RECHECK_FRAMES of continued silence to bound CPU (each call ~7-12ms).
+TURN_RECHECK_FRAMES = 10         # ~300ms between Smart-Turn re-checks
 
 
 class PipelineModels:
@@ -94,14 +100,27 @@ class PipelineModels:
         self.transcriber: Optional[Transcriber] = None
         self.llm: Optional[LLMClient] = None
         self.synth: Optional[Synthesizer] = None
+        # Smart-Turn detector; stays None if disabled or it fails to load
+        # (graceful fallback to VAD-only end-of-turn).
+        self.turn_detector: Optional[TurnDetector] = None
         self._loaded = False
 
     def load(self):
         if self._loaded:
             return
         log.info("Loading models...")
-        self.transcriber = Transcriber(self.cfg.whisper)
+        self.transcriber = Transcriber(self.cfg.stt)
         self.transcriber.load()
+        if self.cfg.turn.enabled:
+            td = TurnDetector(self.cfg.turn)
+            try:
+                td.load()
+                self.turn_detector = td
+            except TurnDetectorUnavailable as e:
+                log.warning(
+                    "Smart-Turn unavailable — falling back to VAD-only "
+                    "end-of-turn: %s", e,
+                )
         # Build the tool registry up-front so toggling tools.enabled at
         # runtime doesn't have to re-instantiate Ollama-facing state.
         registry = ToolRegistry(self.cfg.tools)
@@ -110,7 +129,7 @@ class PipelineModels:
             WebSearchTool(build_default_provider(self.cfg.tools.web_search_provider))
         )
         self.llm = LLMClient(self.cfg.ollama, self.cfg.persona, tools=registry)
-        self.synth = Synthesizer(self.cfg.kokoro)
+        self.synth = Synthesizer(self.cfg.tts)
         self.synth.load()
         self._loaded = True
         log.info("Models ready.")
@@ -134,12 +153,27 @@ class Session:
         self.in_speech = False
         self.speech_count = 0
         self.silence_count = 0
+        # Silence-frame count at which to next run Smart-Turn (re-armed each
+        # time the model says "not done yet").
+        self._next_turn_check = SILENCE_FRAMES_TO_END
 
         self.muted = False
         self.history: list[dict] = []
         self.pipeline_task: Optional[asyncio.Task] = None
         self.interrupt_event = asyncio.Event()
         self.send_lock = asyncio.Lock()         # serialize ws sends
+
+        # Streaming ASR (Phase 2). When the active engine supports streaming
+        # (Parakeet), mic frames are fanned out to a dedicated worker thread
+        # that feeds the live transcription stream and emits partial captions.
+        # MLX/Metal is not multi-thread safe, so ALL streaming inference runs on
+        # this one thread. Whisper has no streaming API and uses the batch path.
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self._asr_q: "queue.Queue[tuple[str, Optional[np.ndarray]]]" = queue.Queue()
+        self._asr_thread: Optional[threading.Thread] = None
+        # True between queuing a finalize and the pipeline actually launching, so
+        # late mic frames don't start a phantom new stream in that window.
+        self._awaiting_finalize = False
 
         # Listening mode + wake-word detector. The detector is created lazily
         # only when the user switches to wake_word mode (avoids onnxruntime
@@ -157,6 +191,7 @@ class Session:
         )
 
     async def run(self):
+        self.loop = asyncio.get_running_loop()
         models_available = await asyncio.to_thread(self.models.llm.list_models)
         tools = self.models.llm.tools
         await self.send_json({
@@ -168,9 +203,12 @@ class Session:
             ],
             "model": self.cfg.ollama.model,
             "models_available": models_available,
+            "stt_engine": self.models.transcriber.current_engine,
+            "stt_engines_available": list(self.models.transcriber.engines_available),
             "stt_model": self.models.transcriber.current_model,
-            "stt_models_available": list(SUPPORTED_MODELS),
-            "speed": self.cfg.kokoro.speed,
+            "stt_models_available": list(self.models.transcriber.models_for()),
+            "turn_enabled": self.models.turn_detector is not None,
+            "speed": self.cfg.tts.qwen.speed,
             "persona": self.models.llm.active_persona.name,
             "personas_available": self.models.llm.list_personas(),
             "tools_enabled": tools.enabled if tools else False,
@@ -197,7 +235,11 @@ class Session:
             while True:
                 msg = await self.ws.receive()
                 if "bytes" in msg and msg["bytes"] is not None:
-                    if not self.muted and self.pipeline_task is None:
+                    if (
+                        not self.muted
+                        and self.pipeline_task is None
+                        and not self._awaiting_finalize
+                    ):
                         await self._handle_audio(msg["bytes"])
                 elif "text" in msg and msg["text"] is not None:
                     await self._handle_control(msg["text"])
@@ -206,6 +248,7 @@ class Session:
         except WebSocketDisconnect:
             pass
         finally:
+            self._stop_asr_worker()
             if self.pipeline_task and not self.pipeline_task.done():
                 self.pipeline_task.cancel()
             # Fire-and-forget: run finalize (which makes a topic LLM call and
@@ -231,10 +274,12 @@ class Session:
         if kind == "mute":
             self.muted = True
             self._reset_vad()
+            self._abort_asr_stream()
         elif kind == "unmute":
             self.muted = False
         elif kind == "interrupt":
             self.interrupt_event.set()
+            self._abort_asr_stream()
         elif kind == "text_input":
             user_text = (payload.get("text") or "").strip()
             if not user_text or self.pipeline_task is not None:
@@ -243,6 +288,8 @@ class Session:
             self._reset_vad()
             self.interrupt_event.clear()
             self.pipeline_task = asyncio.create_task(self._run_pipeline(text=user_text))
+        elif kind == "set_stt_engine":
+            await self._handle_stt_engine(payload.get("engine"))
         elif kind == "set_stt_model":
             await self._handle_stt_swap(payload.get("model"))
         elif kind == "set_voice":
@@ -250,7 +297,7 @@ class Session:
         elif kind == "set_speed":
             speed = payload.get("speed")
             if isinstance(speed, (int, float)) and 0.5 <= float(speed) <= 2.0:
-                self.cfg.kokoro.speed = float(speed)
+                self.cfg.tts.qwen.speed = float(speed)
         elif kind == "set_model":
             model = (payload.get("model") or "").strip()
             if model and model != self.cfg.ollama.model:
@@ -292,12 +339,62 @@ class Session:
         elif kind == "set_input_mode":
             await self._handle_input_mode(payload.get("mode"))
 
+    async def _handle_stt_engine(self, engine: Optional[str]):
+        """Switch the active ASR engine (parakeet <-> whisper) and report the
+        new engine's model list. Refuses mid-pipeline like the model swap."""
+        if not engine:
+            return
+        transcriber = self.models.transcriber
+        if engine not in transcriber.engines_available:
+            await self.send_json({
+                "type": "stt_engine",
+                "state": "error",
+                "engine": engine,
+                "message": f"Unsupported engine {engine!r}",
+            })
+            return
+        if self.pipeline_task and not self.pipeline_task.done():
+            await self.send_json({
+                "type": "stt_engine",
+                "state": "error",
+                "engine": engine,
+                "message": "Wait for the current response to finish, then try again.",
+            })
+            return
+        if transcriber.current_engine == engine:
+            await self.send_json({
+                "type": "stt_engine", "state": "ready", "engine": engine,
+                "model": transcriber.current_model,
+                "models_available": list(transcriber.models_for(engine)),
+            })
+            return
+        await self.send_json({
+            "type": "stt_engine", "state": "loading", "engine": engine,
+        })
+        try:
+            loaded = await asyncio.to_thread(transcriber.swap_engine, engine)
+            await self.send_json({
+                "type": "stt_engine",
+                "state": "ready",
+                "engine": loaded,
+                "model": transcriber.current_model,
+                "models_available": list(transcriber.models_for(loaded)),
+            })
+        except Exception as e:
+            log.exception("stt engine swap failed")
+            await self.send_json({
+                "type": "stt_engine",
+                "state": "error",
+                "engine": engine,
+                "message": str(e),
+            })
+
     async def _handle_stt_swap(self, name: Optional[str]):
-        """Hot-swap the Whisper model. Refuses to swap mid-pipeline so an
-        in-flight transcribe can't get its model yanked."""
+        """Hot-swap the active ASR engine's model. Refuses to swap mid-pipeline
+        so an in-flight transcribe can't get its model yanked."""
         if not name:
             return
-        if name not in SUPPORTED_MODELS:
+        if name not in self.models.transcriber.models_for():
             await self.send_json({
                 "type": "stt_model",
                 "state": "error",
@@ -474,6 +571,8 @@ class Session:
             await self.send_phase("listening")
             self.in_speech = True
             self.utterance_frames.append(frame)
+            if self.models.transcriber.supports_streaming:
+                self._feed_asr(frame)
             return
 
         try:
@@ -481,32 +580,39 @@ class Session:
         except Exception:
             return
 
+        streaming = self.models.transcriber.supports_streaming
+
         if is_speech:
             self.speech_count += 1
             self.silence_count = 0
+            # Speech resumed — re-arm the Smart-Turn check for the next pause.
+            self._next_turn_check = SILENCE_FRAMES_TO_END
             if not self.in_speech and self.speech_count >= SPEECH_FRAMES_TO_START:
                 self.in_speech = True
                 await self.send_phase("listening")
             if self.in_speech:
                 self.utterance_frames.append(frame)
+                if streaming:
+                    self._feed_asr(frame)
         else:
             self.speech_count = 0
             if self.in_speech:
                 self.silence_count += 1
                 self.utterance_frames.append(frame)
+                if streaming:
+                    self._feed_asr(frame)
                 if self.silence_count >= SILENCE_FRAMES_TO_END:
-                    frames = self.utterance_frames
-                    self._reset_vad()
-                    if len(frames) >= MIN_UTTERANCE_FRAMES:
-                        await self._dispatch_utterance(frames)
-                    else:
-                        await self.send_phase("idle")
+                    # webrtcvad pause reached — let Smart-Turn confirm it's a
+                    # real end-of-turn (else keep listening through the pause).
+                    if await self._turn_is_complete():
+                        await self._end_utterance(streaming)
 
     def _reset_vad(self):
         self.utterance_frames = []
         self.in_speech = False
         self.speech_count = 0
         self.silence_count = 0
+        self._next_turn_check = SILENCE_FRAMES_TO_END
         # Re-arm the wake-word gate so the next utterance requires a new trigger.
         if self.input_mode == "wake_word":
             self.wake_triggered = False
@@ -514,11 +620,176 @@ class Session:
                 self.wakeword_detector.reset()
 
     async def _dispatch_utterance(self, frames: list[bytes]):
-        """Hand off captured audio to the STT→LLM→TTS pipeline."""
+        """Hand off captured audio to the STT→LLM→TTS pipeline (batch engines)."""
         pcm = b"".join(frames)
         audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32767.0
         self.interrupt_event.clear()
         self.pipeline_task = asyncio.create_task(self._run_pipeline(audio=audio))
+
+    # ---- turn detection (Smart-Turn v3) ----
+
+    def _utterance_audio(self) -> np.ndarray:
+        pcm = b"".join(self.utterance_frames)
+        return np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32767.0
+
+    async def _turn_is_complete(self) -> bool:
+        """Decide whether the current pause is a real end-of-turn. Returns True
+        for plain VAD behavior when Smart-Turn is unavailable."""
+        td = self.models.turn_detector
+        if td is None:
+            return True  # VAD-only: a long-enough pause ends the turn
+        # Safety cap: don't wait forever on a trailing pause.
+        max_wait_frames = int(self.cfg.turn.max_wait_sec * 1000 / FRAME_DURATION_MS)
+        if self.silence_count >= max_wait_frames:
+            return True
+        # Throttle: only re-run the model every TURN_RECHECK_FRAMES.
+        if self.silence_count < self._next_turn_check:
+            return False
+        self._next_turn_check = self.silence_count + TURN_RECHECK_FRAMES
+        try:
+            prob = await asyncio.to_thread(
+                td.probability, self._utterance_audio(), VAD_SAMPLE_RATE,
+            )
+        except Exception:
+            log.exception("smart-turn inference failed; finalizing on VAD")
+            return True  # fail open — better to end the turn than hang
+        complete = prob >= self.cfg.turn.threshold
+        if not complete:
+            # Tell the UI we're still waiting through a mid-thought pause.
+            await self.send_json({"type": "turn", "state": "waiting", "prob": prob})
+        return complete
+
+    async def _end_utterance(self, streaming: bool):
+        """Finalize the current utterance (Smart-Turn confirmed end-of-turn)."""
+        frames = self.utterance_frames
+        long_enough = len(frames) >= MIN_UTTERANCE_FRAMES
+        self._reset_vad()
+        if streaming:
+            # The worker thread owns the transcript: it finalizes the live
+            # stream (or batch-falls-back) and launches the pipeline with the
+            # resulting text. Block late frames until that launch lands.
+            if long_enough:
+                self._awaiting_finalize = True
+                self._asr_q.put(("finalize", None))
+            else:
+                self._asr_q.put(("abort", None))
+                await self.send_phase("idle")
+        else:
+            if long_enough:
+                await self._dispatch_utterance(frames)
+            else:
+                await self.send_phase("idle")
+
+    # ---- streaming ASR worker (Parakeet) ----
+
+    def _feed_asr(self, frame: bytes):
+        """Queue one mic frame for the streaming ASR worker (float32 [-1, 1])."""
+        self._ensure_asr_worker()
+        samples = np.frombuffer(frame, dtype=np.int16).astype(np.float32) / 32767.0
+        self._asr_q.put(("audio", samples))
+
+    def _ensure_asr_worker(self):
+        if self._asr_thread is not None and self._asr_thread.is_alive():
+            return
+        self._asr_thread = threading.Thread(
+            target=self._asr_worker_loop, name=f"asr-{self.session_id[:6]}", daemon=True,
+        )
+        self._asr_thread.start()
+
+    def _asr_worker_loop(self):
+        """Single thread that owns the Parakeet streaming context (MLX is not
+        multi-thread safe). Consumes audio frames, emits partial captions, and
+        on finalize hands the transcript back to the event loop."""
+        engine = None
+        pending: list[np.ndarray] = []
+        while True:
+            cmd, payload = self._asr_q.get()
+            if cmd == "stop":
+                if engine is not None:
+                    engine.abort_stream()
+                return
+            if cmd == "audio":
+                if engine is None:
+                    engine = self.models.transcriber.streaming_engine()
+                    if engine is None:
+                        continue
+                    try:
+                        engine.start_stream()
+                    except Exception:
+                        log.exception("asr stream start failed")
+                        engine = None
+                        continue
+                    pending = []
+                pending.append(payload)
+                try:
+                    partial = engine.feed(payload, VAD_SAMPLE_RATE)
+                except Exception:
+                    log.exception("asr feed failed")
+                    continue
+                if partial:
+                    self._emit_threadsafe({
+                        "type": "partial",
+                        "text": partial,
+                        "session_id": self.session_id,
+                    })
+            elif cmd == "abort":
+                if engine is not None:
+                    engine.abort_stream()
+                    engine = None
+                pending = []
+            elif cmd == "finalize":
+                text = ""
+                if engine is not None:
+                    try:
+                        text = engine.finalize()
+                    except Exception:
+                        log.exception("asr finalize failed")
+                    engine = None
+                # Fallback: if the live stream produced nothing, batch-transcribe
+                # the buffered audio on this same (MLX-safe) thread.
+                if not text and pending:
+                    try:
+                        audio = np.concatenate(pending)
+                        text = self.models.transcriber.transcribe(audio, VAD_SAMPLE_RATE)
+                    except Exception:
+                        log.exception("asr batch fallback failed")
+                pending = []
+                self._launch_pipeline_threadsafe(text)
+
+    def _emit_threadsafe(self, payload: dict):
+        """Schedule a ws send from the worker thread onto the event loop."""
+        loop = self.loop
+        if loop is None:
+            return
+        loop.call_soon_threadsafe(
+            lambda: asyncio.ensure_future(self.send_json(payload))
+        )
+
+    def _launch_pipeline_threadsafe(self, text: str):
+        loop = self.loop
+        if loop is None:
+            return
+        loop.call_soon_threadsafe(self._launch_pipeline_from_stream, text)
+
+    def _launch_pipeline_from_stream(self, text: str):
+        """Runs on the event-loop thread. Starts the pipeline with the finalized
+        streaming transcript (skips re-running STT)."""
+        self._awaiting_finalize = False
+        text = (text or "").strip()
+        if not text or self.pipeline_task is not None:
+            asyncio.ensure_future(self.send_phase("idle"))
+            return
+        self.interrupt_event.clear()
+        self.pipeline_task = asyncio.create_task(self._run_pipeline(text=text))
+
+    def _abort_asr_stream(self):
+        self._awaiting_finalize = False
+        if self._asr_thread is not None and self._asr_thread.is_alive():
+            self._asr_q.put(("abort", None))
+
+    def _stop_asr_worker(self):
+        if self._asr_thread is not None and self._asr_thread.is_alive():
+            self._asr_q.put(("stop", None))
 
     async def _run_pipeline(self, *, audio: Optional[np.ndarray] = None, text: Optional[str] = None):
         try:
@@ -724,7 +995,7 @@ def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -
     @app.get("/api/config")
     async def get_config():
         return {
-            "voice": cfg.kokoro.voice,
+            "voice": cfg.tts.qwen.speaker,
             "model": cfg.ollama.model,
             "input_sample_rate": VAD_SAMPLE_RATE,
             "output_sample_rate": models.synth.sample_rate if models.synth else 24000,

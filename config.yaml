@@ -1,5 +1,8 @@
 ollama:
-  model: "qwen3:4b"
+  # NVIDIA Nemotron (default). Reasoning is disabled via think=False and any
+  # inline <think>…</think> is stripped before TTS. Any pulled Ollama model is
+  # selectable at runtime from the web UI (e.g. nemotron3:33b, qwen3:4b).
+  model: "nemotron-3-nano:4b"
   host: "http://localhost:11434"
   # Legacy field. New installs should leave this unset and use `persona` below.
   # If both are set, `persona` wins. When this is the only thing defined, it is
@@ -10,20 +13,41 @@ ollama:
     Keep responses under 3-4 sentences unless explicitly asked for more depth.
     Never start a sentence with asterisks, hyphens, or other punctuation.
 
-kokoro:
-  voice: "af_bella"                  # af_heart, af_bella, af_sarah, am_michael, bf_emma, bm_george, ...
-  lang_code: "a"                     # "a"=American Eng, "b"=British, "j"=Japanese, "z"=Mandarin
-  speed: 1.0
-  torch_device: "cpu"                # cpu is fastest for kokoro on Apple Silicon (mps iSTFT falls back to cpu anyway)
+tts:
+  # Qwen3-TTS (mlx-audio) is the sole engine for now (Kokoro removed). 24 kHz.
+  engine: "qwen"
+  qwen:
+    model: "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
+    # Preset speakers: ryan, eric, aiden, dylan, uncle_fu, serena, vivian,
+    # ono_anna, sohee. The web UI exposes a runtime picker.
+    speaker: "ryan"
+    speed: 1.0                        # currently a no-op for Qwen custom voice
+    # instruct: "warm, conversational"  # optional voice-design hint
 
-whisper:
-  # Multilingual variants handle non-US English accents better.
-  # Sizes (int8): tiny ~75MB, base ~150MB, small ~480MB,
-  # medium ~1.5GB, large-v3-turbo ~1.6GB, large-v3 ~3GB.
-  # The web UI exposes a runtime picker that overrides this on a per-call basis.
-  model: "medium"
-  compute_type: "int8"               # int8 recommended for Apple Silicon CPU
-  beam_size: 5                       # 5 = balanced, 10 = max accuracy +200-400ms
+stt:
+  # Two ASR engines, switchable at runtime from the web UI.
+  #   parakeet — NVIDIA Parakeet via MLX/Metal (streaming, live captions)
+  #   whisper  — faster-whisper / CTranslate2 (batch, CPU int8)
+  engine: "parakeet"
+  parakeet:
+    # Models: parakeet-tdt-0.6b-v2 (English ★), -v3 (25 langs), -1.1b (accurate),
+    # -rnnt-0.6b, -ctc-0.6b. First use downloads ~2.5GB.
+    model: "mlx-community/parakeet-tdt-0.6b-v2"
+    stream_chunk_ms: 320             # encoder step size while streaming
+  whisper:
+    # Sizes (int8): tiny ~75MB, base ~150MB, small ~480MB,
+    # medium ~1.5GB, large-v3-turbo ~1.6GB, large-v3 ~3GB.
+    model: "medium"
+    compute_type: "int8"             # int8 recommended for Apple Silicon CPU
+    beam_size: 5                     # 5 = balanced, 10 = max accuracy +200-400ms
+
+turn:
+  # Smart-Turn v3 semantic end-of-turn (ONNX, CPU ~12ms) on top of webrtcvad.
+  # Falls back to VAD-only if the model can't be downloaded/loaded.
+  enabled: true
+  model_file: "smart-turn-v3.2-cpu.onnx"
+  threshold: 0.5                     # P(turn complete) >= this ends the turn
+  max_wait_sec: 6.0                  # force end-of-turn after this much silence
 
 vad:
   aggressiveness: 2                  # 0 (permissive) to 3 (aggressive)
@@ -51,7 +75,7 @@ tools:
 # folder chosen by the LLM at session end. The directory is auto-created on
 # first session.
 obsidian:
-  enabled: true
+  enabled: false
   vault_root: "~/Documents/Obsidian/local-tts"
   topic_model: null                  # reuses ollama.model when null
 

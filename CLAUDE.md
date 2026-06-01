@@ -1,7 +1,10 @@
 # local-tts — Project Context
 
 A local voice + text assistant with a browser UI. Speak or type → STT → Ollama
-LLM (with optional tools) → Kokoro TTS → playback. Optional second-brain layer
+LLM (with optional tools) → TTS → playback, all on-device. Speech-to-text is a
+**dual engine** (NVIDIA Parakeet via MLX, default + streaming; faster-whisper as
+a batch alternative), with **Smart-Turn v3** semantic end-of-turn on top of
+webrtcvad. TTS is **Qwen3-TTS** (mlx-audio). Optional second-brain layer
 auto-files every conversation as a markdown transcript in an Obsidian vault.
 
 This project is **web-only**. The CLI is one command (`local-tts`) that boots
@@ -10,22 +13,33 @@ no PTT, no `click`/`rich`. If you see references to `cli.py`, `app.py`,
 `audio/recorder.py`, `ui/display.py`, or `pynput` in older docs/PRs, that
 codebase is gone.
 
+**See [ARCHITECTURE.md](ARCHITECTURE.md)** for the system-level view — the
+streaming cascade, the concurrency/threading model (event loop + ASR worker +
+per-engine MLX executors + LLM producer thread), the turn lifecycle, and
+extension points. This file holds the implementation notes, gotchas, and exact
+knobs; ARCHITECTURE.md holds the "how it fits together / why."
+
 ## Hardware
 
 - Apple M5 Pro, 48 GB unified memory (primary target).
-- No CUDA. PyTorch MPS is available, but **Kokoro runs faster on CPU** than MPS
-  on this machine — iSTFT (`aten::angle`) falls back to CPU and transfer
-  overhead dominates for an 82M-param model.
-- Whisper is CPU-only on Mac regardless (faster-whisper / CTranslate2 has no
-  MPS backend; ARM NEON int8 is the fast path).
+- No CUDA. Accelerator mapping: **MLX/Metal (20-core GPU)** runs Parakeet ASR and
+  Qwen3-TTS; **CPU** runs Whisper (CTranslate2 ARM NEON int8) and Smart-Turn
+  (onnxruntime); Ollama runs Nemotron. **MLX is not multi-thread safe** — its
+  default GPU stream binds to the thread that first touches the device, so
+  Parakeet and Qwen each own a single-thread executor (see STT/TTS sections).
 
 ## Stack
 
-- **LLM**: Ollama, default `qwen3:4b` (config.yaml). Tool-capable models
-  (`qwen3`, `llama3.1`, `gemma3-tools`) are required when `tools.enabled: true`.
-- **TTS**: Kokoro-82M (`hexgrad/Kokoro-82M`) on CPU; 20-voice curated picker.
-- **STT**: faster-whisper, 6-size hot-swappable picker (`tiny` → `large-v3`),
-  default `medium`, int8 CPU.
+- **LLM**: Ollama, default **`nemotron-3-nano:4b`** (NVIDIA) with `think=False`
+  + `<think>` stripping. Any pulled model is selectable (`nemotron3:33b`,
+  `qwen3`, …); tool-capable models required when `tools.enabled: true`.
+- **TTS**: **Qwen3-TTS-0.6B** (`mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit`)
+  via `mlx-audio` on Metal, 24 kHz, 9 preset speakers. (Kokoro was removed; the
+  `Synthesizer` facade keeps a one-engine seam for re-adding it.)
+- **STT**: **dual engine** behind an `ASREngine` protocol — Parakeet (MLX,
+  default, streaming) + Whisper (faster-whisper, batch); switchable at runtime.
+- **Turn detection**: Smart-Turn v3 (pipecat `smart-turn-v3.2-cpu.onnx`) via
+  onnxruntime, hybrid with webrtcvad; graceful VAD-only fallback.
 - **Wake-word**: openWakeWord backend exists (`local_tts/wakeword/`, optional
   `[wakeword]` extra) but the UI surface is currently hidden — see Wake-word
   section for why and how to re-enable.
@@ -40,22 +54,30 @@ codebase is gone.
 
 ```
 local-tts/
-├── pyproject.toml             # v0.4.0; [wakeword] extras for openwakeword + onnxruntime
-├── config.yaml                # user-editable; all v0.4 features on by default
+├── pyproject.toml             # v0.5.0; parakeet-mlx + mlx-audio + onnxruntime + transformers<5
+├── config.yaml                # user-editable; stt:/turn:/tts: blocks, Nemotron default
 ├── README.md                  # user-facing; mirror for changelog
+├── ARCHITECTURE.md            # system-level view: cascade, threading model, lifecycle
 │
 └── local_tts/
     ├── __main__.py            # `local-tts` entry: argparse, optional --auto-cert/--cert/--key,
     │                          # uvicorn boot, banner with TLS fingerprint
-    ├── config.py              # Pydantic config; load() drops unknown top-level keys + migrates
-    │                          # legacy `ollama.system_prompt` into the "default" persona
+    ├── config.py              # Pydantic config; STTConfig/TTSConfig/TurnConfig; load() drops
+    │                          # unknown top-level keys + migrates legacy whisper:/ollama.system_prompt
     │
-    ├── llm/client.py          # LLMClient: Ollama streaming, sentence splitter,
-    │                          # persona snapshot, tool-call probe loop
-    ├── stt/transcriber.py     # faster-whisper wrapper, swap_model() under threading.Lock,
-    │                          # SUPPORTED_MODELS allowlist
-    ├── tts/synthesizer.py     # Kokoro KPipeline wrapper, swap_voice() under threading.Lock,
-    │                          # SUPPORTED_VOICES curated picker (20 voices)
+    ├── llm/client.py          # LLMClient: Ollama streaming (think=False), _ThinkStripper,
+    │                          # sentence splitter, persona snapshot, tool-call probe loop
+    ├── stt/                   # dual ASR engine
+    │   ├── base.py            # ASREngine Protocol + shared resample()
+    │   ├── whisper_engine.py  # WhisperEngine (faster-whisper, batch); SUPPORTED_MODELS
+    │   ├── parakeet_engine.py # ParakeetEngine (parakeet-mlx, streaming); single-thread MLX
+    │   │                      # executor; transcribe_stream/add_audio; SUPPORTED_MODELS
+    │   ├── transcriber.py     # Transcriber facade: swap_engine/swap_model/streaming_engine
+    │   └── turn.py            # TurnDetector: Smart-Turn v3 ONNX; probability()/is_complete()
+    ├── tts/                   # Qwen3-TTS (Kokoro removed)
+    │   ├── qwen_engine.py     # QwenEngine (mlx-audio); single-thread MLX executor;
+    │   │                      # generate_custom_voice; SUPPORTED_VOICES (9 speakers)
+    │   └── synthesizer.py     # Synthesizer facade over QwenEngine (same server surface)
     │
     ├── tools/                 # function-calling
     │   ├── base.py            # Tool protocol (name, schema, run(args) -> str)
@@ -95,21 +117,24 @@ local-tts/
 
 ### Server pipeline (web/server.py)
 
-- Single `Session` per WebSocket connection. No threads: STT/LLM/TTS each run
-  inside `asyncio.to_thread` so the event loop stays free for the audio fan-in
-  + control messages.
-- LLM streaming runs in a producer **thread** (not coroutine) that pushes
-  finished sentences onto an `asyncio.Queue` via `loop.call_soon_threadsafe`.
-  The consumer races each `queue.get()` against an `interrupt_event` so Skip
-  takes effect mid-sentence without waiting for Ollama to finish.
-- Mic frames are dropped entirely while `pipeline_task is not None`. This is
-  the only mechanism that prevents speaker bleed from triggering the wake-word
-  detector or VAD — there is no separate "muted-during-playback" flag and no
-  300 ms grace tail. If a future change splits the pipeline so audio is
-  accepted during speaking, **this gate must be replaced** or the wake-word
-  detector will self-fire on every reply.
-- Utterance segmentation: 8 speech frames to start (~240 ms), 25 silence
-  frames to end (~750 ms), 12-frame minimum (~360 ms — drops noise blips).
+- Single `Session` per WebSocket connection. STT(batch)/LLM/TTS run inside
+  `asyncio.to_thread` so the event loop stays free for the audio fan-in.
+- **Streaming ASR worker** (`_asr_worker_loop`, Parakeet only): a dedicated
+  thread consumes mic frames from a `queue.Queue`, feeds the live stream, emits
+  `{"type":"partial"}` via `loop.call_soon_threadsafe`, and on end-of-turn
+  finalizes → launches the pipeline with the streamed text (batch fallback if
+  empty). `_awaiting_finalize` gates late frames during the launch window.
+  Whisper has no streaming API and uses the batch path (`_dispatch_utterance`).
+- LLM streaming runs in a producer **thread** that pushes finished sentences
+  onto an `asyncio.Queue` via `loop.call_soon_threadsafe`. The consumer races
+  each `queue.get()` against `interrupt_event` so Skip takes effect mid-sentence.
+- Mic frames are dropped entirely while `pipeline_task is not None` (and during
+  `_awaiting_finalize`). This is the only speaker-bleed guard — no separate
+  "muted-during-playback" flag. If a future change accepts audio during
+  speaking, **this gate must be replaced** or the wake-word detector self-fires.
+- Utterance segmentation: 8 speech frames to start (~240 ms), 25 silence frames
+  (~750 ms) → **candidate** end-of-turn confirmed by Smart-Turn (re-checked every
+  ~300 ms, forced at `turn.max_wait_sec`), 12-frame minimum (~360 ms).
 
 ### Wake-word (deferred — UI hidden, backend retained)
 
@@ -194,42 +219,61 @@ and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
   `voice`, `persona`, `topic`, `turn_count`) + human-readable turn-by-turn body.
 - JSONL is deleted on successful markdown commit.
 
-### Kokoro TTS (tts/synthesizer.py)
+### TTS — Qwen3-TTS (tts/qwen_engine.py, tts/synthesizer.py)
 
-- `KPipeline(lang_code='a', device='cpu')` — CPU beats MPS on this 82 M model
-  because iSTFT (`aten::angle`) falls back to CPU and transfer overhead
-  dominates. Don't switch this without re-benchmarking.
-- First call downloads ~330 MB model + voice pack from `hexgrad/Kokoro-82M`.
-- Voice name format: `{lang}{gender}_{name}`. First letter MUST match
-  `lang_code` — so switching between American (`a`) and British (`b`) voices
-  rebuilds the pipeline. `swap_voice()` is locked.
-- Measured RTF on M5 Pro CPU: ~0.15× (≈500 ms to synth a 3.4 s sentence).
-- `SUPPORTED_VOICES` is a curated tuple of `(id, label)` pairs (20 voices)
-  exposed via the WS `config.voices_available` payload.
+- `QwenEngine` wraps `mlx_audio.tts.utils.load_model(...)` +
+  `generate_custom_voice(text, speaker, instruct)`. Output is float32 @ **24 kHz**
+  (native — matches the WS contract, no resample).
+- **MLX single-thread:** like Parakeet, MLX binds its GPU stream to the first
+  thread that touches the device. `QwenEngine` owns a `ThreadPoolExecutor(max_workers=1)`
+  and runs ALL model work (load + synth) on it; public methods submit and block.
+  `_impl` methods run on that thread and must never re-submit.
+- First load downloads the model and **warms the graph** (cold first synth ~2.4 s;
+  warm RTF ~0.21 on M5, ~664 ms for a 3.2 s clip).
+- `SUPPORTED_VOICES` = 9 `(speaker_id, label)` pairs; `swap_voice()` just sets
+  `cfg.speaker` (a per-call arg — instant, no reload).
+- `Synthesizer(TTSConfig)` is a thin facade keeping the server surface
+  (`synthesize`, `sample_rate`, `current_voice`, `swap_voice`, `load`). Kokoro
+  was removed; `cfg.tts.engine` is a single-value enum for a future re-add.
+- ⚠ `generate_custom_voice` has no `speed` arg (only `generate()` does) → the UI
+  speed slider is currently a no-op for Qwen.
 
-### STT (stt/transcriber.py)
+### STT — dual engine (stt/)
 
-- `WhisperModel("medium", device="cpu", compute_type="int8")` default.
-  faster-whisper / CTranslate2 has no MPS backend — Whisper is CPU-only.
-- Sizes (int8): tiny ~75 MB, base ~150 MB, small ~480 MB, medium ~1.5 GB,
-  large-v3-turbo ~1.6 GB, large-v3 ~3 GB.
-- Runtime picker: `Transcriber.swap_model(name)` hot-swaps under a
-  `threading.Lock`. `transcribe()` reads `self.model` under a single atomic
-  load so an in-flight call finishes against the old weights — no half-swap.
-- `beam_size` default 5 (balanced); 10 = max accuracy at +200–400 ms.
-  `best_of` mirrors `beam_size`. `patience=1.0` is hardcoded.
-- Hallucination guards (silence-bleed):
-  `no_speech_threshold=0.6`, `log_prob_threshold=-1.0`,
-  `compression_ratio_threshold=2.4`, `condition_on_previous_text=False`,
-  `vad_filter=True, vad_parameters={"min_silence_duration_ms": 300}`.
-  If you still see "Yeah." / "Thanks for watching." artifacts, raise
-  `no_speech_threshold` toward 0.7 or `log_prob_threshold` toward -0.7.
-- Module-level `warnings.filterwarnings("ignore", ..., RuntimeWarning)`
-  silences faster-whisper's `mel_filters @ magnitudes` divide-by-zero noise
-  on near-silent buffers.
+- `ASREngine` protocol (`stt/base.py`): `supported_models`, `current_model`,
+  `load`, `swap_model`, `transcribe(audio, sr)`, `supports_streaming`. Shared
+  `resample()` enforces the 16 kHz contract. `Transcriber` (transcriber.py) is a
+  facade over both engines: `current_engine`, `engines_available`,
+  `models_for(engine)`, `swap_engine`, `swap_model`, `streaming_engine()`.
+- **ParakeetEngine** (default, `parakeet_engine.py`): MLX/Metal. `transcribe()`
+  is file/ffmpeg-only upstream, so we route BOTH batch and streaming through
+  `transcribe_stream` + `add_audio(mx.array)`. Owns a **single-thread executor**
+  (same MLX rule as Qwen). `add_audio` underflows on <~100 ms chunks, so the
+  engine buffers mic frames to `stream_chunk_ms` (320 ms) per encoder step.
+  Streaming: `start_stream/feed/finalize/abort_stream`. ~2.5 GB first download.
+- **WhisperEngine** (`whisper_engine.py`, batch): the old faster-whisper code
+  verbatim — CPU int8, `threading.Lock` swap, all hallucination guards
+  (`no_speech_threshold=0.6`, `log_prob_threshold=-1.0`, `vad_filter`, …) and the
+  `mel_filters @ magnitudes` RuntimeWarning filter. Sizes tiny→large-v3.
 
-### Sentence streaming (llm/client.py)
+### Turn detection — Smart-Turn v3 (stt/turn.py)
 
+- `TurnDetector` runs `pipecat-ai/smart-turn-v3.2-cpu.onnx` (Whisper-tiny encoder
+  + linear head) via onnxruntime. `WhisperFeatureExtractor(chunk_length=8)` →
+  `input_features (1,80,800)` over the last 8 s → sigmoid `P(turn complete)`;
+  ≥`threshold` (0.5) ends. ~7–12 ms/call.
+- Loaded once in `PipelineModels.load` with graceful fallback: on
+  `TurnDetectorUnavailable` (offline / deps) `turn_detector=None` → VAD-only.
+- Server gate `_turn_is_complete()` runs it off-loop (`to_thread`) at the
+  webrtcvad pause; if incomplete keeps listening and emits `{"type":"turn"}`.
+
+### Sentence streaming + reasoning (llm/client.py)
+
+- Default model `nemotron-3-nano:4b`; all three `chat()` calls pass `think=False`.
+  `_ThinkStripper` removes `<think>…</think>` from the streamed token feed even
+  across chunk boundaries (drops unclosed think on flush); `strip_think()` is the
+  one-shot for the non-streaming tool probe. NOTE: `qwen3` ignores `think=False`
+  and emits untagged reasoning — model-specific, not strippable.
 - Split on `.`, `!`, `?` followed by whitespace; min 8 chars per sentence.
 - Sub-min fragments are stitched onto the next part rather than yielded —
   prevents "Mr." or "3.14" from speaking solo.
@@ -244,18 +288,23 @@ and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
 Client → server:
 - Binary: raw Int16 PCM @ 16 kHz mono (mic audio).
 - JSON: `mute`, `unmute`, `interrupt`, `text_input {text}`, `set_voice {voice}`,
-  `set_stt_model {model}`, `set_model {model}` (Ollama LLM swap),
-  `set_speed {speed}`, `set_persona {name}`, `set_persona_custom_prompt {prompt}`,
+  `set_stt_engine {engine: "parakeet"|"whisper"}`, `set_stt_model {model}`,
+  `set_model {model}` (Ollama LLM swap), `set_speed {speed}`,
+  `set_persona {name}`, `set_persona_custom_prompt {prompt}`,
   `set_input_mode {mode: "vad"|"wake_word"}`, `set_tools_enabled {value: bool}`,
   `set_tool_allowed {tool, value: bool}`.
 
 Server → client:
 - Binary: raw Float32 PCM @ 24 kHz mono (TTS output).
-- JSON: `phase {value}`, `transcript {role, text, session_id}`, `level {value}`,
-  `config {session_id, voice, voices_available, model, models_available, stt_model,
-  stt_models_available, speed, persona, personas_available, tools_enabled,
+- JSON: `phase {value}`, `transcript {role, text, session_id}`,
+  `partial {text, session_id}` (live streaming ASR, Parakeet),
+  `turn {state: "waiting", prob}` (Smart-Turn mid-thought pause), `level {value}`,
+  `config {session_id, voice, voices_available, model, models_available,
+  stt_engine, stt_engines_available, stt_model, stt_models_available,
+  turn_enabled, speed, persona, personas_available, tools_enabled,
   tools_available, tools_allowed, input_mode, wakeword_model, obsidian_enabled}`,
   `error {message}`, `stt_model {state: loading|ready|error, model, message?}`,
+  `stt_engine {state, engine, model?, models_available?, message?}`,
   `voice {state, voice, message?}`, `model {state, model}`,
   `persona {state, name, personas_available?, message?}`,
   `input_mode {value, state?, message?}`,
@@ -264,12 +313,11 @@ Server → client:
 ### Reconnect behavior (App.tsx config-message handler)
 
 The `config` payload arrives on every connect and re-seeds the store. The
-client then **only** re-emits saved prefs for `sttModel`, `voice`, and `speed`
-that diverge from server defaults. Persona / tools-enabled / inputMode /
+client then **only** re-emits saved prefs for `sttEngine`, `sttModel`, `voice`,
+and `speed` that diverge from server defaults (`sttEngine` first, so the model
+list reflects the right engine). Persona / tools-enabled / inputMode /
 customPrompt are received from the server but **not** sent back on reconnect —
-those mirror `config.yaml` on each fresh connection. If you change this, also
-update the README (the prior version of the docs claimed all of these
-round-trip and it was incorrect).
+those mirror `config.yaml` on each fresh connection.
 
 ## Frontend (web/frontend/)
 
@@ -278,9 +326,11 @@ round-trip and it was incorrect).
   tree as singletons; they push events into a zustand store, so React
   re-renders never tear down the socket or audio context.
 - Header is five clickable chips (`voice` · `model` · `persona` · `tools` ·
-  `vault`). Every chip opens Settings — no separate "open settings"
-  affordance is necessary. (A sixth `mode` chip for VAD / wake-word is
-  retained in the wake-word deferral notes but currently not rendered.)
+  `vault`). Every chip opens Settings. The ASR control is **two-level** in
+  Settings: an engine selector (Parakeet ★ / Whisper, hidden when only one
+  engine) above the model picker, which the server filters to the active engine.
+  Live partials render dimmed in the INPUT caption; a "Listening — go on…" hint
+  shows while `turnWaiting`.
 - INPUT label animates per phase: `LISTENING_` (blinking cursor CSS) /
   `PROCESSING ···` (dots reveal) / `Input` (fallback). The animations are
   pure CSS classes flipped from `setPhase()`.
@@ -291,9 +341,8 @@ round-trip and it was incorrect).
   `phase === "speaking"`.
 - **Single theme: Ghost** — `--accent: #f0f0f0`, matte white/grey. Theme
   picker reserved (commented out in HTML); store keeps `theme: "ghost"`.
-- Prefs key: `localStorage["local-tts.prefs.v9"]`. v8→v9 migration runs once
-  in `loadPrefs()` and adds `persona`, `customPersonaPrompt`, `inputMode`,
-  `toolsEnabled`. Bump the version key whenever the prefs schema changes.
+- Prefs key: `localStorage["local-tts.prefs.v10"]`. `loadPrefs()` chains legacy
+  migrations (v9/v8); v10 adds `sttEngine`. Bump the key on any schema change.
 
 ## CLI
 
@@ -303,7 +352,7 @@ local-tts --host 0.0.0.0 --port 8000       # LAN reachable (HTTP)
 local-tts --host 0.0.0.0 --auto-cert       # LAN + auto self-signed cert; banner
                                            # prints SHA-256 fingerprint + /cert.pem URL
 local-tts --host 0.0.0.0 --cert c.pem --key k.pem   # bring your own cert
-local-tts --model qwen3:1.7b               # override ollama.model for this run
+local-tts --model nemotron3:33b            # override ollama.model for this run
 local-tts --config /path/to/config.yaml    # custom config
 ```
 
@@ -312,32 +361,27 @@ the detected LAN IP changes (tracked in `cert.meta.json`). Cert SAN includes
 the LAN IP, `127.0.0.1`, and `localhost`. 825-day validity matches Safari's
 trust ceiling.
 
-## Voice options (Kokoro)
+## Voice options (Qwen3-TTS)
 
-Voice name = `{lang}{gender}_{name}`. The first letter MUST match
-`kokoro.lang_code`.
+`SUPPORTED_VOICES` (tts/qwen_engine.py) = 9 preset speakers, exposed via
+`config.voices_available`:
+- Male: `ryan` ★, `eric`, `aiden`, `dylan`, `uncle_fu`
+- Female: `serena` ★, `vivian`, `ono_anna`, `sohee`
 
-- American English (`lang_code: "a"`): `af_heart` ★, `af_bella` ★, `af_nicole`,
-  `af_sarah`, `af_aoede`, `af_kore`, `af_nova`, `af_sky`, `am_michael`,
-  `am_adam`, `am_echo`, `am_puck`
-- British English (`lang_code: "b"`): `bf_emma` ★, `bf_isabella`, `bf_alice`,
-  `bf_lily`, `bm_george`, `bm_lewis`, `bm_daniel`, `bm_fable`
-- Other langs: Japanese `j*`, Mandarin `z*`, Spanish `e*`, French `f*`,
-  Hindi `h*`, Italian `i*`, Portuguese `p*` (none in `SUPPORTED_VOICES`).
+`swap_voice()` just sets `cfg.tts.qwen.speaker` (per-call arg — instant). The
+optional `qwen.instruct` field is a voice-design hint (e.g. "warm, fast").
 
-Best naturalness picks: **af_heart**, **af_bella**, **bf_emma**.
+## Latency budget (M5 — measured in P1/P4b)
 
-## Latency budget (M5 Pro targets)
-
-| Stage | Estimate |
+| Stage | Value |
 |---|---|
-| VAD silence-end detection | ~750 ms |
-| Whisper large-v3-turbo @ beam=5 (5s audio) | ~500–900 ms |
-| Whisper medium @ beam=5 (5s audio) | ~500–800 ms |
-| Whisper small @ beam=5 (5s audio) | ~300–500 ms |
-| First LLM sentence (qwen3:4b) | ~300–600 ms |
-| Kokoro synthesis of first sentence | ~300–500 ms |
-| **Total to first spoken word** | ~2.5–3 s |
+| VAD silence-end gate | ~750 ms |
+| Smart-Turn v3 decision | ~7–12 ms (CPU) |
+| Parakeet streaming finalize | near-zero (most already streamed) |
+| Parakeet batch (4.7s clip) | ~1.1 s cold / RTF ~0.24 |
+| Whisper medium batch (4.7s clip) | ~2.9 s / RTF ~0.61 |
+| Nemotron-3-nano:4b first sentence | ~1.3 s cold (~200–500 ms warm) |
+| Qwen3-TTS first sentence | warm RTF ~0.21; streaming first-chunk ~126 ms |
 
 Tool-call probes add one full Ollama non-streaming round-trip per hop
 (usually 400–800 ms) before the final response streams. Three hops max.
@@ -345,30 +389,34 @@ Tool-call probes add one full Ollama non-streaming round-trip per hop
 ## Echo / feedback handling
 
 The web browser's `getUserMedia({ echoCancellation: true })` handles AEC, so
-there's no PTT key, no RMS gate, no headphones requirement. Hallucination
-guards in `stt/transcriber.py` (see STT section above) handle the residual
-"AI bleed picked up during LISTENING" case where Whisper would otherwise
-emit "Yeah." or "Thanks for watching." on a near-silent buffer.
+there's no PTT key, no RMS gate, no headphones requirement. Whisper's
+hallucination guards (see STT section) handle the residual "AI bleed during
+LISTENING" case on near-silent buffers.
 
 ## Install & verification
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install torch==2.4.0 torchaudio==2.4.0
+pip install torch==2.4.0 torchaudio==2.4.0   # pinned; transformers<5 needs this torch
 pip install -e .
-pip install -e ".[wakeword]"             # optional; only needed if you re-enable the wake-word UI
+pip install -e ".[wakeword]"             # optional; only if you re-enable the wake-word UI
 cd local_tts/web/frontend && npm install && npm run build && cd ../../..
 local-tts                                # boots; opens http://127.0.0.1:8000
 ```
 
-First launch:
-1. Whisper `medium` (~1.5 GB) + Kokoro-82M voice pack download silently.
+**Dependency note:** `transformers` is pinned `<5`. mlx-audio declares
+`transformers>=5.5`, but 5.x's import chain needs torch≥2.5
+(`torch.distributed.tensor.device_mesh`); Qwen3-TTS and Smart-Turn both run fine
+on transformers 4.x with torch 2.4, so we override the pin.
+
+First launch (weights download silently on first use):
+1. Parakeet (~2.5 GB), Qwen3-TTS-0.6B, Smart-Turn v3 (~8 MB). `nemotron-3-nano:4b`
+   must be pulled in Ollama (`ollama pull nemotron-3-nano:4b`).
 2. Open the page → orb breathes, "STANDBY" status.
-3. Say "hello" → orb scales to listening → "ANALYZING" → reply streams.
-4. (Tools on) Say "what time is it" → log shows `tool_call: clock -> N chars`.
-5. (Obsidian on) Have a 2+ turn convo, close tab → markdown lands at
-   `~/Documents/Obsidian/local-tts/<topic-slug>/YYYY-MM-DD--<6hex>.md`.
-6. (Wake-word) UI hidden by default; see Wake-word section to re-enable.
+3. Say "hello" → live partial caption appears → reply streams + speaks.
+4. Settings → switch ASR engine Parakeet↔Whisper; switch speaker.
+5. (Tools on) Say "what time is it" → log shows `tool_call: clock -> N chars`.
+6. (Obsidian on) 2+ turn convo, close tab → markdown lands in the vault.
 
 ## Things that look like bugs but aren't
 
@@ -386,6 +434,17 @@ First launch:
 - **Persona "custom" doesn't appear in personas_available until first save.**
   It's added to `PersonaConfig.personas` on first `set_custom_prompt` call.
   Cosmetic only.
+- **First Qwen3-TTS / Parakeet utterance is slow (~2–3 s).** One-time MLX graph
+  warm-up; `load()` pre-warms but the very first real synth/transcribe still pays
+  some compile cost. Warm calls are near-real-time.
+- **`<think>` leaks only on qwen3, not Nemotron.** `qwen3` ignores `think=False`
+  and emits untagged reasoning prose — no stripper can catch untagged text. The
+  default `nemotron-3-nano:4b` is clean. Pick a different model if it bothers you.
+- **Speed slider does nothing on Qwen3-TTS.** `generate_custom_voice` has no
+  `speed` arg (only `generate()` does). Left as a no-op until ref-voice mode.
+- **MLX "no Stream(gpu, 0)" if you call Parakeet/Qwen off their executor.** Both
+  engines MUST run all model work on their own single-thread executor; never call
+  the `_impl` methods or `mx` ops from another thread.
 
 ## Roadmap candidates (not committed)
 
@@ -399,6 +458,6 @@ First launch:
 
 ## Version
 
-Current: **v0.4.0** (Second-brain). Set in `pyproject.toml` and
-`local_tts/__init__.py`. Bump both when releasing. See
-[README.md#changelog](README.md#changelog) for user-facing release notes.
+Current: **v0.5.0** (Open-model voice pipeline: dual ASR + Smart-Turn + Nemotron
++ Qwen3-TTS). Set in `pyproject.toml` and `local_tts/__init__.py`. Bump both when
+releasing. See [README.md#changelog](README.md#changelog) for release notes.

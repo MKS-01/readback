@@ -55,9 +55,14 @@ export default function App() {
         if (msg.model) patch.model = msg.model;
         if (msg.output_sample_rate) patch.outSampleRate = msg.output_sample_rate;
         if (msg.voices_available) patch.voicesAvailable = msg.voices_available;
+        if (msg.stt_engine) patch.sttEngine = msg.stt_engine;
+        if (msg.stt_engines_available)
+          patch.sttEnginesAvailable = msg.stt_engines_available;
         if (msg.stt_model) patch.sttModel = msg.stt_model;
         if (msg.stt_models_available)
           patch.sttModelsAvailable = msg.stt_models_available;
+        if (typeof msg.turn_enabled === "boolean")
+          patch.turnEnabled = msg.turn_enabled;
         if (msg.models_available) patch.modelsAvailable = msg.models_available;
         if (msg.persona) patch.persona = msg.persona;
         if (msg.personas_available)
@@ -79,6 +84,15 @@ export default function App() {
 
         // Re-emit saved prefs that diverge from server-side defaults.
         const p = store.prefs;
+        if (
+          p.sttEngine &&
+          p.sttEngine !== msg.stt_engine &&
+          msg.stt_engines_available?.includes(p.sttEngine)
+        ) {
+          wsRef.current?.send({ type: "set_stt_engine", engine: p.sttEngine });
+          store.setSttSwapping(true);
+          store.setSttStatus("loading…", "loading");
+        }
         if (
           p.sttModel &&
           p.sttModel !== msg.stt_model &&
@@ -126,6 +140,30 @@ export default function App() {
           store.setSttStatus(msg.message || "swap failed", "error");
         }
         break;
+      case "stt_engine":
+        if (msg.state === "loading") {
+          store.setSttSwapping(true);
+          store.setSttStatus(`loading ${msg.engine}…`, "loading");
+        } else if (msg.state === "ready") {
+          store.setSttSwapping(false);
+          store.setSttEngine(msg.engine);
+          const enginePatch: Record<string, any> = {};
+          if (Array.isArray(msg.models_available))
+            enginePatch.sttModelsAvailable = msg.models_available;
+          if (msg.model) enginePatch.sttModel = msg.model;
+          store.setSession(enginePatch);
+          store.setSttStatus("ready", "ready");
+          store.patchPrefs({ sttEngine: msg.engine });
+          window.setTimeout(() => store.setSttStatus("", ""), 1400);
+        } else if (msg.state === "error") {
+          store.setSttSwapping(false);
+          store.setSttStatus(msg.message || "engine switch failed", "error");
+        }
+        break;
+      case "turn":
+        // Smart-Turn said the pause is mid-thought — surface "still listening".
+        store.setTurnWaiting(msg.state === "waiting");
+        break;
       case "voice":
         if (msg.state === "loading") {
           store.setVoiceSwapping(true);
@@ -147,10 +185,24 @@ export default function App() {
         if (msg.value !== "speaking") {
           orbRef.current?.brain?.setScale(1);
         }
+        // A short/aborted utterance ends at idle with no final transcript —
+        // drop any lingering live partial so it doesn't stick on screen.
+        if (msg.value === "idle") {
+          store.setPartialCaption("");
+        }
+        // "still listening" only applies during a listening pause.
+        if (msg.value !== "listening") {
+          store.setTurnWaiting(false);
+        }
+        break;
+      case "partial":
+        // Live streaming ASR (Parakeet): replace-in-place while the user speaks.
+        store.setPartialCaption(msg.text);
         break;
       case "transcript":
         if (msg.role === "user") {
           store.clearAiCaption();
+          store.setPartialCaption(""); // promote partial → final
           store.setUserCaption(msg.text);
         } else {
           if (store.skipping) break;
@@ -392,6 +444,14 @@ export default function App() {
     send({ type: "set_stt_model", model });
   };
 
+  const onSwapSttEngine = (engine: string) => {
+    const store = useAppStore.getState();
+    if (!engine || engine === store.sttEngine) return;
+    store.setSttSwapping(true);
+    store.setSttStatus(`loading ${engine}…`, "loading");
+    send({ type: "set_stt_engine", engine });
+  };
+
   const onSwapVoice = (voice: string) => {
     const store = useAppStore.getState();
     if (!voice || voice === store.voice) return;
@@ -491,6 +551,7 @@ export default function App() {
         open={settingsOpen}
         onClose={onCloseSettings}
         onSwapStt={onSwapStt}
+        onSwapSttEngine={onSwapSttEngine}
         onSwapVoice={onSwapVoice}
         onSwapModel={onSwapModel}
         onSpeedChange={onSpeedChange}

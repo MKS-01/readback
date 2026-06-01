@@ -11,8 +11,13 @@ import { useAppStore } from "../state/store";
 
 function prettyVoice(voice: string | null): string {
   if (!voice) return "…";
+  // Strip any legacy Kokoro `af_`/`bm_` prefix, then title-case Qwen speaker
+  // ids like `uncle_fu` → "Uncle Fu".
   const stripped = voice.replace(/^[abefhijpz][fm]_/, "");
-  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+  return stripped
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 interface ChipProps {
