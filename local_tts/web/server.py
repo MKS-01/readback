@@ -24,6 +24,7 @@ import queue
 import threading
 import time
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -83,7 +84,11 @@ FRAME_SAMPLES = int(VAD_SAMPLE_RATE * FRAME_DURATION_MS / 1000)  # 480
 FRAME_BYTES = FRAME_SAMPLES * 2  # int16
 
 # Utterance segmentation thresholds (in 30ms frames).
-SPEECH_FRAMES_TO_START = 8       # ~240ms of speech to begin
+# Onset uses a padded ring buffer with a voiced-ratio trigger (tolerant of
+# single-frame dropouts) instead of requiring N *consecutive* speech frames —
+# and the ring doubles as PRE-ROLL so the onset audio (first word) isn't lost.
+PADDING_FRAMES = 10              # ~300ms ring buffer kept before the trigger
+SPEECH_TRIGGER_RATIO = 0.6       # voiced fraction of the ring that starts speech
 SILENCE_FRAMES_TO_END = 25       # ~750ms of silence → candidate end-of-turn
 MIN_UTTERANCE_FRAMES = 12        # ~360ms — drop anything shorter (noise blip)
 # Smart-Turn: once a pause reaches SILENCE_FRAMES_TO_END we ask the model if the
@@ -151,8 +156,11 @@ class Session:
         self.audio_buffer = bytearray()         # raw int16 bytes from client
         self.utterance_frames: list[bytes] = []
         self.in_speech = False
-        self.speech_count = 0
         self.silence_count = 0
+        # Pre-roll ring of recent (frame, is_speech) pairs kept while NOT yet in
+        # speech. On trigger it's flushed into the utterance so the onset (first
+        # word) is preserved instead of dropped.
+        self._ring: deque[tuple[bytes, bool]] = deque(maxlen=PADDING_FRAMES)
         # Silence-frame count at which to next run Smart-Turn (re-armed each
         # time the model says "not done yet").
         self._next_turn_check = SILENCE_FRAMES_TO_END
@@ -582,36 +590,45 @@ class Session:
 
         streaming = self.models.transcriber.supports_streaming
 
-        if is_speech:
-            self.speech_count += 1
-            self.silence_count = 0
-            # Speech resumed — re-arm the Smart-Turn check for the next pause.
-            self._next_turn_check = SILENCE_FRAMES_TO_END
-            if not self.in_speech and self.speech_count >= SPEECH_FRAMES_TO_START:
+        if not self.in_speech:
+            # Pre-trigger: buffer recent frames; start when enough of the ring
+            # is voiced (tolerant of single-frame dropouts in the onset).
+            self._ring.append((frame, is_speech))
+            voiced = sum(1 for _, s in self._ring if s)
+            if voiced >= SPEECH_TRIGGER_RATIO * self._ring.maxlen:
                 self.in_speech = True
+                self.silence_count = 0
+                self._next_turn_check = SILENCE_FRAMES_TO_END
+                log.info("speech start (ring voiced=%d/%d)", voiced, self._ring.maxlen)
                 await self.send_phase("listening")
-            if self.in_speech:
-                self.utterance_frames.append(frame)
-                if streaming:
-                    self._feed_asr(frame)
+                # Flush the ring as pre-roll so the onset audio is captured.
+                for f, _ in self._ring:
+                    self.utterance_frames.append(f)
+                    if streaming:
+                        self._feed_asr(f)
+                self._ring.clear()
+            return
+
+        # In speech: every frame is part of the utterance.
+        self.utterance_frames.append(frame)
+        if streaming:
+            self._feed_asr(frame)
+        if is_speech:
+            self.silence_count = 0
+            self._next_turn_check = SILENCE_FRAMES_TO_END
         else:
-            self.speech_count = 0
-            if self.in_speech:
-                self.silence_count += 1
-                self.utterance_frames.append(frame)
-                if streaming:
-                    self._feed_asr(frame)
-                if self.silence_count >= SILENCE_FRAMES_TO_END:
-                    # webrtcvad pause reached — let Smart-Turn confirm it's a
-                    # real end-of-turn (else keep listening through the pause).
-                    if await self._turn_is_complete():
-                        await self._end_utterance(streaming)
+            self.silence_count += 1
+            if self.silence_count >= SILENCE_FRAMES_TO_END:
+                # webrtcvad pause reached — let Smart-Turn confirm it's a real
+                # end-of-turn (else keep listening through the pause).
+                if await self._turn_is_complete():
+                    await self._end_utterance(streaming)
 
     def _reset_vad(self):
         self.utterance_frames = []
         self.in_speech = False
-        self.speech_count = 0
         self.silence_count = 0
+        self._ring.clear()
         self._next_turn_check = SILENCE_FRAMES_TO_END
         # Re-arm the wake-word gate so the next utterance requires a new trigger.
         if self.input_mode == "wake_word":
@@ -654,6 +671,7 @@ class Session:
             log.exception("smart-turn inference failed; finalizing on VAD")
             return True  # fail open — better to end the turn than hang
         complete = prob >= self.cfg.turn.threshold
+        log.info("smart-turn p=%.2f complete=%s (silence=%d)", prob, complete, self.silence_count)
         if not complete:
             # Tell the UI we're still waiting through a mid-thought pause.
             await self.send_json({"type": "turn", "state": "waiting", "prob": prob})
@@ -663,6 +681,11 @@ class Session:
         """Finalize the current utterance (Smart-Turn confirmed end-of-turn)."""
         frames = self.utterance_frames
         long_enough = len(frames) >= MIN_UTTERANCE_FRAMES
+        log.info(
+            "utterance end: %d frames (%.1fs)%s",
+            len(frames), len(frames) * FRAME_DURATION_MS / 1000,
+            "" if long_enough else " — too short, dropped",
+        )
         self._reset_vad()
         if streaming:
             # The worker thread owns the transcript: it finalizes the live
@@ -738,21 +761,34 @@ class Session:
                     engine = None
                 pending = []
             elif cmd == "finalize":
-                text = ""
+                # The live stream was only for partial captions; commit an
+                # accurate BATCH transcription of the full buffered utterance
+                # (streaming decode is lossier on real, noisy mic audio).
+                streamed = ""
                 if engine is not None:
                     try:
-                        text = engine.finalize()
+                        streamed = engine.partial_text
                     except Exception:
-                        log.exception("asr finalize failed")
+                        pass
+                    try:
+                        engine.abort_stream()
+                    except Exception:
+                        log.exception("asr stream close failed")
                     engine = None
-                # Fallback: if the live stream produced nothing, batch-transcribe
-                # the buffered audio on this same (MLX-safe) thread.
-                if not text and pending:
+                text = ""
+                if pending:
                     try:
                         audio = np.concatenate(pending)
                         text = self.models.transcriber.transcribe(audio, VAD_SAMPLE_RATE)
                     except Exception:
-                        log.exception("asr batch fallback failed")
+                        log.exception("asr batch transcribe failed")
+                if not text:
+                    text = streamed  # last resort if batch returned nothing
+                dur = sum(len(p) for p in pending) / VAD_SAMPLE_RATE
+                log.info(
+                    "ASR final: %r  (%.1fs audio; streamed partial=%r)",
+                    text, dur, streamed,
+                )
                 pending = []
                 self._launch_pipeline_threadsafe(text)
 

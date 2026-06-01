@@ -88,7 +88,9 @@ class TurnConfig(BaseModel):
     threshold: float = Field(0.5, ge=0.0, le=1.0)
     # Safety cap: force end-of-turn after this much continuous silence even if
     # the model keeps saying "incomplete" (prevents hanging on a trailing pause).
-    max_wait_sec: float = 6.0
+    # Kept short so a mis-firing Smart-Turn can't make input feel unresponsive —
+    # the common case (clear sentence end) still finalizes at ~750ms.
+    max_wait_sec: float = 3.0
 
 
 class UIConfig(BaseModel):

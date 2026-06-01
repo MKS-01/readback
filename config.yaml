@@ -47,7 +47,7 @@ turn:
   enabled: true
   model_file: "smart-turn-v3.2-cpu.onnx"
   threshold: 0.5                     # P(turn complete) >= this ends the turn
-  max_wait_sec: 6.0                  # force end-of-turn after this much silence
+  max_wait_sec: 3.0                  # force end-of-turn after this much silence
 
 vad:
   aggressiveness: 2                  # 0 (permissive) to 3 (aggressive)
