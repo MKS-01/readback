@@ -21,7 +21,9 @@ local_tts/web/frontend/vite.config.d.ts
 # --- IDE / agent state ---
 .idea/
 .vscode/
-.claude/
+.claude/*
+# …but keep checked-in Claude Code skills (shared project workflows).
+!.claude/skills/
 
 # --- Local state & secrets ---
 .env

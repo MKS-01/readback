@@ -205,9 +205,12 @@ and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
 
 ### Persona (llm/client.py)
 
-- `PersonaConfig` seeds three personas (`default`, `concise`, `researcher`)
-  via `_default_personas()`. A 4th `custom` slot is created on first
-  `set_custom_prompt()` call from the UI.
+- `PersonaConfig` seeds five personas via `_default_personas()`: `default`
+  (sharp, tech-savvy + easygoing), `concise` (one sentence), `researcher`
+  (answer-first, cites specifics, separates fact from inference), `chef`
+  (veg-leaning Indian home cooking), and `professor` (Miss Phd — witty AI/ML
+  lecturer with a once-per-conversation intro). A `custom` slot is created on
+  first `set_custom_prompt()` call from the UI.
 - `swap_persona(name)` mirrors `Transcriber.swap_model`: `threading.Lock`,
   atomic write of `personas.active`. `stream_tokens()` snapshots
   `active_persona.system_prompt` once at the top so an in-flight response

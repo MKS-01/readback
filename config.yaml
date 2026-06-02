@@ -44,6 +44,15 @@ tts:
         instruct: "speak slowly with intense, sharp anger and strong raw emotion"
         speed: 0.85                # noticeably slower than default 1.0
         temperature: 0.9  #1.05          # more expressive (default ~0.9)
+      - name: miss-phd
+        label: "Miss PhD"
+        wav: voice/miss-phd.wav    # dedicated Miss PhD reference clip
+        # ref_lang omitted → Whisper autodetects the clip's language
+        # A poised PhD introducing herself in English — articulate, confident,
+        # refined; mature scholarly delivery.
+        instruct: "a poised, articulate woman with a PhD introducing herself in English; calm, warm, composed and confident with refined scholarly gravitas; mature adult voice, not high-pitched, girlish or childish"
+        speed: 1.05                # clear, unhurried delivery
+        temperature: 0.85        # steady, less sing-song
 
 stt:
   # Two ASR engines, switchable at runtime from the web UI.

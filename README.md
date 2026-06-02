@@ -111,7 +111,8 @@ The settings panel lets you change every runtime parameter **without restarting 
 - **Voice (TTS)** — 9 Qwen3-TTS speakers, switchable instantly while idle:
   - `ryan` ★ (male, default), `eric`, `aiden`, `dylan`, `uncle_fu`
   - `serena` ★ (female), `vivian`, `ono_anna`, `sohee`
-- **Persona** — swap the system prompt at runtime. Ships with `default` (conversational, 3–4 sentences), `concise` (one sentence), `researcher` (cites specifics, asks one clarifying question), and a `custom` slot with a textarea you can edit and save.
+  - Plus any **cloned voices** you add under `tts.qwen.clones` (shown as `clone:<name>`) — clone any voice from a short reference clip; see `scripts/make_clone_voice.sh`.
+- **Persona** — swap the system prompt at runtime. Ships with `default` (sharp, tech-savvy and easygoing, 3–4 sentences), `concise` (one sentence), `researcher` (answer-first, cites specifics, separates fact from inference), `chef` (veg-leaning Indian home cooking), `professor` (Miss Phd — witty AI/ML lecturer), and a `custom` slot with a textarea you can edit and save.
 - **Internet research (Tools)** — master toggle plus per-tool checkboxes. When on, the LLM can call `clock` and `web_search` (DuckDuckGo, no API key) and fold results into its response.
 - **Speech Speed** — Slow / Medium / Fast, applied to every TTS synthesis call.
 - **Orb size** — 120–380 px slider.
@@ -165,7 +166,7 @@ Ships **on** by default in the bundled `config.yaml`. Per-tool checkboxes in Set
 
 ### Persona switching
 
-The system prompt is one of several runtime-swappable presets (`default`, `concise`, `researcher`, `custom`). The `swap_persona` flow mirrors the `Transcriber.swap_model` pattern — `threading.Lock`, atomic ref swap, in-flight responses finish on the old prompt. Custom prompt edits round-trip from the browser back to the server and persist across reconnects.
+The system prompt is one of several runtime-swappable presets (`default`, `concise`, `researcher`, `chef`, `professor`, `custom`). The `swap_persona` flow mirrors the `Transcriber.swap_model` pattern — `threading.Lock`, atomic ref swap, in-flight responses finish on the old prompt. Custom prompt edits round-trip from the browser back to the server and persist across reconnects.
 
 ---
 
@@ -212,7 +213,7 @@ Edit `config.yaml` for non-UI knobs:
 | `turn.threshold` | P(turn complete) ≥ this ends the turn | `0.5` |
 | `vad.aggressiveness` | WebRTC VAD aggressiveness 0–3 | `2` |
 | `persona.active` | Active persona name | `default` |
-| `persona.personas` | List of `{name, system_prompt}` overrides | (3 seeded) |
+| `persona.personas` | List of `{name, system_prompt}` overrides | (5 seeded) |
 | `tools.enabled` | Master switch for function-calling tools | `false` |
 | `tools.allowed` | Allowlist of tool names | `[clock, web_search]` |
 | `tools.web_search_provider` | Search backend (`duckduckgo` only today) | `duckduckgo` |
@@ -259,7 +260,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-level view (cascade, threa
 ### v0.4.0 — Second brain
 - **Obsidian export.** Every call writes a markdown transcript into your vault, topic-organized via an LLM call at session end. Crash-recovery JSONL files at `~/.local-tts/sessions/`. Enabled in the bundled config.
 - **Tools / function-calling.** `clock` and `web_search` (DuckDuckGo, no API key) ship out of the box; provider interface ready for Tavily / Brave swap-ins. Per-tool checkboxes in Settings.
-- **Persona switching.** Three seed personas (`default`, `concise`, `researcher`) plus a `custom` slot with a textarea. Runtime swap mirrors `Transcriber.swap_model` — in-flight responses finish on the old prompt.
+- **Persona switching.** Five seed personas (`default`, `concise`, `researcher`, `chef`, `professor`) plus a `custom` slot with a textarea. Runtime swap mirrors `Transcriber.swap_model` — in-flight responses finish on the old prompt.
 - **React + Vite + TypeScript frontend.** Replaces the 1,295-line vanilla-JS bundle. Three.js orb and AudioWorklet stay imperative inside hooks; settings/captions/dock are now components. Five header chips surface every runtime-switchable state at a glance.
 
 ### Deferred
