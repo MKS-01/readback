@@ -1,4 +1,6 @@
 import concurrent.futures
+import queue
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Callable, Optional, TypeVar
 
@@ -27,6 +29,15 @@ SUPPORTED_VOICE_NAMES: tuple[str, ...] = tuple(v for v, _ in SUPPORTED_VOICES)
 CLONE_PREFIX = "clone:"
 
 _SAMPLE_RATE = 24000  # Qwen3-TTS native rate — matches the WS Float32 contract.
+
+# With stream=True the qwen3_tts model yields incremental audio every
+# ~streaming_interval*12.5 tokens (~12.5 audio tokens/sec). Smaller = lower
+# first-audio latency and a more continuously-fed playback queue, at the cost of
+# re-decoding a growing window each interval. 0.5s ≈ a chunk every half second.
+STREAM_INTERVAL_SEC = 0.5
+
+# Sentinel pushed onto the engine→caller bridge queue when a streamed synth ends.
+_STREAM_DONE = object()
 
 # Qwen3-TTS generates ~12 audio tokens/sec. The upstream default max_tokens=4096
 # is ~340s of audio — so if the model fails to emit an end token on a sentence
@@ -183,6 +194,31 @@ class QwenEngine:
             return np.zeros(0, dtype=np.float32)
         return self._run(self._synthesize_impl, text)
 
+    def synthesize_stream(
+        self, text: str, should_stop: Optional[Callable[[], bool]] = None,
+    ) -> Iterator[np.ndarray]:
+        """Yield this sentence's audio in chunks as the model produces them.
+
+        The model generator runs on the single MLX executor thread (MLX is not
+        multi-thread safe); chunks cross to this caller via a bounded queue. The
+        caller MUST drain to completion — pass `should_stop` (polled on the
+        executor thread) to end generation early instead of breaking the loop, so
+        the executor never blocks on a full queue nobody is draining.
+        """
+        text = text.strip()
+        if not text:
+            return
+        q: "queue.Queue" = queue.Queue(maxsize=8)   # backpressure cap
+        fut = self._executor.submit(
+            self._synthesize_stream_impl, text, should_stop, q,
+        )
+        while True:
+            item = q.get()
+            if item is _STREAM_DONE:
+                break
+            yield item
+        fut.result()   # surface any exception raised on the executor thread
+
     def reset_context(self):
         # Stateless across calls — nothing to reset.
         pass
@@ -228,39 +264,67 @@ class QwenEngine:
         except Exception:
             pass
 
-    def _synthesize_impl(self, text: str) -> np.ndarray:
+    def _build_gen(self, text: str, stream: bool):
+        """Construct the model generator for the active voice. ON the executor
+        thread only. `stream=True` makes the model yield incremental audio
+        chunks (every ~STREAM_INTERVAL_SEC of audio) instead of one final blob."""
         if self._model is None:
             self._ensure_kind_impl(self.cfg.speaker)
         voice = self.cfg.speaker
         max_tokens = _max_tokens_for(text)   # bound runaway generation (no hang)
+        stream_kw = (
+            {"stream": True, "streaming_interval": STREAM_INTERVAL_SEC}
+            if stream else {}
+        )
         if self._kind_for_voice(voice) == "base":
             wav, ref = self._ref_for(voice)
             if not wav or not ref:
                 raise RuntimeError(f"clone {voice!r} missing wav/ref_text")
             # `instruct` is an emotion/style hint ("smiling, cheerful", "angry")
             # — it shapes HOW the cloned voice speaks; the ref_audio sets WHO.
-            gen = self._model.generate(
+            return self._model.generate(
                 text,
                 ref_audio=wav,
                 ref_text=ref,
                 instruct=self._instruct_for(voice),
                 lang_code="auto",
                 max_tokens=max_tokens,
+                **stream_kw,
                 **self._gen_kwargs_for(voice),
             )
-        else:
-            # generate_custom_voice has no `speed` arg (only generate() does).
-            gen = self._model.generate_custom_voice(
-                text,
-                speaker=voice,
-                instruct=self.cfg.instruct,
-                max_tokens=max_tokens,
-            )
+        # generate_custom_voice has no `speed` arg (only generate() does).
+        return self._model.generate_custom_voice(
+            text,
+            speaker=voice,
+            instruct=self.cfg.instruct,
+            max_tokens=max_tokens,
+            **stream_kw,
+        )
+
+    def _synthesize_impl(self, text: str) -> np.ndarray:
         chunks: list[np.ndarray] = []
-        for result in gen:
+        for result in self._build_gen(text, stream=False):
             arr = _to_numpy(getattr(result, "audio", None))
             if arr.size:
                 chunks.append(arr)
         if not chunks:
             return np.zeros(0, dtype=np.float32)
         return np.concatenate(chunks)
+
+    def _synthesize_stream_impl(self, text, should_stop, q) -> None:
+        """Drive the streaming generator on the executor thread, pushing each
+        audio chunk onto `q`. Polls `should_stop` between chunks and closes the
+        generator early (freeing this thread for the next request) when set."""
+        gen = None
+        try:
+            gen = self._build_gen(text, stream=True)
+            for result in gen:
+                if should_stop is not None and should_stop():
+                    break
+                arr = _to_numpy(getattr(result, "audio", None))
+                if arr.size:
+                    q.put(arr)
+        finally:
+            if gen is not None and hasattr(gen, "close"):
+                gen.close()   # cooperative cancel of the model generator
+            q.put(_STREAM_DONE)

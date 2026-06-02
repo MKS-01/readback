@@ -134,6 +134,9 @@ local-tts/
 - LLM streaming runs in a producer **thread** that pushes finished sentences
   onto an `asyncio.Queue` via `loop.call_soon_threadsafe`. The consumer races
   each `queue.get()` against `interrupt_event` so Skip takes effect mid-sentence.
+  For each sentence, TTS is synthesized in full (`synth.synthesize`, batch) and
+  sent as one buffer — per-chunk model streaming was tried and reverted (it chops
+  on the slow clone Base model; see TTS section).
 - Mic frames are dropped while `pipeline_task is not None`, during
   `_awaiting_finalize`, AND while `_speaking` (the speaker-bleed guard). The
   bytes-sent ≠ bytes-played gap matters: the server finishes sending TTS long
@@ -237,6 +240,23 @@ and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
 - `QwenEngine` wraps `mlx_audio.tts.utils.load_model(...)` +
   `generate_custom_voice(text, speaker, instruct)`. Output is float32 @ **24 kHz**
   (native — matches the WS contract, no resample).
+- **Batch per sentence (server default).** `_run_pipeline` calls `synthesize()`
+  per sentence and sends the whole sentence as one buffer. Playback is gapless
+  *within* a sentence regardless of synth speed; the only stall is *between*
+  sentences, absorbed by the client jitter buffer (`audioEngine.ts`
+  `LEAD_SEC=0.28`).
+- ⚠ **Per-chunk model streaming exists but the server does NOT use it.**
+  `synthesize_stream(text, should_stop)` yields a sentence's audio in chunks as
+  the model produces them (`stream=True, streaming_interval=STREAM_INTERVAL_SEC=0.5`;
+  generator on the MLX executor thread, chunks bridged out via a bounded
+  `queue.Queue`; `should_stop` `gen.close()`s on interrupt). It cuts first-audio
+  latency on **fast** engines (preset CustomVoice, RTF ~0.21 → first audio
+  ~0.12 s, chunk boundaries measured continuous). But on a **slow** engine — the
+  cloned **Base** model (RTF near realtime) — each 0.5 s chunk must *arrive* in
+  realtime; when it can't, the client queue underruns *mid-sentence* and chops.
+  So streaming was tried (Phase 7) and reverted to batch. Kept as opt-in API for
+  a future "stream only when the engine is fast enough" path.
+  `_build_gen(text, stream)` is shared by both `synthesize` and `synthesize_stream`.
 - **MLX single-thread:** like Parakeet, MLX binds its GPU stream to the first
   thread that touches the device. `QwenEngine` owns a `ThreadPoolExecutor(max_workers=1)`
   and runs ALL model work (load + synth) on it; public methods submit and block.
@@ -423,7 +443,7 @@ See the cloning subsection under "TTS — Qwen3-TTS" for the full picture.
 | Parakeet batch (4.7s clip) | ~1.1 s cold / RTF ~0.24 |
 | Whisper medium batch (4.7s clip) | ~2.9 s / RTF ~0.61 |
 | Nemotron-3-nano:4b first sentence | ~1.3 s cold (~200–500 ms warm) |
-| Qwen3-TTS first sentence | warm RTF ~0.21; streaming first-chunk ~126 ms |
+| Qwen3-TTS first sentence | warm RTF ~0.21 (batch per sentence; streaming reverted, P7) |
 
 Tool-call probes add one full Ollama non-streaming round-trip per hop
 (usually 400–800 ms) before the final response streams. Three hops max.

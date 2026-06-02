@@ -70,5 +70,10 @@ class Synthesizer:
     def synthesize(self, text: str) -> np.ndarray:
         return self._engine.synthesize(text)
 
+    def synthesize_stream(self, text: str, should_stop=None):
+        """Yield the sentence's audio in chunks as the engine produces them.
+        Caller must drain fully; use `should_stop` to end early (see engine)."""
+        return self._engine.synthesize_stream(text, should_stop)
+
     def reset_context(self):
         self._engine.reset_context()

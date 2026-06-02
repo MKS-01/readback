@@ -1011,6 +1011,16 @@ class Session:
                         "text": sentence,
                         "session_id": self.session_id,
                     })
+                    # Synthesize the whole sentence, then send it as one buffer.
+                    # NOTE: per-chunk model streaming (synthesize_stream) was tried
+                    # (Phase 7) and reverted — see "TTS — Qwen3-TTS". It cuts
+                    # first-audio latency on fast engines, but on a slow engine
+                    # (the cloned Base model, RTF near realtime) each small chunk
+                    # must arrive in realtime; when it can't, the client queue
+                    # underruns *mid-sentence* and chops. Batching one sentence at
+                    # a time keeps playback gapless within a sentence regardless of
+                    # synth speed; the client jitter buffer (audioEngine LEAD_SEC)
+                    # absorbs the between-sentence stall.
                     audio_arr = await self._race_with_interrupt(
                         asyncio.to_thread(self.models.synth.synthesize, sentence)
                     )

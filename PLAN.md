@@ -223,10 +223,35 @@ None`" gate in `web/server.py` is the only speaker-bleed guard and must stay.
 
 ---
 
-## 🔲 Phase 7 — Per-chunk TTS streaming (fix choppy/slow reply voice) — PLANNED
+## ⚠️ Phase 7 — Per-chunk TTS streaming — IMPLEMENTED, then REVERTED on the server
 
-> Not implemented. The client jitter buffer (below, "Already shipped") is in.
-> This phase is the server-side root-cause fix; needs real-audio testing.
+> **Outcome: streaming helps fast engines but chops the slow clone — reverted to
+> batch.** The engine `synthesize_stream` API stays (tested), but
+> `server._run_pipeline` is back to batch `synthesize()` per sentence.
+>
+> **What happened.** Implemented per-chunk streaming end-to-end. Measured on the
+> **preset** (`ryan`, fast CustomVoice, RTF ~0.21): first audio dropped 1.93 s →
+> **0.12 s**, 20 chunks, chunk boundaries measured **continuous** (max boundary
+> jump 0.035 vs interior steps up to 0.53 — no seams). **But in real use on the
+> clone (`clone:k-voice`, Base model) the voice chopped *within* sentences.**
+>
+> **Why.** Per-chunk streaming requires each ~0.5 s chunk to *arrive in realtime*.
+> The Base/clone model synthesizes at RTF near realtime, so chunks can't keep up
+> → the client playback queue underruns mid-sentence → the jitter buffer inserts
+> silence on each underrun → chopping. Batch (whole sentence → one buffer) plays
+> gaplessly within a sentence regardless of synth speed; only the between-sentence
+> stall remains, which the client jitter buffer absorbs.
+>
+> **Kept (correct, unused by server):** `qwen_engine` `_build_gen` (shared by
+> batch+stream), `synthesize_stream` / `_synthesize_stream_impl` (queue-bridged
+> off the MLX executor, cooperative `gen.close()`), `STREAM_INTERVAL_SEC`;
+> `synthesizer.synthesize_stream` passthrough. **Reverted:** `_run_pipeline` →
+> batch `synthesize()` per sentence.
+>
+> **Future (if revisited): stream only when the engine is fast enough** — use
+> `synthesize_stream` for presets (RTF « 1) and batch for clones; or pre-buffer a
+> full sentence ahead for slow engines. Real choppiness fix for the clone is a
+> faster model or sentence-level look-ahead, not smaller chunks.
 
 ### Problem
 Reply voice is **choppy (gaps between sentences)** and **slow to start**, worst
