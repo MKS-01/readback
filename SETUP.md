@@ -1,172 +1,94 @@
 # Setup Guide
 
-End-to-end setup for `vox-tinker` on Apple Silicon. Follow once; everything caches afterwards.
+End-to-end setup for `vox-tinker` on Apple Silicon. Follow once; model weights cache afterwards. For a quick overview see the [README](README.md); this guide adds the details and troubleshooting.
 
 ## 1. Prerequisites
 
-- macOS on Apple Silicon (M1/M2/M3/M4/M5)
-- [Ollama](https://ollama.ai/) installed and running with at least one model pulled
-- [uv](https://docs.astral.sh/uv/) installed (`brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- A free [Hugging Face](https://huggingface.co/join) account
+- macOS on Apple Silicon (M1/M2/M3/M4/M5) — MLX/Metal is required for Parakeet ASR and Qwen3-TTS.
+- [Ollama](https://ollama.ai/) installed and running, with at least one chat model pulled.
+- Python 3.11 (3.10+ works; 3.11 recommended).
+- [Node.js](https://nodejs.org/) 18+ (only to build the web UI once).
 
-## 2. Clone and create the Python environment
+No Hugging Face account or login is needed — Parakeet, Qwen3-TTS, and Smart-Turn are public and download automatically on first use.
+
+## 2. Pull an Ollama model
+
+```bash
+ollama serve &                          # or launch the Ollama desktop app
+ollama pull nemotron-3-nano:4b          # default; any pulled chat model is selectable
+```
+
+Tool/function-calling (`tools.enabled: true`, the default) needs a tool-capable model — `nemotron-3-nano:4b` qualifies.
+
+## 3. Clone and create the Python environment
 
 ```bash
 git clone git@github.com:MKS-01/vox-tinker.git
 cd vox-tinker
 
-uv python install 3.11
-uv venv --python 3.11 .venv
-source .venv/bin/activate
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install torch==2.4.0 torchaudio==2.4.0   # pinned; transformers<5 needs torch 2.4
+pip install -e .
+pip install -e ".[wakeword]"                 # optional; only to re-enable the hidden wake-word UI
 ```
 
-## 3. Vendor Sesame CSM and install dependencies
+> **Why the torch pin.** `transformers` is held `<5` (Smart-Turn's `WhisperFeatureExtractor` and Qwen3-TTS run fine on 4.x). transformers 5.x's import chain needs torch ≥ 2.5, so torch is pinned to 2.4. mlx-audio *declares* `transformers>=5.5`; if pip's resolver objects, install with `pip install -e . --no-deps` (all other deps are already satisfied by the step above).
 
-CSM is not pip-installable, so it's vendored as a sibling repo.
+## 4. Build the web UI
 
 ```bash
-git clone https://github.com/SesameAILabs/csm vendor/csm
-uv pip install -r vendor/csm/requirements.txt
-uv pip install -e .
+cd vox_tinker/web/frontend && npm install && npm run build && cd ../../..
 ```
 
-## 4. Hugging Face authentication
+This writes the Vite bundle to `vox_tinker/web/static/dist/`. Rerun after any frontend edit. (A legacy vanilla-JS bundle is served if `dist/` is missing, so this step can be skipped for a first smoke test.)
 
-CSM uses two gated models for tokenization. Both are free, both grant instant access.
-
-### 4a. Request access to the gated models
-
-While logged in to Hugging Face, visit each link, click **"Expand to review and access"**, fill in the short form (Personal use is fine), and submit:
-
-- https://huggingface.co/meta-llama/Llama-3.2-1B
-- https://huggingface.co/sesame/csm-1b
-
-Approval is automatic — usually within seconds. Refresh the page; the yellow access banner should disappear.
-
-### 4b. Create an access token
-
-- Go to https://huggingface.co/settings/tokens
-- Click **+ Create new token**
-- Name: `vox-tinker`, Type: **Read**
-- Click **Create token** and **copy it immediately** (starts with `hf_...`)
-
-### 4c. Log in from the terminal
+## 5. First run
 
 ```bash
-huggingface-cli login
-# Paste the token when prompted (won't be visible)
-# Answer "n" when asked about git credentials
+vox-tinker                              # http://127.0.0.1:8000
 ```
 
-Verify:
-
-```bash
-python -c "from huggingface_hub import HfApi; print(HfApi().whoami()['name'])"
-```
-
-## 5. Download model weights (~6.8GB total)
-
-The `sesame/csm-1b` repo on Hugging Face contains **three redundant copies** of the same model in different formats (`model.safetensors`, `ckpt.pt`, and `transformers-*.safetensors` shards). `vox-tinker download-models` only fetches the one CSM actually uses (`model.safetensors`), saving ~13GB vs. a naive `snapshot_download`.
-
-### Option A: All-in-one (recommended)
-
-```bash
-export HF_HUB_DOWNLOAD_TIMEOUT=120
-vox-tinker download-models
-```
-
-This pulls:
+On first launch the speech models download silently (no HF login):
 
 | Model | Size | Purpose |
 | --- | --- | --- |
-| `Whisper base.en` (CTranslate2) | ~150MB | STT |
-| `sesame/csm-1b` (`model.safetensors` + voice prompts only) | ~6.3GB | TTS |
-| `meta-llama/Llama-3.2-1B` (tokenizer files only) | ~5MB | CSM text tokenizer |
-| Mimi audio codec | ~500MB | pulled by CSM on first synthesis |
+| Parakeet `parakeet-tdt-0.6b-v2` (MLX) | ~2.5 GB | STT (default, streaming) |
+| Qwen3-TTS-0.6B (mlx-audio) | ~0.6 GB | TTS, 24 kHz |
+| Smart-Turn v3 (ONNX) | ~8 MB | semantic end-of-turn |
+| faster-whisper checkpoint | ~75 MB–3 GB | only if you switch ASR engine to Whisper |
 
-### Option B: Manual, file-by-file (use if Option A hangs or times out)
+Then open the page → say "hello" → a live partial caption appears → the reply streams and speaks. The first Parakeet/Qwen utterance is slow (~2–3 s) for one-time MLX graph warm-up; warm calls are near-real-time.
 
-`huggingface-cli download` has the strongest resume support if the connection is flaky. Pass `--include` to skip the redundant model copies:
-
-```bash
-source /Users/mks/Desktop/C0D3/vox-tinker/.venv/bin/activate
-export HF_HUB_DOWNLOAD_TIMEOUT=120
-
-# 1. Whisper base.en (~150MB)
-python -c "from faster_whisper import WhisperModel; WhisperModel('base.en', device='cpu', compute_type='int8')"
-
-# 2. CSM-1B — only the safetensors weights, config, and voice prompts (~6.3GB)
-huggingface-cli download sesame/csm-1b \
-  --include "model.safetensors" "config.json" "generation_config.json" "prompts/*.wav"
-
-# 3. Llama-3.2-1B — tokenizer only, NOT the 2.5GB weights (~5MB)
-huggingface-cli download meta-llama/Llama-3.2-1B \
-  --include "tokenizer.json" "tokenizer_config.json" "special_tokens_map.json"
-
-# 4. Mimi audio codec — auto-pulled by CSM on first synthesis; no manual step needed
-```
-
-> **Warning** — running `huggingface-cli download sesame/csm-1b` *without* `--include` will pull ~20GB (all three model formats). Always use the `--include` filter above.
-
-Cache lives in `~/.cache/huggingface/hub/`. Partial downloads resume automatically.
-
-## 6. Verify
+## 6. Run options
 
 ```bash
-# Audio devices
-vox-tinker list-devices
-
-# Ollama models reachable
-vox-tinker list-models
-
-# TTS smoke test (loads CSM, synthesizes one sentence, plays it)
-vox-tinker test-tts "hello from sesame"
+vox-tinker                                      # localhost only (HTTP)
+vox-tinker --model nemotron3:33b                # override ollama.model for this run
+vox-tinker --config /path/to/config.yaml        # custom config file
+vox-tinker --host 0.0.0.0 --auto-cert           # LAN-reachable over HTTPS (phone/tablet)
+vox-tinker --host 0.0.0.0 --cert c.pem --key k.pem   # bring your own cert
 ```
 
-First TTS call takes 30-60s while MPS compiles kernels. Subsequent synthesis is much faster (~1.5–2.5s per sentence on M-series).
-
-## 7. Run the app
-
-```bash
-# Voice mode (default)
-vox-tinker run
-
-# Text mode
-vox-tinker run --text-mode
-
-# Override Ollama model
-vox-tinker run --model llama3.1:8b
-```
-
-In-app:
-- **F4** — toggle voice ↔ text mode
-- **Speak during a response** — interrupt the assistant
-- **Ctrl+C** — quit
+Browsers block the mic on plain HTTP for non-localhost origins, so use `--auto-cert` for LAN access — the startup banner prints the URL, the cert's SHA-256 fingerprint, and a `/cert.pem` download link to trust on each device. See the README's "Cross-device access" section for the per-OS trust steps.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| `GatedRepoError` on download | You haven't accepted the model's license yet. Visit the model page on huggingface.co and click "Expand to review and access". |
-| `ReadTimeout` mid-download | Set `HF_HUB_DOWNLOAD_TIMEOUT=120` (or higher), then re-run. Partial files resume automatically. |
-| `NO_TORCH_COMPILE` warnings | Already handled — `vox_tinker/tts/synthesizer.py` sets it before importing torch. |
-| Microphone not detected | Grant microphone permission in System Settings → Privacy & Security → Microphone for your terminal app. |
-| `mps not available` on import | Confirm with `python -c "import torch; print(torch.backends.mps.is_available())"`. Should print `True`. If `False`, your PyTorch build wasn't compiled for MPS — reinstall with `uv pip install --force-reinstall torch torchaudio`. |
-| Bluetooth audio sounds bad | macOS routes mic-on Bluetooth devices to a low-quality SCO codec. Use wired audio or built-in speakers for best quality. |
+| `pip install -e .` fails on a transformers/mlx-audio conflict | Run `pip install -e . --no-deps` (the torch/transformers pins from step 3 are already installed). |
+| `No module named 'mlx'` / MLX errors | You're not on Apple Silicon, or torch wasn't installed first. Confirm `python -c "import mlx.core"` works. |
+| Ollama connection refused | Start it: `ollama serve` (or the desktop app), and pull a model (`ollama pull nemotron-3-nano:4b`). |
+| Empty model picker in Settings | No models pulled in Ollama yet — `ollama list` should show at least one. |
+| Mic not detected / no captions | Grant mic permission in System Settings → Privacy & Security → Microphone for your browser. |
+| First reply takes ~2–3 s | One-time MLX graph warm-up for Parakeet/Qwen; subsequent calls are fast. |
+| Bluetooth audio sounds bad | macOS routes mic-on Bluetooth devices to a low-quality SCO codec. Use wired audio or built-in speakers. |
+| Page shows the old/plain UI | You haven't run `npm run build` (step 4) — the server is falling back to the legacy bundle. |
 
 ## Disk usage
 
-After full setup (with the filtered download in Option A or B):
-- `.venv/` — ~2.5GB
-- `~/.cache/huggingface/hub/` — ~7GB (CSM `model.safetensors` + voice prompts + Llama tokenizer + Mimi)
-- Whisper cache — ~150MB
+After setup:
+- `.venv/` — ~2–3 GB
+- `~/.cache/huggingface/hub/` — ~3 GB (Parakeet + Qwen3-TTS + Smart-Turn; + Whisper only if used)
+- Ollama models — separate, under `~/.ollama/` (e.g. `nemotron-3-nano:4b` ≈ 2.5 GB)
 
-Total: **~9.5GB**.
-
-If you accidentally pulled the full `sesame/csm-1b` repo (no `--include` filter), `~/.cache/huggingface/hub/` will be ~20GB. To reclaim space, delete the unused blobs:
-
-```bash
-# Remove the redundant ckpt.pt and transformers-*.safetensors files
-find ~/.cache/huggingface/hub/models--sesame--csm-1b -name "ckpt.pt" -delete
-find ~/.cache/huggingface/hub/models--sesame--csm-1b -name "transformers-*" -delete
-```
+Auto-generated TLS certs (with `--auto-cert`) live in `~/.vox-tinker/certs/`; crash-recovery session JSONLs in `~/.vox-tinker/sessions/`.

@@ -28,14 +28,6 @@ class OllamaConfig(BaseModel):
     system_prompt: Optional[str] = None
 
 
-class KokoroConfig(BaseModel):
-    # Retained for a possible future re-add; not wired while TTS is Qwen-only.
-    voice: str = "af_heart"
-    lang_code: str = "a"
-    speed: float = 1.0
-    torch_device: Literal["mps", "cpu", "auto"] = "cpu"
-
-
 class CloneVoiceConfig(BaseModel):
     # A reference-audio cloned voice. Selectable in the UI as id "clone:<name>".
     # Cloning needs the Base Qwen3-TTS checkpoint (see QwenTTSConfig.base_model);
