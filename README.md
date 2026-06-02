@@ -1,6 +1,6 @@
 # vox-tinker
 
-> A fully local voice assistant **and second brain** — speak or type to your LLM, hear it talk back, and have every conversation auto-filed in your Obsidian vault by topic. No cloud. No API keys. No data leaves your machine.
+> A local-first **voice-agent playground** — talk or type to a local LLM, hear it talk back, and shape *who* answers: swap personas on the fly, clone any voice from a short clip, and hot-swap the ASR / LLM / TTS models live. No cloud, no API keys, nothing leaves your machine. Every conversation can also auto-file itself into your Obsidian vault.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Apple_Silicon-black?style=flat-square&logo=apple&logoColor=white)
@@ -32,6 +32,17 @@ Most "local AI voice" projects are either a CLI loop with no real UI, a thin wra
 | **Echo cancellation** | Browser WebRTC AEC — no headphones needed | PTT key or headphones required |
 
 The pipeline is a streaming cascade: Parakeet transcribes **live as you speak**, Smart-Turn decides when you're actually done, Ollama generates, and Qwen3-TTS synthesizes each sentence as it arrives — so the assistant **starts speaking before the full reply is generated**.
+
+---
+
+## Make it your own
+
+vox-tinker is a *playground*, not a fixed assistant — the point is to configure **who** answers and **how**:
+
+- **Personas, swappable live.** Five seed personalities — `default` (sharp & tech-savvy), `concise`, `researcher` (answer-first, cites specifics), `chef` (veg-leaning Indian home cooking), and `professor` (a witty AI/ML lecturer) — plus a `custom` slot you edit from the browser and save. Each persona is just a system prompt; add your own in `config.py` or via the UI. Swaps are atomic — an in-flight reply finishes on its original prompt.
+- **Voice cloning.** Beyond the 9 built-in Qwen3-TTS speakers, clone *any* voice from a ~10–15 s reference clip. `scripts/make_clone_voice.sh` preps the audio; register it under `tts.qwen.clones` and it appears in the picker as `clone:<name>` — and it speaks cross-lingual (a Hindi clip can read English replies). Tune delivery per clone via `instruct` / `speed` / `temperature`.
+- **Hot-swap the whole stack.** ASR engine + model, LLM model, voice, persona, and speed all change from Settings — no restart.
+- **Bring any model.** Any chat model pulled in Ollama is selectable; the default is NVIDIA's `nemotron-3-nano:4b`.
 
 ---
 
@@ -118,7 +129,7 @@ The settings panel lets you change every runtime parameter **without restarting 
 - **Orb size** — 120–380 px slider.
 - **Mic meter / Captions** — toggle the 5-bar input meter and live transcript display.
 
-All preferences persist in `localStorage` (key `vox-tinker.prefs.v9`) and restore on next page load. STT model, voice, and speech-speed prefs round-trip back to the server on reconnect; persona, tools, and listening-mode currently mirror the server's `config.yaml` values on each fresh connection.
+All preferences persist in `localStorage` (key `vox-tinker.prefs.v10`) and restore on next page load. STT model, voice, and speech-speed prefs round-trip back to the server on reconnect; persona, tools, and listening-mode currently mirror the server's `config.yaml` values on each fresh connection.
 
 ---
 

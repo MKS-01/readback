@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "vox-tinker"
 version = "0.5.0"
-description = "Local voice conversation using Kokoro TTS + Ollama on Apple Silicon"
+description = "Local voice-agent playground: dual ASR + Smart-Turn + Ollama + Qwen3-TTS on Apple Silicon"
 requires-python = ">=3.10"
 authors = [{ name = "mks" }]
 license = { text = "MIT" }
