@@ -19,19 +19,7 @@
 
 ## Why this is different
 
-Most "local AI voice" projects are either a CLI loop with no real UI, a thin wrapper around a cloud STT/TTS API, or require expensive GPU hardware. This project is none of those.
-
-| | vox-tinker | Typical local voice project |
-|---|---|---|
-| **UI** | Browser — 3D neural orb, live captions, one-click settings | Terminal / CLI |
-| **Cloud dependency** | None — every model runs on-device | STT or TTS calls an API |
-| **Hardware** | Apple Silicon, 24 GB+ unified memory (tested: M5 Pro 48 GB) | Often requires NVIDIA GPU |
-| **First word latency** | ~2.5 s end-to-end | 3–8 s (round-trip to cloud) |
-| **Voice / model switching** | Hot-swap in the UI, no restart | Config file edit + restart |
-| **Cross-device** | Phone + tablet over LAN via HTTPS | Localhost only |
-| **Echo cancellation** | Browser WebRTC AEC — no headphones needed | PTT key or headphones required |
-
-The pipeline is a streaming cascade: Parakeet transcribes **live as you speak**, Smart-Turn decides when you're actually done, Ollama generates, and Qwen3-TTS synthesizes each sentence as it arrives — so the assistant **starts speaking before the full reply is generated**.
+Most "local AI voice" projects are a CLI loop, a thin wrapper around a cloud STT/TTS API, or need an NVIDIA GPU. This is a browser app where every model runs on your Apple Silicon machine, and the pipeline **streams end-to-end**: Parakeet transcribes live as you speak, Smart-Turn decides when you're actually done, Ollama generates, and Qwen3-TTS speaks each sentence as it arrives — so the reply *starts playing before it's fully generated* (~2.5 s to first word). Browser WebRTC echo cancellation means no headphones, no push-to-talk; HTTPS over LAN means you can use it from a phone.
 
 ---
 
@@ -39,10 +27,10 @@ The pipeline is a streaming cascade: Parakeet transcribes **live as you speak**,
 
 vox-tinker is a *playground*, not a fixed assistant — the point is to configure **who** answers and **how**:
 
-- **Personas, swappable live.** Five seed personalities — `default` (sharp & tech-savvy), `concise`, `researcher` (answer-first, cites specifics), `chef` (veg-leaning Indian home cooking), and `professor` (a witty AI/ML lecturer) — plus a `custom` slot you edit from the browser and save. Each persona is just a system prompt; add your own in `config.py` or via the UI. Swaps are atomic — an in-flight reply finishes on its original prompt.
-- **Voice cloning.** Beyond the 9 built-in Qwen3-TTS speakers, clone *any* voice from a ~10–15 s reference clip. `scripts/make_clone_voice.sh` preps the audio; register it under `tts.qwen.clones` and it appears in the picker as `clone:<name>` — and it speaks cross-lingual (a Hindi clip can read English replies). Tune delivery per clone via `instruct` / `speed` / `temperature`.
+- **Personas, swappable live.** Five seeds — `default` (sharp & tech-savvy), `concise`, `researcher` (answer-first, cites specifics), `chef` (veg-leaning Indian home cooking), `professor` (a witty AI/ML lecturer) — plus a `custom` slot you edit from the browser. Each is just a system prompt; add your own in `config.py`. Swaps are atomic (an in-flight reply finishes on its original prompt).
+- **Voice cloning.** Beyond the 9 built-in Qwen3-TTS speakers, clone *any* voice from a ~10–15 s clip. `scripts/make_clone_voice.sh` preps the audio; register it under `tts.qwen.clones` and it shows up as `clone:<name>`. Works cross-lingual (a Hindi clip can read English replies); tune delivery per clone via `instruct` / `speed` / `temperature`.
 - **Hot-swap the whole stack.** ASR engine + model, LLM model, voice, persona, and speed all change from Settings — no restart.
-- **Bring any model.** Any chat model pulled in Ollama is selectable; the default is NVIDIA's `nemotron-3-nano:4b`.
+- **Bring any model.** Any chat model pulled in Ollama works; the default is NVIDIA's `nemotron-3-nano:4b`.
 
 ---
 
@@ -50,15 +38,12 @@ vox-tinker is a *playground*, not a fixed assistant — the point is to configur
 
 | Layer | Technology |
 |---|---|
-| **LLM** | [Ollama](https://ollama.ai/) — default NVIDIA **`nemotron-3-nano:4b`** (`think=False`); any local chat model selectable, with **function-calling / tools** |
-| **STT** | **Dual engine, switchable:** NVIDIA [Parakeet](https://github.com/senstella/parakeet-mlx) (MLX, default, **streaming**) + [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (batch, 6 sizes) |
-| **Turn-taking** | [Smart-Turn v3](https://github.com/pipecat-ai/smart-turn) — semantic end-of-turn (ONNX/CPU ~12 ms) over webrtcvad; VAD-only fallback |
-| **TTS** | [Qwen3-TTS-0.6B](https://github.com/QwenLM/Qwen3-TTS) via [mlx-audio](https://github.com/Blaizzy/mlx-audio) — Metal, 24 kHz, 9 speakers |
-| **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams audio sentence-by-sentence |
-| **Frontend** | React + TypeScript + Vite + zustand — three.js neural orb, AudioWorklet capture |
-| **Wake-word** | [openWakeWord](https://github.com/dscripka/openWakeWord) (optional, opt-in extra) |
-| **Persistence** | Markdown export to [Obsidian](https://obsidian.md/) vault, organized by topic |
-| **Web search** | DuckDuckGo HTML (no API key, no signup) — provider interface is swappable |
+| **LLM** | [Ollama](https://ollama.ai/) — default `nemotron-3-nano:4b` (`think=False`); any local chat model, with function-calling / tools |
+| **STT** | **Dual engine:** [Parakeet](https://github.com/senstella/parakeet-mlx) (MLX, default, streaming) + [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (batch, 6 sizes) |
+| **Turn-taking** | [Smart-Turn v3](https://github.com/pipecat-ai/smart-turn) — semantic end-of-turn (ONNX/CPU) over webrtcvad; VAD-only fallback |
+| **TTS** | [Qwen3-TTS-0.6B](https://github.com/QwenLM/Qwen3-TTS) via [mlx-audio](https://github.com/Blaizzy/mlx-audio) — Metal, 24 kHz, 9 speakers + clones |
+| **Server / UI** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket · React + TypeScript + Vite + zustand · three.js orb, AudioWorklet capture |
+| **Extras** | Obsidian markdown export · DuckDuckGo web search (no key) · optional [openWakeWord](https://github.com/dscripka/openWakeWord) |
 
 ---
 
@@ -78,163 +63,81 @@ python3.11 -m venv .venv && source .venv/bin/activate
 pip install torch==2.4.0 torchaudio==2.4.0
 pip install -e .
 
-# 3. Build the React frontend (one-time; rerun after edits in vox_tinker/web/frontend/)
+# 3. Build the React frontend (one-time; rerun after frontend edits)
 cd vox_tinker/web/frontend && npm install && npm run build && cd ../../..
 
 # 4. Launch
-vox-tinker                               # http://127.0.0.1:8000
+vox-tinker                              # http://127.0.0.1:8000
 ```
 
 Speech models download automatically on first run (Parakeet ~2.5 GB, Qwen3-TTS-0.6B, Smart-Turn ~8 MB). No HuggingFace login needed.
 
 ---
 
-## Interface
+## Using it
 
-The UI is a single browser page — no Electron, no desktop app. Open `http://127.0.0.1:8000` after launching.
+A single browser page — no Electron. Five header chips (`voice` · `model` · `persona` · `tools` · `vault`) show live state; tap any to open Settings. The orb breathes when idle and lights up while speaking; captions stream the transcript live (`LISTENING_` → `PROCESSING ···` → reply).
 
-**Header chips** — five clickable chips at the top show the active runtime state: `voice` · `model` · `persona` · `tools` (ON / OFF) · `vault` (ON / OFF). Tap any chip to jump straight into Settings.
+**Dock:** Mute · Skip (interrupt mid-reply) · Type (text input, still gets a voice reply) · Pause/Resume · Settings.
 
-**Orb** — a three.js point-cloud that reacts to phase: dim and breathing when idle, bright and active when speaking. Ghost theme: matte white/grey, no colored glow.
+**Settings — everything changes without a restart:**
 
-**Live captions** — the INPUT label animates to `LISTENING_` (blinking cursor) while waiting and `PROCESSING ···` (dot reveal) while the LLM is thinking. The AI response streams in sentence by sentence. Empty input slot shows a hint matching the current listening mode.
+- **ASR** — Parakeet (default, streams live captions) ↔ Whisper (batch); the model picker filters to the active engine. Parakeet `…-v2` ★ / `-v3` (25 langs) / `-1.1b`; Whisper `tiny` → `large-v3`. *Whisper's multilingual checkpoints handle heavy accents better — switch when you need that.*
+- **LLM / Voice / Persona / Speed** — voice, persona, and cloning are covered in [Make it your own](#make-it-your-own); LLM is any pulled Ollama model.
+- **Tools** — master toggle plus per-tool checkboxes.
+- Mic device, orb size, and mic-meter / captions toggles.
 
-**Dock controls (bottom bar):**
-
-| Button | What it does |
-|---|---|
-| **Mute** | Toggle mic on/off |
-| **Skip** | Interrupt the current AI response immediately |
-| **Type** | Slide-up text input — bypasses STT, still gets a voice reply |
-| **Pause / Resume** | Freeze everything (mic, playback, timer) — WebSocket stays open |
-| **⚙ Settings** | Open the settings panel |
-
-### Settings panel — model, voice, persona, tools
-
-The settings panel lets you change every runtime parameter **without restarting the server**:
-
-- **Microphone** — switch between any input device the browser sees; new device activates instantly.
-- **ASR Engine** — switch between **Parakeet** (NVIDIA, MLX, default — streams live captions as you speak) and **Whisper** (faster-whisper, batch). The model picker below filters to the active engine's models.
-  - Parakeet: `parakeet-tdt-0.6b-v2` ★ (English), `-v3` (25 langs), `-1.1b` (most accurate), `-rnnt-0.6b`, `-ctc-0.6b`.
-  - Whisper: `tiny` / `base` / `small` / `medium` / `large-v3-turbo` / `large-v3`.
-  - The picker disables while the new model loads; re-enables on server confirmation.
-- **LLM Model** — switch between any model currently pulled in Ollama (default `nemotron-3-nano:4b`). Change takes effect on the next message.
-- **Voice (TTS)** — 9 Qwen3-TTS speakers, switchable instantly while idle:
-  - `ryan` ★ (male, default), `eric`, `aiden`, `dylan`, `uncle_fu`
-  - `serena` ★ (female), `vivian`, `ono_anna`, `sohee`
-  - Plus any **cloned voices** you add under `tts.qwen.clones` (shown as `clone:<name>`) — clone any voice from a short reference clip; see `scripts/make_clone_voice.sh`.
-- **Persona** — swap the system prompt at runtime. Ships with `default` (sharp, tech-savvy and easygoing, 3–4 sentences), `concise` (one sentence), `researcher` (answer-first, cites specifics, separates fact from inference), `chef` (veg-leaning Indian home cooking), `professor` (Miss Phd — witty AI/ML lecturer), and a `custom` slot with a textarea you can edit and save.
-- **Internet research (Tools)** — master toggle plus per-tool checkboxes. When on, the LLM can call `clock` and `web_search` (DuckDuckGo, no API key) and fold results into its response.
-- **Speech Speed** — Slow / Medium / Fast, applied to every TTS synthesis call.
-- **Orb size** — 120–380 px slider.
-- **Mic meter / Captions** — toggle the 5-bar input meter and live transcript display.
-
-All preferences persist in `localStorage` (key `vox-tinker.prefs.v10`) and restore on next page load. STT model, voice, and speech-speed prefs round-trip back to the server on reconnect; persona, tools, and listening-mode currently mirror the server's `config.yaml` values on each fresh connection.
+Prefs persist in `localStorage` (`vox-tinker.prefs.v10`); STT engine/model, voice, and speed round-trip back to the server on reconnect.
 
 ---
 
-## Second-brain features
+## Second brain (optional)
 
-The bundled `config.yaml` ships with **tools and Obsidian export both enabled** so the first run exercises every feature. Disable individually by flipping `tools.enabled` or `obsidian.enabled` to `false`.
+Ships **on** in the bundled `config.yaml`; flip `obsidian.enabled` / `tools.enabled` to `false` to disable.
 
-### Obsidian vault export
-
-When `obsidian.enabled: true`, every call writes a markdown transcript into your vault, organized by topic. The folder name is chosen by the LLM at session end — so a debugging chat lands in `debug-session/`, a recipe chat lands in `recipe-ideas/`, etc.
+**Obsidian export** — with `obsidian.enabled: true`, each session is written as a topic-filed markdown transcript at disconnect (the folder name is chosen by the LLM), with YAML frontmatter plus the full turn-by-turn body. In-progress sessions are mirrored to crash-recovery JSONL under `~/.vox-tinker/sessions/` and deleted once the markdown commits.
 
 ```yaml
 obsidian:
   enabled: true
   vault_root: ~/Documents/Obsidian/vox-tinker   # any path, ~ expanded
-  topic_model: null                             # null = reuse ollama.model
 ```
 
-File layout:
-
-```
-~/Documents/Obsidian/vox-tinker/
-├── project-planning/
-│   └── 2026-05-19--7f3a9e.md
-├── recipe-ideas/
-│   └── 2026-05-18--12c3aa.md
-└── unsorted/                                    # sessions <2 turns or topic call failed
-    └── 2026-05-17--9bc40d.md
-```
-
-Each file has YAML frontmatter (`session_id`, `started`, `ended`, `duration_sec`, `model`, `voice`, `persona`, `topic`, `turn_count`) followed by the full turn-by-turn transcript — readable in any markdown editor, searchable in Obsidian's graph view.
-
-Crash-recovery JSONL files are kept at `~/.vox-tinker/sessions/<id>.jsonl` while a session is in progress and deleted once the markdown is committed. The topic-classification LLM call runs in `asyncio.to_thread` as a fire-and-forget task on disconnect, so closing the browser tab doesn't block.
-
-### Internet research (tools)
-
-When the Tools toggle is on, the assistant can call functions and fold their output into the response. Two ship today:
-
-- **`clock`** — local date/time. Tiny, useful for "what time is it?".
-- **`web_search`** — DuckDuckGo HTML search. No API key, no signup. The provider is behind a `WebSearchProvider` Protocol so swapping to Tavily / Brave later is one file.
-
-The LLM client does a non-streaming probe for tool_calls (max 3 hops), runs each tool, appends the result as a `tool` role message, then streams the final response. Tool round-trip content stays out of the TTS stream — the user only hears the answer, not the planning chatter.
-
-Ships **on** by default in the bundled `config.yaml`. Per-tool checkboxes in Settings let you disable individual tools without turning the whole feature off; set `tools.enabled: false` in `config.yaml` to disable entirely.
-
-### Persona switching
-
-The system prompt is one of several runtime-swappable presets (`default`, `concise`, `researcher`, `chef`, `professor`, `custom`). The `swap_persona` flow mirrors the `Transcriber.swap_model` pattern — `threading.Lock`, atomic ref swap, in-flight responses finish on the old prompt. Custom prompt edits round-trip from the browser back to the server and persist across reconnects.
+**Tools** — with `tools.enabled: true`, the LLM can call `clock` and `web_search` (DuckDuckGo, no API key) and fold the results into its reply. Tool round-trips stay out of the spoken stream — you hear the answer, not the planning. The search provider is swappable (Tavily / Brave) behind one interface.
 
 ---
 
 ## Cross-device access (phone / tablet)
 
-Browsers block microphone access on plain HTTP for non-localhost origins. Use `--auto-cert` for HTTPS over LAN:
+Browsers block the mic on plain HTTP for non-localhost origins, so use HTTPS over LAN:
 
 ```bash
-vox-tinker --host 0.0.0.0 --auto-cert
-```
-
-The startup banner prints the network URL, SHA-256 cert fingerprint, and a `/cert.pem` download link.
-
-**Trust the cert:**
-
-| Device | Steps |
-|---|---|
-| **iOS** | Open `/cert.pem` → Settings → General → VPN & Device Management → install → Certificate Trust Settings → toggle on |
-| **Android** | Open `/cert.pem` → install as CA certificate (Settings › Security › Install from storage) |
-| **macOS** | Download `/cert.pem` → Keychain Access → set to Always Trust |
-
-Cert stored in `~/.vox-tinker/certs/`, reused across restarts, regenerated if your LAN IP changes.
-
-To use your own cert (e.g. from `mkcert`):
-
-```bash
+vox-tinker --host 0.0.0.0 --auto-cert     # banner prints the URL + cert fingerprint + /cert.pem link
+# …or bring your own cert (e.g. mkcert):
 vox-tinker --host 0.0.0.0 --cert cert.pem --key key.pem
 ```
+
+Trust the auto-cert once per device — **iOS:** open `/cert.pem` → install profile → Certificate Trust Settings → toggle on · **Android:** install as CA cert · **macOS:** Keychain Access → Always Trust. The cert is stored in `~/.vox-tinker/certs/` and regenerated if your LAN IP changes.
 
 ---
 
 ## Configuration
 
-Edit `config.yaml` for non-UI knobs:
+UI-switchable settings persist on their own; edit `config.yaml` for the rest:
 
 | Key | What | Default |
 |---|---|---|
 | `ollama.model` | Any local Ollama chat model | `nemotron-3-nano:4b` |
-| `tts.qwen.speaker` | Qwen3-TTS speaker (9 presets, see [CLAUDE.md](CLAUDE.md)) | `ryan` |
 | `stt.engine` | ASR engine: `parakeet` or `whisper` | `parakeet` |
-| `stt.parakeet.model` | Parakeet checkpoint | `…parakeet-tdt-0.6b-v2` |
-| `stt.whisper.model` | Whisper checkpoint (when engine=whisper) | `medium` |
-| `turn.enabled` | Smart-Turn v3 end-of-turn (VAD-only fallback if off) | `true` |
-| `turn.threshold` | P(turn complete) ≥ this ends the turn | `0.5` |
+| `stt.parakeet.model` / `stt.whisper.model` | Per-engine checkpoint | `…parakeet-tdt-0.6b-v2` / `medium` |
+| `tts.qwen.speaker` | Qwen3-TTS speaker (9 presets) | `ryan` |
+| `tts.qwen.clones` | Cloned voices (`name`, `wav`, `instruct`, …) | — |
+| `turn.enabled` / `turn.threshold` | Smart-Turn end-of-turn (VAD-only fallback if off) | `true` / `0.5` |
 | `vad.aggressiveness` | WebRTC VAD aggressiveness 0–3 | `2` |
-| `persona.active` | Active persona name | `default` |
-| `persona.personas` | List of `{name, system_prompt}` overrides | (5 seeded) |
-| `tools.enabled` | Master switch for function-calling tools | `false` |
-| `tools.allowed` | Allowlist of tool names | `[clock, web_search]` |
-| `tools.web_search_provider` | Search backend (`duckduckgo` only today) | `duckduckgo` |
-| `obsidian.enabled` | Write per-session markdown to the vault | `false` |
-| `obsidian.vault_root` | Vault path; `~` is expanded | `~/Documents/Obsidian/vox-tinker` |
-| `obsidian.topic_model` | Override LLM model for topic classification (null = reuse `ollama.model`) | `null` |
-| `memory.session_dir` | Crash-recovery JSONL location | `~/.vox-tinker/sessions` |
-| `memory.keep_days` | Rotate JSONLs older than N days | `30` |
-
-> **Picking an ASR engine.** Parakeet (MLX/Metal) streams live captions and finalizes near-instantly — the default. Whisper is batch-only (transcript appears at turn end) but its multilingual checkpoints handle heavy accents well; switch to it in Settings when you need that.
+| `persona.active` / `persona.personas` | Active persona + overrides | `default` / (5 seeded) |
+| `tools.enabled` / `tools.allowed` | Function-calling switch + allowlist | `true` / `[clock, web_search]` |
+| `obsidian.enabled` / `obsidian.vault_root` | Markdown export + vault path | `true` / `~/Documents/Obsidian/vox-tinker` |
+| `memory.session_dir` / `memory.keep_days` | Crash-recovery JSONL location + rotation | `~/.vox-tinker/sessions` / `30` |
 
 ---
 
@@ -243,42 +146,27 @@ Edit `config.yaml` for non-UI knobs:
 ```
 browser mic → WebSocket (Int16 PCM 16kHz)
   → webrtcvad utterance segmentation
-  → Parakeet STT (streaming → live partial captions)   [or Whisper, batch]
+  → Parakeet STT (streaming → live partials)   [or Whisper, batch]
   → Smart-Turn v3 confirms end-of-turn (else keep listening)
-  → Ollama streaming LLM (Nemotron, think=False) ⇄ (tools — when enabled)
-  → sentence splitter
-  → Qwen3-TTS (per sentence)
-  → WebSocket (Float32 PCM 24kHz)
-  → browser speaker (gapless AudioBufferSourceNode queue)
+  → Ollama streaming LLM (think=False) ⇄ (tools, when enabled)
+  → sentence splitter → Qwen3-TTS (per sentence)
+  → WebSocket (Float32 PCM 24kHz) → browser speaker (gapless queue)
   → (on disconnect) topic classifier → Obsidian markdown export
 ```
 
-The pipeline is **streaming end-to-end**: words appear live while you speak, Smart-Turn avoids cutting you off at mid-thought pauses, and Qwen3-TTS synthesizes each sentence the moment it arrives from Ollama — so playback starts well before the full reply is generated. Tool round-trips do one non-streaming probe (max 3 hops) before the final response streams, so "what time is it?" comes back as natural speech, not a JSON blob.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-level view (cascade, threading model, turn lifecycle, extension points) and [CLAUDE.md](CLAUDE.md) for deeper implementation notes on the MLX single-thread executors, interrupt handling, hot-swap locking, Smart-Turn fallback, and Whisper hallucination mitigations.
+See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the system-level view (streaming cascade, threading model, turn lifecycle, extension points) and **[CLAUDE.md](CLAUDE.md)** for implementation notes (MLX single-thread executors, interrupt handling, hot-swap locking, Whisper hallucination guards).
 
 ---
 
 ## Changelog
 
-### v0.5.0 — Open-model voice pipeline (NVIDIA/Qwen, Apple Silicon)
-- **Dual ASR engine, switchable at runtime.** **Parakeet** (NVIDIA, via `parakeet-mlx` on Metal) is the default with **live streaming captions**; **Whisper** (faster-whisper, batch) stays as a one-click alternative. Two-level picker in Settings (engine + per-engine model). Measured on M5: Parakeet batch RTF ~0.24 vs Whisper medium ~0.61.
-- **Smart-Turn v3 turn detection.** Semantic end-of-turn (pipecat `smart-turn-v3.2`, ONNX/CPU, ~7–12 ms) layered on webrtcvad so mid-thought pauses don't cut you off. Graceful fallback to VAD-only if the model can't load.
-- **Nemotron LLM by default.** `nemotron-3-nano:4b` with reasoning disabled (`think=False`) and a streaming `<think>…</think>` stripper so traces are never spoken. Any pulled Ollama model (e.g. `nemotron3:33b`, `qwen3`) stays selectable.
-- **Qwen3-TTS replaces Kokoro.** Qwen3-TTS-0.6B via `mlx-audio` (Metal, 24 kHz, 9 preset speakers). Warm RTF ~0.21, streaming first-chunk ~126 ms on M5.
-- **Live partial captions** while you speak (Parakeet), plus a "still listening" hint during Smart-Turn pauses.
+**v0.5.0 — Open-model voice pipeline.** Dual ASR (Parakeet streaming default + Whisper batch, switchable); Smart-Turn v3 semantic end-of-turn over webrtcvad; Nemotron default with `<think>` stripping; Qwen3-TTS (replaces Kokoro) with 9 speakers + reference-clip cloning; live partial captions.
 
-### v0.4.0 — Second brain
-- **Obsidian export.** Every call writes a markdown transcript into your vault, topic-organized via an LLM call at session end. Crash-recovery JSONL files at `~/.vox-tinker/sessions/`. Enabled in the bundled config.
-- **Tools / function-calling.** `clock` and `web_search` (DuckDuckGo, no API key) ship out of the box; provider interface ready for Tavily / Brave swap-ins. Per-tool checkboxes in Settings.
-- **Persona switching.** Five seed personas (`default`, `concise`, `researcher`, `chef`, `professor`) plus a `custom` slot with a textarea. Runtime swap mirrors `Transcriber.swap_model` — in-flight responses finish on the old prompt.
-- **React + Vite + TypeScript frontend.** Replaces the 1,295-line vanilla-JS bundle. Three.js orb and AudioWorklet stay imperative inside hooks; settings/captions/dock are now components. Five header chips surface every runtime-switchable state at a glance.
+**v0.4.0 — Second brain.** Obsidian topic-filed markdown export; `clock` + `web_search` tools; runtime persona switching (5 seeds + custom); React + Vite + TypeScript frontend.
 
-### Deferred
-- **Wake-word listening.** Backend (`vox_tinker/wakeword/`, `[wakeword]` extras, server WS handler) is in place but the UI is hidden — openWakeWord's bundled keywords are limited to `alexa` / `hey_jarvis` / `hey_mycroft` and custom keywords need multi-hour training. Coming back with a Picovoice Porcupine backend that supports free-tier-trained custom keywords in ~30 seconds.
+**v0.3.0 — Web UI overhaul.** Single Ghost theme, simplified header, borderless captions.
 
-### v0.3.0 — Web UI overhaul
-- Single Ghost theme (matte white/grey), header simplified to inline meta row, captions reworked as borderless open sections, scanline removed. See [CLAUDE.md](CLAUDE.md) for the full v0.3 design notes.
+*Deferred:* wake-word listening — backend is in place (`vox_tinker/wakeword/`, `[wakeword]` extra) but the UI is hidden until a Picovoice Porcupine backend lands for fast custom keywords.
 
 ---
 
