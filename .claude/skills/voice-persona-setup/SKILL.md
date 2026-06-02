@@ -1,9 +1,9 @@
 ---
 name: voice-persona-setup
-description: Add a new Qwen3-TTS cloned voice and/or a new assistant persona to local-tts. Use when the user wants to clone a voice from an audio sample, tune how a cloned voice sounds (pitch/speed/style), or add/edit a persona (e.g. chef, professor). Covers prepping the reference clip, registering the clone in config.yaml, pitch-shifting for timbre, and seeding a persona in config.py.
+description: Add a new Qwen3-TTS cloned voice and/or a new assistant persona to vox-tinker. Use when the user wants to clone a voice from an audio sample, tune how a cloned voice sounds (pitch/speed/style), or add/edit a persona (e.g. chef, professor). Covers prepping the reference clip, registering the clone in config.yaml, pitch-shifting for timbre, and seeding a persona in config.py.
 ---
 
-# Voice clone + persona setup (local-tts)
+# Voice clone + persona setup (vox-tinker)
 
 Two independent tasks that often go together (a persona paired with its own voice).
 Both are config-only and **require a server restart** to take effect. The UI voice
@@ -12,7 +12,7 @@ frontend change is ever needed — new entries just appear in Settings.
 
 Always confirm the missing details before acting: source audio path, desired
 `name`, and (for personas) the personality/voice in one line. Then verify by
-loading config (`python3 -c "from local_tts.config import Config; Config.load()"`).
+loading config (`python3 -c "from vox_tinker.config import Config; Config.load()"`).
 
 ---
 
@@ -81,7 +81,7 @@ lower, a different, naturally-more-suitable source recording is the cleaner fix.
 
 ## B. Add a persona
 
-Personas are seeded in `_default_personas()` in `local_tts/config.py` (alongside
+Personas are seeded in `_default_personas()` in `vox_tinker/config.py` (alongside
 `default` / `concise` / `researcher` / `chef` / `professor`). `config.yaml`'s
 `persona:` block only sets `active:` — adding to it is NOT required; the picker lists
 every seeded persona.
@@ -120,7 +120,7 @@ Append a `Persona(...)` to the list:
 ## Verify & finish
 ```bash
 python3 -c "
-from local_tts.config import Config
+from vox_tinker.config import Config
 c = Config.load()
 print('personas:', [p.name for p in c.persona.personas])
 print('clones  :', [(x.name, x.wav) for x in c.tts.qwen.clones])

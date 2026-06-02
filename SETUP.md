@@ -1,6 +1,6 @@
 # Setup Guide
 
-End-to-end setup for `local-tts` on Apple Silicon. Follow once; everything caches afterwards.
+End-to-end setup for `vox-tinker` on Apple Silicon. Follow once; everything caches afterwards.
 
 ## 1. Prerequisites
 
@@ -12,8 +12,8 @@ End-to-end setup for `local-tts` on Apple Silicon. Follow once; everything cache
 ## 2. Clone and create the Python environment
 
 ```bash
-git clone git@github.com:MKS-01/local-tts.git
-cd local-tts
+git clone git@github.com:MKS-01/vox-tinker.git
+cd vox-tinker
 
 uv python install 3.11
 uv venv --python 3.11 .venv
@@ -47,7 +47,7 @@ Approval is automatic — usually within seconds. Refresh the page; the yellow a
 
 - Go to https://huggingface.co/settings/tokens
 - Click **+ Create new token**
-- Name: `local-tts`, Type: **Read**
+- Name: `vox-tinker`, Type: **Read**
 - Click **Create token** and **copy it immediately** (starts with `hf_...`)
 
 ### 4c. Log in from the terminal
@@ -66,13 +66,13 @@ python -c "from huggingface_hub import HfApi; print(HfApi().whoami()['name'])"
 
 ## 5. Download model weights (~6.8GB total)
 
-The `sesame/csm-1b` repo on Hugging Face contains **three redundant copies** of the same model in different formats (`model.safetensors`, `ckpt.pt`, and `transformers-*.safetensors` shards). `local-tts download-models` only fetches the one CSM actually uses (`model.safetensors`), saving ~13GB vs. a naive `snapshot_download`.
+The `sesame/csm-1b` repo on Hugging Face contains **three redundant copies** of the same model in different formats (`model.safetensors`, `ckpt.pt`, and `transformers-*.safetensors` shards). `vox-tinker download-models` only fetches the one CSM actually uses (`model.safetensors`), saving ~13GB vs. a naive `snapshot_download`.
 
 ### Option A: All-in-one (recommended)
 
 ```bash
 export HF_HUB_DOWNLOAD_TIMEOUT=120
-local-tts download-models
+vox-tinker download-models
 ```
 
 This pulls:
@@ -89,7 +89,7 @@ This pulls:
 `huggingface-cli download` has the strongest resume support if the connection is flaky. Pass `--include` to skip the redundant model copies:
 
 ```bash
-source /Users/mks/Desktop/C0D3/local-tts/.venv/bin/activate
+source /Users/mks/Desktop/C0D3/vox-tinker/.venv/bin/activate
 export HF_HUB_DOWNLOAD_TIMEOUT=120
 
 # 1. Whisper base.en (~150MB)
@@ -114,13 +114,13 @@ Cache lives in `~/.cache/huggingface/hub/`. Partial downloads resume automatical
 
 ```bash
 # Audio devices
-local-tts list-devices
+vox-tinker list-devices
 
 # Ollama models reachable
-local-tts list-models
+vox-tinker list-models
 
 # TTS smoke test (loads CSM, synthesizes one sentence, plays it)
-local-tts test-tts "hello from sesame"
+vox-tinker test-tts "hello from sesame"
 ```
 
 First TTS call takes 30-60s while MPS compiles kernels. Subsequent synthesis is much faster (~1.5–2.5s per sentence on M-series).
@@ -129,13 +129,13 @@ First TTS call takes 30-60s while MPS compiles kernels. Subsequent synthesis is 
 
 ```bash
 # Voice mode (default)
-local-tts run
+vox-tinker run
 
 # Text mode
-local-tts run --text-mode
+vox-tinker run --text-mode
 
 # Override Ollama model
-local-tts run --model llama3.1:8b
+vox-tinker run --model llama3.1:8b
 ```
 
 In-app:
@@ -149,7 +149,7 @@ In-app:
 | --- | --- |
 | `GatedRepoError` on download | You haven't accepted the model's license yet. Visit the model page on huggingface.co and click "Expand to review and access". |
 | `ReadTimeout` mid-download | Set `HF_HUB_DOWNLOAD_TIMEOUT=120` (or higher), then re-run. Partial files resume automatically. |
-| `NO_TORCH_COMPILE` warnings | Already handled — `local_tts/tts/synthesizer.py` sets it before importing torch. |
+| `NO_TORCH_COMPILE` warnings | Already handled — `vox_tinker/tts/synthesizer.py` sets it before importing torch. |
 | Microphone not detected | Grant microphone permission in System Settings → Privacy & Security → Microphone for your terminal app. |
 | `mps not available` on import | Confirm with `python -c "import torch; print(torch.backends.mps.is_available())"`. Should print `True`. If `False`, your PyTorch build wasn't compiled for MPS — reinstall with `uv pip install --force-reinstall torch torchaudio`. |
 | Bluetooth audio sounds bad | macOS routes mic-on Bluetooth devices to a low-quality SCO codec. Use wired audio or built-in speakers for best quality. |

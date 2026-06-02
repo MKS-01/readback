@@ -113,7 +113,7 @@ print_snippet() {
       "$name" "$name" "$path" "$lang_line"
   done
   echo
-  echo "Then: launch local-tts → Settings → voice picker → \"Cloned voices\"."
+  echo "Then: launch vox-tinker → Settings → voice picker → \"Cloned voices\"."
 }
 
 CLIP_PATHS=()

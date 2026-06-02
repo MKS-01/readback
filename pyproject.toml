@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "local-tts"
+name = "vox-tinker"
 version = "0.5.0"
 description = "Local voice conversation using Kokoro TTS + Ollama on Apple Silicon"
 requires-python = ">=3.10"
@@ -44,7 +44,7 @@ wakeword = [
 ]
 
 [project.scripts]
-local-tts = "local_tts.__main__:main"
+vox-tinker = "vox_tinker.__main__:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["local_tts"]
+packages = ["vox_tinker"]

@@ -1,4 +1,4 @@
-# Architecture — local-tts (v0.5.0)
+# Architecture — vox-tinker (v0.5.0)
 
 How the pieces fit together and why. This is the system-level companion to
 [CLAUDE.md](CLAUDE.md) (which holds implementation notes, gotchas, and exact
@@ -17,7 +17,7 @@ speech ─▶ STT ─▶ turn detection ─▶ LLM ─▶ TTS ─▶ speech
 ```
 
 Optional layers: function-calling **tools** (clock, web search) and an
-**Obsidian** second-brain export. One process, one CLI (`local-tts`), one
+**Obsidian** second-brain export. One process, one CLI (`vox-tinker`), one
 WebSocket endpoint (`/ws`), one React UI.
 
 ## 2. High-level data flow
@@ -101,7 +101,7 @@ from arbitrary `to_thread` pool threads).
 
 ## 5. Component layers
 
-### STT — dual engine (`local_tts/stt/`)
+### STT — dual engine (`vox_tinker/stt/`)
 `ASREngine` protocol (`base.py`) with two implementations behind a `Transcriber`
 facade:
 - **ParakeetEngine** (default, streaming) — NVIDIA Parakeet via `parakeet-mlx`
@@ -171,7 +171,7 @@ partials and the "still listening" turn hint.
 ## 8. Module map
 
 ```
-local_tts/
+vox_tinker/
 ├── config.py        Pydantic config (Ollama/STT/TTS/Turn/…); load() migrations
 ├── llm/client.py    LLMClient: streaming, think-strip, tools, personas
 ├── stt/

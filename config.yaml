@@ -106,11 +106,11 @@ tools:
 # first session.
 obsidian:
   enabled: false
-  vault_root: "~/Documents/Obsidian/local-tts"
+  vault_root: "~/Documents/Obsidian/vox-tinker"
   topic_model: null                  # reuses ollama.model when null
 
 # ── Wake-word (deferred) ────────────────────────────────────────────────────
-# Wake-word support exists in the codebase (`local_tts/wakeword/`,
+# Wake-word support exists in the codebase (`vox_tinker/wakeword/`,
 # `[wakeword]` extras, server WS handler) but the UI surface is currently
 # hidden because openWakeWord's bundled keywords are limited to alexa /
 # hey_jarvis / hey_mycroft and custom keywords need multi-hour training.
@@ -130,5 +130,5 @@ obsidian:
 # ── Memory ──────────────────────────────────────────────────────────────────
 # Crash-recovery JSONL files for in-progress sessions. Rotated after keep_days.
 memory:
-  session_dir: "~/.local-tts/sessions"
+  session_dir: "~/.vox-tinker/sessions"
   keep_days: 30

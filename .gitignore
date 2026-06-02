@@ -6,17 +6,17 @@ __pycache__/
 *.egg-info/
 build/
 # `dist/` matches any directory named dist anywhere in the tree, including
-# local_tts/web/static/dist/ (Vite build output) and the package build dir.
+# vox_tinker/web/static/dist/ (Vite build output) and the package build dir.
 dist/
 .pytest_cache/
 
 # --- Node / Vite ---
 node_modules/
 *.tsbuildinfo
-local_tts/web/frontend/dist/
+vox_tinker/web/frontend/dist/
 # tsc -b emits .js / .d.ts next to the .ts source for the vite config; ignore both.
-local_tts/web/frontend/vite.config.js
-local_tts/web/frontend/vite.config.d.ts
+vox_tinker/web/frontend/vite.config.js
+vox_tinker/web/frontend/vite.config.d.ts
 
 # --- IDE / agent state ---
 .idea/
@@ -31,9 +31,9 @@ local_tts/web/frontend/vite.config.d.ts
 config.local.yaml
 
 # --- Runtime artifacts ---
-# Crash-recovery JSONLs live under ~/.local-tts/sessions/, not in the repo,
+# Crash-recovery JSONLs live under ~/.vox-tinker/sessions/, not in the repo,
 # but ignore any accidental local copy.
-.local-tts/
+.vox-tinker/
 
 # --- Captured audio (sample files, debugging) ---
 *.wav

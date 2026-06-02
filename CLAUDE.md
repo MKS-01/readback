@@ -1,4 +1,4 @@
-# local-tts — Project Context
+# vox-tinker — Project Context
 
 A local voice + text assistant with a browser UI. Speak or type → STT → Ollama
 LLM (with optional tools) → TTS → playback, all on-device. Speech-to-text is a
@@ -7,7 +7,7 @@ a batch alternative), with **Smart-Turn v3** semantic end-of-turn on top of
 webrtcvad. TTS is **Qwen3-TTS** (mlx-audio). Optional second-brain layer
 auto-files every conversation as a markdown transcript in an Obsidian vault.
 
-This project is **web-only**. The CLI is one command (`local-tts`) that boots
+This project is **web-only**. The CLI is one command (`vox-tinker`) that boots
 a FastAPI server and serves a React UI; there is no terminal conversation mode,
 no PTT, no `click`/`rich`. If you see references to `cli.py`, `app.py`,
 `audio/recorder.py`, `ui/display.py`, or `pynput` in older docs/PRs, that
@@ -40,12 +40,12 @@ knobs; ARCHITECTURE.md holds the "how it fits together / why."
   default, streaming) + Whisper (faster-whisper, batch); switchable at runtime.
 - **Turn detection**: Smart-Turn v3 (pipecat `smart-turn-v3.2-cpu.onnx`) via
   onnxruntime, hybrid with webrtcvad; graceful VAD-only fallback.
-- **Wake-word**: openWakeWord backend exists (`local_tts/wakeword/`, optional
+- **Wake-word**: openWakeWord backend exists (`vox_tinker/wakeword/`, optional
   `[wakeword]` extra) but the UI surface is currently hidden — see Wake-word
   section for why and how to re-enable.
 - **Server**: FastAPI + WebSocket, single endpoint `/ws` per session.
 - **Frontend**: React 18 + TypeScript + Vite + zustand. three.js point-cloud
-  orb. Built into `local_tts/web/static/dist/`; the server serves the dist
+  orb. Built into `vox_tinker/web/static/dist/`; the server serves the dist
   build when present, falls back to the legacy `static/index.html` bundle when
   the user hasn't run `npm run build` yet (rare; only useful for first-time
   setup before they install Node).
@@ -53,7 +53,7 @@ knobs; ARCHITECTURE.md holds the "how it fits together / why."
 ## Project Structure
 
 ```
-local-tts/
+vox-tinker/
 ├── pyproject.toml             # v0.5.0; parakeet-mlx + mlx-audio + onnxruntime + transformers<5
 ├── config.yaml                # user-editable; stt:/turn:/tts: blocks, Nemotron default
 ├── README.md                  # user-facing; mirror for changelog
@@ -64,8 +64,8 @@ local-tts/
 │   └── make_clone_voice.sh    # ffmpeg re-encode ANY audio → mono/24k/16-bit PCM
 │                              # wav; default out-dir = ./voice; prints config snippet
 │
-└── local_tts/
-    ├── __main__.py            # `local-tts` entry: argparse, optional --auto-cert/--cert/--key,
+└── vox_tinker/
+    ├── __main__.py            # `vox-tinker` entry: argparse, optional --auto-cert/--cert/--key,
     │                          # uvicorn boot, banner with TLS fingerprint
     ├── config.py              # Pydantic config; STTConfig/TTSConfig/TurnConfig; load() drops
     │                          # unknown top-level keys, migrates legacy whisper:/ollama.system_prompt,
@@ -290,7 +290,7 @@ and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
 - **Reference clips live in the project `voice/` folder.** `wav:` is resolved in
   `Config.load()`: a **relative** path (e.g. `voice/intro.wav`) is anchored to
   the **config file's directory** (not the launch CWD); absolute and `~/…` paths
-  are left as written. So clones are portable regardless of where `local-tts`
+  are left as written. So clones are portable regardless of where `vox-tinker`
   is started. `*.wav` is gitignored — clips stay local.
 - **`scripts/make_clone_voice.sh`** prepares clips: re-encodes ANY audio/video
   (m4a/mp3/mp4/…) to the mono/24 kHz/16-bit PCM wav the Base model can load
@@ -402,22 +402,22 @@ those mirror `config.yaml` on each fresh connection.
   `phase === "speaking"`.
 - **Single theme: Ghost** — `--accent: #f0f0f0`, matte white/grey. Theme
   picker reserved (commented out in HTML); store keeps `theme: "ghost"`.
-- Prefs key: `localStorage["local-tts.prefs.v10"]`. `loadPrefs()` chains legacy
+- Prefs key: `localStorage["vox-tinker.prefs.v10"]`. `loadPrefs()` chains legacy
   migrations (v9/v8); v10 adds `sttEngine`. Bump the key on any schema change.
 
 ## CLI
 
 ```
-local-tts                                  # http://127.0.0.1:8000
-local-tts --host 0.0.0.0 --port 8000       # LAN reachable (HTTP)
-local-tts --host 0.0.0.0 --auto-cert       # LAN + auto self-signed cert; banner
+vox-tinker                                  # http://127.0.0.1:8000
+vox-tinker --host 0.0.0.0 --port 8000       # LAN reachable (HTTP)
+vox-tinker --host 0.0.0.0 --auto-cert       # LAN + auto self-signed cert; banner
                                            # prints SHA-256 fingerprint + /cert.pem URL
-local-tts --host 0.0.0.0 --cert c.pem --key k.pem   # bring your own cert
-local-tts --model nemotron3:33b            # override ollama.model for this run
-local-tts --config /path/to/config.yaml    # custom config
+vox-tinker --host 0.0.0.0 --cert c.pem --key k.pem   # bring your own cert
+vox-tinker --model nemotron3:33b            # override ollama.model for this run
+vox-tinker --config /path/to/config.yaml    # custom config
 ```
 
-Auto-cert: stored at `~/.local-tts/certs/{cert,key}.pem`, regenerated when
+Auto-cert: stored at `~/.vox-tinker/certs/{cert,key}.pem`, regenerated when
 the detected LAN IP changes (tracked in `cert.meta.json`). Cert SAN includes
 the LAN IP, `127.0.0.1`, and `localhost`. 825-day validity matches Safari's
 trust ceiling.
@@ -469,8 +469,8 @@ python3.11 -m venv .venv && source .venv/bin/activate
 pip install torch==2.4.0 torchaudio==2.4.0   # pinned; transformers<5 needs this torch
 pip install -e .
 pip install -e ".[wakeword]"             # optional; only if you re-enable the wake-word UI
-cd local_tts/web/frontend && npm install && npm run build && cd ../../..
-local-tts                                # boots; opens http://127.0.0.1:8000
+cd vox_tinker/web/frontend && npm install && npm run build && cd ../../..
+vox-tinker                                # boots; opens http://127.0.0.1:8000
 ```
 
 **Dependency note:** `transformers` is pinned `<5`. mlx-audio declares
@@ -528,5 +528,5 @@ First launch (weights download silently on first use):
 ## Version
 
 Current: **v0.5.0** (Open-model voice pipeline: dual ASR + Smart-Turn + Nemotron
-+ Qwen3-TTS). Set in `pyproject.toml` and `local_tts/__init__.py`. Bump both when
++ Qwen3-TTS). Set in `pyproject.toml` and `vox_tinker/__init__.py`. Bump both when
 releasing. See [README.md#changelog](README.md#changelog) for release notes.
