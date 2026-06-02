@@ -83,7 +83,7 @@ class _DDGResultParser(HTMLParser):
                 self._in_title = False
             if self._in_snippet:
                 self._in_snippet = False
-                self._flush_pending_title(force_emit_if_no_snippet=False)
+                self._flush_pending_title()
 
     def handle_data(self, data: str):
         if self._in_title:
@@ -91,7 +91,7 @@ class _DDGResultParser(HTMLParser):
         elif self._in_snippet:
             self._cur_snippet_parts.append(data)
 
-    def _flush_pending_title(self, force_emit_if_no_snippet: bool = True):
+    def _flush_pending_title(self):
         if not self._cur_url and not self._cur_title_parts:
             return
         title = " ".join(self._cur_title_parts).strip()

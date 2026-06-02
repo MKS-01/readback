@@ -155,7 +155,7 @@ def main():
             print(f"    {fp}")
         if network_url:
             print()
-            print(f"  ▸ To trust on other devices, open on that device:")
+            print("  ▸ To trust on other devices, open on that device:")
             print(f"    {network_url}/cert.pem")
             print("    iOS:     Settings → General → VPN & Device Management → install → Certificate Trust Settings → enable")
             print("    Android: open link → install as CA certificate (Settings › Security › Install from storage)")

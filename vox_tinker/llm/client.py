@@ -248,7 +248,7 @@ class LLMClient:
         cur_history = list(history)
         tool_schemas = self.tools.schemas_for_active()
 
-        for hop in range(_MAX_TOOL_HOPS):
+        for _ in range(_MAX_TOOL_HOPS):
             if stop_event is not None and stop_event.is_set():
                 return
             if not tool_schemas:

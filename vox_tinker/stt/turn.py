@@ -90,6 +90,3 @@ class TurnDetector:
         with self._lock:
             outputs = self._session.run(None, {"input_features": feat})
         return float(np.asarray(outputs[0]).reshape(-1)[0])
-
-    def is_complete(self, audio: np.ndarray, sample_rate: int = 16000) -> bool:
-        return self.probability(audio, sample_rate) >= self.cfg.threshold
