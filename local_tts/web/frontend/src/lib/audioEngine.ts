@@ -24,6 +24,18 @@ export class AudioEngine {
   private scheduledNodes: AudioBufferSourceNode[] = [];
   private analyser: AnalyserNode | null = null;
   private outSampleRate = 24000;
+  // Jitter buffer. TTS is synthesized one sentence at a time and the next
+  // sentence often isn't ready the instant the current finishes (slow engines
+  // like the cloned Base model, or LLM stalls between sentences). Starting
+  // playback from a drained queue at `currentTime` leaves zero cushion, so any
+  // stall underruns into an audible gap. When (re)filling a drained queue we
+  // schedule the first buffer this far in the future to absorb that jitter —
+  // small enough to stay snappy, large enough to smooth typical boundaries.
+  private readonly LEAD_SEC = 0.28;
+  // Fired when the last queued TTS buffer finishes playing (queue drains
+  // naturally, not via stopAllPlayback). The server keeps the mic closed until
+  // this round-trips so the speaker tail can't bleed back in as a new utterance.
+  private onDrained: (() => void) | null = null;
 
   private cbs: AudioEngineCallbacks;
 
@@ -167,13 +179,28 @@ export class AudioEngine {
     }
     src.connect(this.analyser);
 
-    const startAt = Math.max(ctx.currentTime, this.playbackTime);
+    const now = ctx.currentTime;
+    // If the queue has drained (or never started), rebuild a small lead before
+    // the first buffer so a stalled next sentence doesn't underrun into a gap.
+    // Otherwise chain seamlessly onto the already-scheduled tail.
+    if (this.playbackTime <= now) {
+      this.playbackTime = now + this.LEAD_SEC;
+    }
+    const startAt = this.playbackTime;
     src.start(startAt);
     this.playbackTime = startAt + buf.duration;
     this.scheduledNodes.push(src);
     src.onended = () => {
       this.scheduledNodes = this.scheduledNodes.filter((n) => n !== src);
+      // Queue drained naturally → tell the server playback is done so it can
+      // reopen the mic (after its cooldown). stopAllPlayback() clears the list
+      // first, so an interrupt won't spuriously fire this.
+      if (this.scheduledNodes.length === 0) this.onDrained?.();
     };
+  }
+
+  setOnDrained(cb: (() => void) | null): void {
+    this.onDrained = cb;
   }
 
   getAnalyser(): AnalyserNode | null {

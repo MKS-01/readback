@@ -31,7 +31,7 @@ Most "local AI voice" projects are either a CLI loop with no real UI, a thin wra
 | **Cross-device** | Phone + tablet over LAN via HTTPS | Localhost only |
 | **Echo cancellation** | Browser WebRTC AEC — no headphones needed | PTT key or headphones required |
 
-The pipeline is a 3-thread streaming design: Whisper transcribes while Ollama generates, and Kokoro synthesizes each sentence as it arrives — so the assistant **starts speaking before the full reply is generated**.
+The pipeline is a streaming cascade: Parakeet transcribes **live as you speak**, Smart-Turn decides when you're actually done, Ollama generates, and Qwen3-TTS synthesizes each sentence as it arrives — so the assistant **starts speaking before the full reply is generated**.
 
 ---
 
@@ -39,9 +39,10 @@ The pipeline is a 3-thread streaming design: Whisper transcribes while Ollama ge
 
 | Layer | Technology |
 |---|---|
-| **LLM** | [Ollama](https://ollama.ai/) — any local chat model (`qwen3`, `llama3.2`, `gemma3`, …) with **function-calling / tools** |
-| **TTS** | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) — 20 voices, ~300 ms synthesis on CPU |
-| **STT** | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 6 sizes (`tiny` → `large-v3`), hot-swappable |
+| **LLM** | [Ollama](https://ollama.ai/) — default NVIDIA **`nemotron-3-nano:4b`** (`think=False`); any local chat model selectable, with **function-calling / tools** |
+| **STT** | **Dual engine, switchable:** NVIDIA [Parakeet](https://github.com/senstella/parakeet-mlx) (MLX, default, **streaming**) + [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (batch, 6 sizes) |
+| **Turn-taking** | [Smart-Turn v3](https://github.com/pipecat-ai/smart-turn) — semantic end-of-turn (ONNX/CPU ~12 ms) over webrtcvad; VAD-only fallback |
+| **TTS** | [Qwen3-TTS-0.6B](https://github.com/QwenLM/Qwen3-TTS) via [mlx-audio](https://github.com/Blaizzy/mlx-audio) — Metal, 24 kHz, 9 speakers |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams audio sentence-by-sentence |
 | **Frontend** | React + TypeScript + Vite + zustand — three.js neural orb, AudioWorklet capture |
 | **Wake-word** | [openWakeWord](https://github.com/dscripka/openWakeWord) (optional, opt-in extra) |
@@ -57,7 +58,7 @@ Requires macOS on Apple Silicon, Python 3.10+, and [Ollama](https://ollama.ai/).
 ```bash
 # 1. Start Ollama and pull a chat model
 ollama serve &                          # or launch the Ollama desktop app
-ollama pull qwen3:4b                    # default; any chat model works
+ollama pull nemotron-3-nano:4b          # default; any chat model works
 
 # 2. Clone & install
 git clone git@github.com:MKS-01/local-tts.git
@@ -73,7 +74,7 @@ cd local_tts/web/frontend && npm install && npm run build && cd ../../..
 local-tts                               # http://127.0.0.1:8000
 ```
 
-Speech models download automatically on first run (~1.8 GB: Whisper medium + Kokoro-82M). No HuggingFace login needed.
+Speech models download automatically on first run (Parakeet ~2.5 GB, Qwen3-TTS-0.6B, Smart-Turn ~8 MB). No HuggingFace login needed.
 
 ---
 
@@ -102,22 +103,16 @@ The UI is a single browser page — no Electron, no desktop app. Open `http://12
 The settings panel lets you change every runtime parameter **without restarting the server**:
 
 - **Microphone** — switch between any input device the browser sees; new device activates instantly.
-- **Speech Recognition (STT model)** — swap between six Whisper checkpoints while idle:
-  - `tiny` (~75 MB) — fastest, ~150 ms, light accuracy
-  - `base` (~150 MB) — good for clear speech
-  - `small` (~480 MB) — solid balance
-  - `medium` (~1.5 GB, **default**) — 500–800 ms, recommended
-  - `large-v3-turbo` (~1.6 GB) — best for accented speech
-  - `large-v3` (~3 GB) — maximum accuracy, slower
-  - The dropdown disables while the new model loads; re-enables on server confirmation.
-- **LLM Model** — switch between any model currently pulled in Ollama. Change takes effect on the next message.
-- **Voice (TTS)** — 20 Kokoro voices, switchable while idle. Best picks:
-  - `af_bella` ★ — warm American female (default)
-  - `af_heart` ★ — expressive American female
-  - `bf_emma` ★ — natural British female
-  - `am_michael` — clear American male
-  - Full list: `af_*` (American female), `am_*` (American male), `bf_*` / `bm_*` (British)
-- **Persona** — swap the system prompt at runtime. Ships with `default` (conversational, 3–4 sentences), `concise` (one sentence), `researcher` (cites specifics, asks one clarifying question), and a `custom` slot with a textarea you can edit and save.
+- **ASR Engine** — switch between **Parakeet** (NVIDIA, MLX, default — streams live captions as you speak) and **Whisper** (faster-whisper, batch). The model picker below filters to the active engine's models.
+  - Parakeet: `parakeet-tdt-0.6b-v2` ★ (English), `-v3` (25 langs), `-1.1b` (most accurate), `-rnnt-0.6b`, `-ctc-0.6b`.
+  - Whisper: `tiny` / `base` / `small` / `medium` / `large-v3-turbo` / `large-v3`.
+  - The picker disables while the new model loads; re-enables on server confirmation.
+- **LLM Model** — switch between any model currently pulled in Ollama (default `nemotron-3-nano:4b`). Change takes effect on the next message.
+- **Voice (TTS)** — 9 Qwen3-TTS speakers, switchable instantly while idle:
+  - `ryan` ★ (male, default), `eric`, `aiden`, `dylan`, `uncle_fu`
+  - `serena` ★ (female), `vivian`, `ono_anna`, `sohee`
+  - Plus any **cloned voices** you add under `tts.qwen.clones` (shown as `clone:<name>`) — clone any voice from a short reference clip; see `scripts/make_clone_voice.sh`.
+- **Persona** — swap the system prompt at runtime. Ships with `default` (sharp, tech-savvy and easygoing, 3–4 sentences), `concise` (one sentence), `researcher` (answer-first, cites specifics, separates fact from inference), `chef` (veg-leaning Indian home cooking), `professor` (Miss Phd — witty AI/ML lecturer), and a `custom` slot with a textarea you can edit and save.
 - **Internet research (Tools)** — master toggle plus per-tool checkboxes. When on, the LLM can call `clock` and `web_search` (DuckDuckGo, no API key) and fold results into its response.
 - **Speech Speed** — Slow / Medium / Fast, applied to every TTS synthesis call.
 - **Orb size** — 120–380 px slider.
@@ -171,7 +166,7 @@ Ships **on** by default in the bundled `config.yaml`. Per-tool checkboxes in Set
 
 ### Persona switching
 
-The system prompt is one of several runtime-swappable presets (`default`, `concise`, `researcher`, `custom`). The `swap_persona` flow mirrors the `Transcriber.swap_model` pattern — `threading.Lock`, atomic ref swap, in-flight responses finish on the old prompt. Custom prompt edits round-trip from the browser back to the server and persist across reconnects.
+The system prompt is one of several runtime-swappable presets (`default`, `concise`, `researcher`, `chef`, `professor`, `custom`). The `swap_persona` flow mirrors the `Transcriber.swap_model` pattern — `threading.Lock`, atomic ref swap, in-flight responses finish on the old prompt. Custom prompt edits round-trip from the browser back to the server and persist across reconnects.
 
 ---
 
@@ -209,13 +204,16 @@ Edit `config.yaml` for non-UI knobs:
 
 | Key | What | Default |
 |---|---|---|
-| `ollama.model` | Any local Ollama chat model | `qwen3:4b` |
-| `kokoro.voice` | TTS voice (full list in [CLAUDE.md](CLAUDE.md)) | `af_bella` |
-| `whisper.model` | STT checkpoint | `medium` |
-| `whisper.beam_size` | 5 = balanced, 10 = max accuracy (+200–400 ms) | `5` |
+| `ollama.model` | Any local Ollama chat model | `nemotron-3-nano:4b` |
+| `tts.qwen.speaker` | Qwen3-TTS speaker (9 presets, see [CLAUDE.md](CLAUDE.md)) | `ryan` |
+| `stt.engine` | ASR engine: `parakeet` or `whisper` | `parakeet` |
+| `stt.parakeet.model` | Parakeet checkpoint | `…parakeet-tdt-0.6b-v2` |
+| `stt.whisper.model` | Whisper checkpoint (when engine=whisper) | `medium` |
+| `turn.enabled` | Smart-Turn v3 end-of-turn (VAD-only fallback if off) | `true` |
+| `turn.threshold` | P(turn complete) ≥ this ends the turn | `0.5` |
 | `vad.aggressiveness` | WebRTC VAD aggressiveness 0–3 | `2` |
 | `persona.active` | Active persona name | `default` |
-| `persona.personas` | List of `{name, system_prompt}` overrides | (3 seeded) |
+| `persona.personas` | List of `{name, system_prompt}` overrides | (5 seeded) |
 | `tools.enabled` | Master switch for function-calling tools | `false` |
 | `tools.allowed` | Allowlist of tool names | `[clock, web_search]` |
 | `tools.web_search_provider` | Search backend (`duckduckgo` only today) | `duckduckgo` |
@@ -225,7 +223,7 @@ Edit `config.yaml` for non-UI knobs:
 | `memory.session_dir` | Crash-recovery JSONL location | `~/.local-tts/sessions` |
 | `memory.keep_days` | Rotate JSONLs older than N days | `30` |
 
-> **Picking a model for speed.** On Apple Silicon CPU, `medium` lands at 500–800 ms for a 5-second utterance. Drop to `small` for sub-300 ms. `large-v3-turbo` is only marginally faster than `large-v3` on CPU — the "6× faster" claim is GPU-bound.
+> **Picking an ASR engine.** Parakeet (MLX/Metal) streams live captions and finalizes near-instantly — the default. Whisper is batch-only (transcript appears at turn end) but its multilingual checkpoints handle heavy accents well; switch to it in Settings when you need that.
 
 ---
 
@@ -233,28 +231,36 @@ Edit `config.yaml` for non-UI knobs:
 
 ```
 browser mic → WebSocket (Int16 PCM 16kHz)
-  → VAD utterance segmentation
-  → Whisper STT
-  → Ollama streaming LLM ⇄ (tools: web_search, clock — when enabled)
+  → webrtcvad utterance segmentation
+  → Parakeet STT (streaming → live partial captions)   [or Whisper, batch]
+  → Smart-Turn v3 confirms end-of-turn (else keep listening)
+  → Ollama streaming LLM (Nemotron, think=False) ⇄ (tools — when enabled)
   → sentence splitter
-  → Kokoro TTS (per sentence)
+  → Qwen3-TTS (per sentence)
   → WebSocket (Float32 PCM 24kHz)
   → browser speaker (gapless AudioBufferSourceNode queue)
   → (on disconnect) topic classifier → Obsidian markdown export
 ```
 
-The pipeline is **streaming end-to-end**: Kokoro synthesizes each sentence the moment it arrives from Ollama, so playback starts ~2.5 s after you stop speaking — well before the full reply is generated. Tool round-trips do one non-streaming probe (max 3 hops) before the final response streams, so "what time is it?" comes back as natural speech, not a JSON blob.
+The pipeline is **streaming end-to-end**: words appear live while you speak, Smart-Turn avoids cutting you off at mid-thought pauses, and Qwen3-TTS synthesizes each sentence the moment it arrives from Ollama — so playback starts well before the full reply is generated. Tool round-trips do one non-streaming probe (max 3 hops) before the final response streams, so "what time is it?" comes back as natural speech, not a JSON blob.
 
-See [CLAUDE.md](CLAUDE.md) for deeper notes on interrupt handling, hot-swap locking, VAD tuning, and Whisper hallucination mitigations.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-level view (cascade, threading model, turn lifecycle, extension points) and [CLAUDE.md](CLAUDE.md) for deeper implementation notes on the MLX single-thread executors, interrupt handling, hot-swap locking, Smart-Turn fallback, and Whisper hallucination mitigations.
 
 ---
 
 ## Changelog
 
+### v0.5.0 — Open-model voice pipeline (NVIDIA/Qwen, Apple Silicon)
+- **Dual ASR engine, switchable at runtime.** **Parakeet** (NVIDIA, via `parakeet-mlx` on Metal) is the default with **live streaming captions**; **Whisper** (faster-whisper, batch) stays as a one-click alternative. Two-level picker in Settings (engine + per-engine model). Measured on M5: Parakeet batch RTF ~0.24 vs Whisper medium ~0.61.
+- **Smart-Turn v3 turn detection.** Semantic end-of-turn (pipecat `smart-turn-v3.2`, ONNX/CPU, ~7–12 ms) layered on webrtcvad so mid-thought pauses don't cut you off. Graceful fallback to VAD-only if the model can't load.
+- **Nemotron LLM by default.** `nemotron-3-nano:4b` with reasoning disabled (`think=False`) and a streaming `<think>…</think>` stripper so traces are never spoken. Any pulled Ollama model (e.g. `nemotron3:33b`, `qwen3`) stays selectable.
+- **Qwen3-TTS replaces Kokoro.** Qwen3-TTS-0.6B via `mlx-audio` (Metal, 24 kHz, 9 preset speakers). Warm RTF ~0.21, streaming first-chunk ~126 ms on M5.
+- **Live partial captions** while you speak (Parakeet), plus a "still listening" hint during Smart-Turn pauses.
+
 ### v0.4.0 — Second brain
 - **Obsidian export.** Every call writes a markdown transcript into your vault, topic-organized via an LLM call at session end. Crash-recovery JSONL files at `~/.local-tts/sessions/`. Enabled in the bundled config.
 - **Tools / function-calling.** `clock` and `web_search` (DuckDuckGo, no API key) ship out of the box; provider interface ready for Tavily / Brave swap-ins. Per-tool checkboxes in Settings.
-- **Persona switching.** Three seed personas (`default`, `concise`, `researcher`) plus a `custom` slot with a textarea. Runtime swap mirrors `Transcriber.swap_model` — in-flight responses finish on the old prompt.
+- **Persona switching.** Five seed personas (`default`, `concise`, `researcher`, `chef`, `professor`) plus a `custom` slot with a textarea. Runtime swap mirrors `Transcriber.swap_model` — in-flight responses finish on the old prompt.
 - **React + Vite + TypeScript frontend.** Replaces the 1,295-line vanilla-JS bundle. Three.js orb and AudioWorklet stay imperative inside hooks; settings/captions/dock are now components. Five header chips surface every runtime-switchable state at a glance.
 
 ### Deferred

@@ -1,6 +1,6 @@
-// User preferences persisted to localStorage. Bumped to v9 from v8 to add
-// `persona`, `inputMode`, `toolsEnabled`. The migration copies forward every
-// known v8 key before the first setter writes.
+// User preferences persisted to localStorage. Bumped to v10 from v9 to add
+// `sttEngine` (Parakeet/Whisper). The migration copies forward every known
+// older key before the first setter writes.
 
 export interface Prefs {
   orbSize: number;
@@ -8,6 +8,7 @@ export interface Prefs {
   showCaptions: boolean;
   theme: string;
   micId: string | null;
+  sttEngine: string | null;
   sttModel: string | null;
   voice: string | null;
   speed: number;
@@ -18,8 +19,8 @@ export interface Prefs {
   toolsEnabled: boolean;
 }
 
-export const PREFS_KEY = "local-tts.prefs.v9";
-const LEGACY_KEY = "local-tts.prefs.v8";
+export const PREFS_KEY = "local-tts.prefs.v10";
+const LEGACY_KEYS = ["local-tts.prefs.v9", "local-tts.prefs.v8"];
 
 export const defaultPrefs: Prefs = {
   orbSize: 240,
@@ -27,6 +28,7 @@ export const defaultPrefs: Prefs = {
   showCaptions: true,
   theme: "ghost",
   micId: null,
+  sttEngine: null,
   sttModel: null,
   voice: null,
   speed: 1.0,
@@ -38,14 +40,16 @@ export const defaultPrefs: Prefs = {
 
 export function loadPrefs(): Prefs {
   try {
-    // One-shot migration: read v8 prefs into v9 shape.
-    const v9raw = localStorage.getItem(PREFS_KEY);
-    if (v9raw) return { ...defaultPrefs, ...JSON.parse(v9raw) };
-    const legacy = localStorage.getItem(LEGACY_KEY);
-    if (legacy) {
-      const migrated = { ...defaultPrefs, ...JSON.parse(legacy) };
-      localStorage.setItem(PREFS_KEY, JSON.stringify(migrated));
-      return migrated;
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) return { ...defaultPrefs, ...JSON.parse(raw) };
+    // One-shot migration: read the newest available legacy key forward.
+    for (const key of LEGACY_KEYS) {
+      const legacy = localStorage.getItem(key);
+      if (legacy) {
+        const migrated = { ...defaultPrefs, ...JSON.parse(legacy) };
+        localStorage.setItem(PREFS_KEY, JSON.stringify(migrated));
+        return migrated;
+      }
     }
     return { ...defaultPrefs };
   } catch {

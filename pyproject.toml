@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local-tts"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local voice conversation using Kokoro TTS + Ollama on Apple Silicon"
 requires-python = ">=3.10"
 authors = [{ name = "mks" }]
@@ -14,15 +14,21 @@ readme = "README.md"
 dependencies = [
     "torch>=2.4.0",
     "torchaudio>=2.4.0",
-    "faster-whisper>=1.0.3",
-    "ollama>=0.4.0",
+    "faster-whisper>=1.0.3",         # Whisper ASR engine (batch, CPU int8)
+    "parakeet-mlx>=0.3.0",           # Parakeet ASR engine (MLX/Metal, streaming)
+    "mlx-audio>=0.4.3",              # Qwen3-TTS engine (MLX/Metal, 24kHz)
+    "onnxruntime>=1.16.0",           # Smart-Turn v3 end-of-turn detection (CPU)
+    # transformers <5 is required: 5.x's import chain needs torch>=2.5
+    # (torch.distributed.tensor.device_mesh), but we pin torch 2.4. 4.x serves
+    # WhisperFeatureExtractor (Smart-Turn) and Qwen3-TTS fine. mlx-audio declares
+    # >=5.5 but runs on 4.x here, so we override the pin.
+    "transformers>=4.40.0,<5",
+    "ollama>=0.6.0",                 # >=0.6 for chat(think=...)
     "numpy>=1.24.0,<3.0.0",
     "webrtcvad-wheels>=2.0.14",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "huggingface-hub>=0.28.0",
-    "kokoro>=0.9.4",
-    "misaki[en]>=0.9.4",
     "soundfile>=0.12.1",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
@@ -31,11 +37,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# openwakeword + onnxruntime are big and not everyone enables the wake-word
-# listening mode. Install with `pip install -e .[wakeword]` to opt in.
+# openwakeword for the (hidden) wake-word listening mode. onnxruntime is already
+# a core dep (Smart-Turn), so it's not repeated here.
 wakeword = [
     "openwakeword>=0.6.0",
-    "onnxruntime>=1.16.0",
 ]
 
 [project.scripts]

@@ -7,21 +7,36 @@ import { useAppStore } from "../state/store";
 import { Picker, PickerOption } from "./Picker";
 import { CloseIcon } from "./icons";
 
-// Display labels for the STT picker. Keys must stay in sync with
-// SUPPORTED_MODELS in local_tts/stt/transcriber.py.
+// Display labels for the STT model picker. Keys cover both engines'
+// SUPPORTED_MODELS (whisper_engine.py + parakeet_engine.py). Unknown ids fall
+// back to the raw id.
 const STT_MODEL_LABELS: Record<string, string> = {
+  // Whisper (batch)
   tiny: "Tiny — fastest (<300ms), low accuracy",
   base: "Base — fast (~300ms)",
   small: "Small — fast + decent (~300-500ms)",
   medium: "Medium — balanced (~500-800ms)",
   "large-v3-turbo": "Large v3 Turbo — accurate (~700-1100ms)",
   "large-v3": "Large v3 — max accuracy (~1500-2500ms)",
+  // Parakeet (MLX, streaming)
+  "mlx-community/parakeet-tdt-0.6b-v2": "Parakeet TDT 0.6B v2 ★ (English)",
+  "mlx-community/parakeet-tdt-0.6b-v3": "Parakeet TDT 0.6B v3 (25 langs)",
+  "mlx-community/parakeet-tdt-1.1b": "Parakeet TDT 1.1B (most accurate)",
+  "mlx-community/parakeet-rnnt-0.6b": "Parakeet RNNT 0.6B",
+  "mlx-community/parakeet-ctc-0.6b": "Parakeet CTC 0.6B (fastest)",
+};
+
+// ASR engine selector labels.
+const STT_ENGINE_LABELS: Record<string, string> = {
+  parakeet: "Parakeet ★",
+  whisper: "Whisper",
 };
 
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
   onSwapStt: (model: string) => void;
+  onSwapSttEngine: (engine: string) => void;
   onSwapVoice: (voice: string) => void;
   onSwapModel: (model: string) => void;
   onSpeedChange: (speed: number) => void;
@@ -36,6 +51,7 @@ export function SettingsModal({
   open,
   onClose,
   onSwapStt,
+  onSwapSttEngine,
   onSwapVoice,
   onSwapModel,
   onSpeedChange,
@@ -45,6 +61,8 @@ export function SettingsModal({
   onSwapPersona,
   onSubmitCustomPersona,
 }: SettingsModalProps) {
+  const sttEngine = useAppStore((s) => s.sttEngine);
+  const sttEnginesAvailable = useAppStore((s) => s.sttEnginesAvailable);
   const sttModel = useAppStore((s) => s.sttModel);
   const sttModelsAvailable = useAppStore((s) => s.sttModelsAvailable);
   const sttStatus = useAppStore((s) => s.sttStatus);
@@ -129,6 +147,8 @@ export function SettingsModal({
   const voiceOptions: PickerOption[] = voicesAvailable.map((v) => ({
     value: v.id,
     label: v.label,
+    // Clone ids are namespaced "clone:<name>" — group them under a heading.
+    group: v.id.startsWith("clone:") ? "Cloned voices" : undefined,
   }));
   const modelOptions: PickerOption[] = modelsAvailable.map((name) => ({
     value: name,
@@ -184,8 +204,36 @@ export function SettingsModal({
             </select>
           </div>
 
+          {sttEnginesAvailable.length > 1 ? (
+            <div className="settings-row settings-span">
+              <label>
+                ASR Engine
+                <span className="settings-hint">
+                  Parakeet streams live captions; Whisper is batch
+                </span>
+              </label>
+              <div
+                className="speed-picker"
+                role="group"
+                aria-label="ASR engine"
+              >
+                {sttEnginesAvailable.map((eng) => (
+                  <button
+                    key={eng}
+                    className={`speed-btn ${sttEngine === eng ? "active" : ""}`}
+                    type="button"
+                    disabled={sttSwapping}
+                    onClick={() => onSwapSttEngine(eng)}
+                  >
+                    {STT_ENGINE_LABELS[eng] || eng}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <Picker
-            label="Speech Recognition"
+            label="Speech Recognition Model"
             options={sttOptions}
             value={sttModel}
             disabled={sttSwapping}
