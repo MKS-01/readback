@@ -24,6 +24,10 @@ export class AudioEngine {
   private scheduledNodes: AudioBufferSourceNode[] = [];
   private analyser: AnalyserNode | null = null;
   private outSampleRate = 24000;
+  // Fired when the last queued TTS buffer finishes playing (queue drains
+  // naturally, not via stopAllPlayback). The server keeps the mic closed until
+  // this round-trips so the speaker tail can't bleed back in as a new utterance.
+  private onDrained: (() => void) | null = null;
 
   private cbs: AudioEngineCallbacks;
 
@@ -173,7 +177,15 @@ export class AudioEngine {
     this.scheduledNodes.push(src);
     src.onended = () => {
       this.scheduledNodes = this.scheduledNodes.filter((n) => n !== src);
+      // Queue drained naturally → tell the server playback is done so it can
+      // reopen the mic (after its cooldown). stopAllPlayback() clears the list
+      // first, so an interrupt won't spuriously fire this.
+      if (this.scheduledNodes.length === 0) this.onDrained?.();
     };
+  }
+
+  setOnDrained(cb: (() => void) | null): void {
+    this.onDrained = cb;
   }
 
   getAnalyser(): AnalyserNode | null {

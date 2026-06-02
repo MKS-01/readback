@@ -11,6 +11,10 @@ import { SwapState } from "../state/store";
 export interface PickerOption {
   value: string;
   label: string;
+  // Optional <optgroup> heading. Options sharing a group are rendered together
+  // under it; ungrouped options render before any groups (used to set off
+  // cloned voices from presets in the voice picker).
+  group?: string;
 }
 
 interface PickerProps {
@@ -31,6 +35,11 @@ export function Picker({
   disabled,
 }: PickerProps) {
   const id = useId();
+  const ungrouped = options.filter((o) => !o.group);
+  const groups = options.reduce<Record<string, PickerOption[]>>((acc, o) => {
+    if (o.group) (acc[o.group] ||= []).push(o);
+    return acc;
+  }, {});
   return (
     <div className="settings-row">
       <label htmlFor={id}>
@@ -47,10 +56,19 @@ export function Picker({
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
       >
-        {options.map((o) => (
+        {ungrouped.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
           </option>
+        ))}
+        {Object.entries(groups).map(([name, opts]) => (
+          <optgroup key={name} label={name}>
+            {opts.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
     </div>

@@ -86,6 +86,15 @@ class Transcriber:
         engine = self._active
         return engine.transcribe(audio, sample_rate)
 
+    def transcribe_clone_ref(self, path: str, language: Optional[str] = None) -> str:
+        """Transcribe a voice-clone reference clip. ALWAYS routes to Whisper
+        (multilingual; Parakeet is English-only) regardless of the active live
+        STT engine, lazy-loading Whisper if needed. Runs on the caller's thread
+        — keep it OFF the MLX/TTS executor thread."""
+        whisper = self._engines["whisper"]
+        whisper.load()
+        return whisper.transcribe_file(path, language=language)
+
     def streaming_engine(self) -> Optional[ASREngine]:
         """Return the active engine if it supports streaming, else None. The
         caller (Session ASR worker) holds this reference for one utterance so a

@@ -43,7 +43,6 @@ from local_tts.stt.turn import TurnDetector, TurnDetectorUnavailable
 from local_tts.tools import ClockTool, ToolRegistry, WebSearchTool
 from local_tts.tools.web_search import build_default_provider
 from local_tts.tts.synthesizer import (
-    SUPPORTED_VOICES,
     SUPPORTED_VOICE_NAMES,
     Synthesizer,
 )
@@ -96,6 +95,13 @@ MIN_UTTERANCE_FRAMES = 12        # ~360ms — drop anything shorter (noise blip)
 # TURN_RECHECK_FRAMES of continued silence to bound CPU (each call ~7-12ms).
 TURN_RECHECK_FRAMES = 10         # ~300ms between Smart-Turn re-checks
 
+# Speaker-bleed guard: the mic stays closed while we're speaking AND for a short
+# cooldown after the client confirms playback finished (room reverb tail). If the
+# client's `playback_done` is lost, a duration-based fallback reopens the mic
+# after roughly the audio length + slack so a dropped message can't wedge it shut.
+SPEAKING_COOLDOWN_SEC = 0.3      # extra hold after client-confirmed playback end
+PLAYBACK_GUARD_SLACK_SEC = 0.75  # network slack added to the fallback timeout
+
 
 class PipelineModels:
     """Lazy-loaded singleton for the heavy ML components."""
@@ -136,6 +142,29 @@ class PipelineModels:
         self.llm = LLMClient(self.cfg.ollama, self.cfg.persona, tools=registry)
         self.synth = Synthesizer(self.cfg.tts)
         self.synth.load()
+        # If the configured default voice is a clone, resolve its reference
+        # transcript now (Whisper, this thread) so the first utterance can synth
+        # without a cold transcription stall.
+        default_voice = self.synth.current_voice
+        if self.synth.is_clone(default_voice) and not self.synth.has_ref_text(default_voice):
+            clone = self.synth.clone_for(default_voice)
+            if clone is not None:
+                try:
+                    wav = str(Path(clone.wav).expanduser())
+                    if Path(wav).exists():
+                        text = self.transcriber.transcribe_clone_ref(wav, clone.ref_lang)
+                        if text:
+                            self.synth.set_ref_text(clone.name, text)
+                            log.info(
+                                "default clone %r ref_text resolved (%d chars)",
+                                clone.name, len(text),
+                            )
+                        else:
+                            log.warning("default clone %r: empty transcript", clone.name)
+                    else:
+                        log.warning("default clone %r wav not found: %s", clone.name, wav)
+                except Exception:
+                    log.exception("failed to resolve default clone ref_text")
         self._loaded = True
         log.info("Models ready.")
 
@@ -183,6 +212,16 @@ class Session:
         # late mic frames don't start a phantom new stream in that window.
         self._awaiting_finalize = False
 
+        # Speaker-bleed guard. True while TTS is (or may still be) audible on the
+        # client; the mic gate stays closed until the client confirms playback
+        # drained (`playback_done`) + a short cooldown, or a duration-based
+        # fallback fires. Without this the mic reopens the instant the last chunk
+        # is *sent*, while the browser is still *playing* seconds of buffered
+        # audio — which bleeds back in and self-triggers a new "utterance".
+        self._speaking = False
+        self._audio_seconds_sent = 0.0
+        self._playback_guard: Optional[asyncio.Task] = None
+
         # Listening mode + wake-word detector. The detector is created lazily
         # only when the user switches to wake_word mode (avoids onnxruntime
         # import for users who never use this feature).
@@ -207,7 +246,8 @@ class Session:
             "session_id": self.session_id,
             "voice": self.models.synth.current_voice,
             "voices_available": [
-                {"id": v, "label": label} for v, label in SUPPORTED_VOICES
+                {"id": v, "label": label}
+                for v, label in self.models.synth.supported_voices
             ],
             "model": self.cfg.ollama.model,
             "models_available": models_available,
@@ -247,6 +287,7 @@ class Session:
                         not self.muted
                         and self.pipeline_task is None
                         and not self._awaiting_finalize
+                        and not self._speaking
                     ):
                         await self._handle_audio(msg["bytes"])
                 elif "text" in msg and msg["text"] is not None:
@@ -257,6 +298,7 @@ class Session:
             pass
         finally:
             self._stop_asr_worker()
+            self._cancel_playback_guard()
             if self.pipeline_task and not self.pipeline_task.done():
                 self.pipeline_task.cancel()
             # Fire-and-forget: run finalize (which makes a topic LLM call and
@@ -281,13 +323,21 @@ class Session:
         kind = payload.get("type")
         if kind == "mute":
             self.muted = True
+            self._stop_speaking()
             self._reset_vad()
             self._abort_asr_stream()
         elif kind == "unmute":
             self.muted = False
         elif kind == "interrupt":
             self.interrupt_event.set()
+            # Client has stopped playback (stopAllPlayback), so nothing is
+            # audible anymore — reopen the mic without the long fallback wait.
+            self._stop_speaking()
             self._abort_asr_stream()
+        elif kind == "playback_done":
+            # Client finished playing the queued TTS. Reopen the mic after a
+            # short cooldown to swallow the room-reverb tail.
+            self._arm_playback_guard(SPEAKING_COOLDOWN_SEC)
         elif kind == "text_input":
             user_text = (payload.get("text") or "").strip()
             if not user_text or self.pipeline_task is not None:
@@ -503,11 +553,23 @@ class Session:
         await self.send_json({"type": "input_mode", "value": mode})
 
     async def _handle_voice_swap(self, name: Optional[str]):
-        """Switch the Kokoro voice. Refuses mid-pipeline so an in-flight
-        synth can't have its pipeline rebuilt under it."""
+        """Switch the active TTS voice. Refuses mid-pipeline so an in-flight
+        synth can't have its model swapped under it. Presets switch instantly;
+        a clone ("clone:<name>") triggers a Base-model reload and, on first use,
+        resolves the reference transcript via Whisper before swapping."""
         if not name:
             return
-        if name not in SUPPORTED_VOICE_NAMES:
+        synth = self.models.synth
+        is_clone = synth.is_clone(name)
+        if is_clone:
+            clone = synth.clone_for(name)
+            if clone is None:
+                await self.send_json({
+                    "type": "voice", "state": "error", "voice": name,
+                    "message": f"Unknown cloned voice {name!r}",
+                })
+                return
+        elif name not in SUPPORTED_VOICE_NAMES:
             await self.send_json({
                 "type": "voice",
                 "state": "error",
@@ -523,7 +585,7 @@ class Session:
                 "message": "Wait for the current response to finish, then try again.",
             })
             return
-        if self.models.synth.current_voice == name:
+        if synth.current_voice == name:
             await self.send_json({
                 "type": "voice", "state": "ready", "voice": name,
             })
@@ -532,9 +594,21 @@ class Session:
             "type": "voice", "state": "loading", "voice": name,
         })
         try:
-            loaded = await asyncio.to_thread(
-                self.models.synth.swap_voice, name,
-            )
+            # Resolve the clone's reference transcript first (Whisper, off the
+            # MLX/TTS thread) so the executor never blocks on transcription.
+            if is_clone and not synth.has_ref_text(name):
+                wav = str(Path(clone.wav).expanduser())
+                if not Path(wav).exists():
+                    raise FileNotFoundError(f"reference wav not found: {wav}")
+                text = await asyncio.to_thread(
+                    self.models.transcriber.transcribe_clone_ref,
+                    wav, clone.ref_lang,
+                )
+                if not text:
+                    raise RuntimeError("reference clip produced an empty transcript")
+                synth.set_ref_text(clone.name, text)
+                log.info("clone %r ref_text resolved (%d chars)", clone.name, len(text))
+            loaded = await asyncio.to_thread(synth.swap_voice, name)
             await self.send_json({
                 "type": "voice", "state": "ready", "voice": loaded,
             })
@@ -623,6 +697,45 @@ class Session:
                 # end-of-turn (else keep listening through the pause).
                 if await self._turn_is_complete():
                     await self._end_utterance(streaming)
+
+    # ---- speaker-bleed guard -------------------------------------------------
+
+    def _begin_speaking(self):
+        """Close the mic gate for the duration of a spoken response."""
+        self._speaking = True
+        self._audio_seconds_sent = 0.0
+        self._cancel_playback_guard()
+
+    def _stop_speaking(self):
+        """Reopen the mic immediately (interrupt/mute — nothing is audible)."""
+        self._speaking = False
+        self._cancel_playback_guard()
+
+    def _cancel_playback_guard(self):
+        if self._playback_guard is not None and not self._playback_guard.done():
+            self._playback_guard.cancel()
+        self._playback_guard = None
+
+    def _arm_playback_guard(self, delay: float):
+        """Reopen the mic `delay` seconds from now, replacing any pending guard.
+
+        Used both as the post-playback cooldown (on client `playback_done`) and
+        as the duration-based fallback armed when the last TTS chunk is sent, so
+        a lost `playback_done` can't leave the mic shut forever.
+        """
+        if not self._speaking:
+            return
+        self._cancel_playback_guard()
+
+        async def _guard():
+            try:
+                await asyncio.sleep(delay)
+            except asyncio.CancelledError:
+                return
+            self._speaking = False
+            self._reset_vad()
+
+        self._playback_guard = asyncio.create_task(_guard())
 
     def _reset_vad(self):
         self.utterance_frames = []
@@ -855,6 +968,7 @@ class Session:
             self.history = self.history[-self.cfg.ui.history_turns * 2:]
             self.writer.append_turn("user", user_text, time.time())
 
+            self._begin_speaking()
             await self.send_phase("speaking")
             full_response: list[str] = []
 
@@ -911,6 +1025,17 @@ class Session:
                 # await it here so a slow Ollama close can't stall us.
                 if not producer_task.done():
                     producer_task.add_done_callback(lambda _t: None)
+                # Keep the mic closed until the client confirms playback drained
+                # (`playback_done`). Arm a duration-based fallback in case that
+                # message is lost: ~audio length still queued + cooldown + slack.
+                if self.interrupt_event.is_set():
+                    self._stop_speaking()
+                elif self._speaking:
+                    self._arm_playback_guard(
+                        self._audio_seconds_sent
+                        + SPEAKING_COOLDOWN_SEC
+                        + PLAYBACK_GUARD_SLACK_SEC
+                    )
 
             if full_response and not self.interrupt_event.is_set():
                 final_text = " ".join(full_response)
@@ -974,6 +1099,8 @@ class Session:
 
     async def send_audio(self, audio: np.ndarray):
         # Float32 PCM @ 24kHz, mono. Browser receives as ArrayBuffer.
+        sr = self.models.synth.sample_rate if self.models.synth else 24000
+        self._audio_seconds_sent += audio.size / float(sr)
         buf = audio.astype(np.float32).tobytes()
         async with self.send_lock:
             try:

@@ -7,16 +7,24 @@ re-adding a second engine later is a factory change, not a server rewrite.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 import numpy as np
 
-from local_tts.config import TTSConfig
+from local_tts.config import CloneVoiceConfig, TTSConfig
 from local_tts.tts.qwen_engine import (
+    CLONE_PREFIX,
     SUPPORTED_VOICES,
     SUPPORTED_VOICE_NAMES,
     QwenEngine,
 )
 
-__all__ = ["Synthesizer", "SUPPORTED_VOICES", "SUPPORTED_VOICE_NAMES"]
+__all__ = [
+    "Synthesizer",
+    "SUPPORTED_VOICES",
+    "SUPPORTED_VOICE_NAMES",
+    "CLONE_PREFIX",
+]
 
 
 class Synthesizer:
@@ -36,8 +44,28 @@ class Synthesizer:
     def current_voice(self) -> str:
         return self._engine.current_voice
 
+    @property
+    def supported_voices(self) -> tuple[tuple[str, str], ...]:
+        """Preset speakers + configured clones, as (id, label) pairs."""
+        return self._engine.supported_voices
+
     def swap_voice(self, voice: str) -> str:
         return self._engine.swap_voice(voice)
+
+    # ---- clone helpers (used by the server's voice-swap handler) ----
+
+    @staticmethod
+    def is_clone(voice: str) -> bool:
+        return QwenEngine.is_clone(voice)
+
+    def clone_for(self, voice: str) -> Optional[CloneVoiceConfig]:
+        return self._engine.clone_for(voice)
+
+    def has_ref_text(self, voice: str) -> bool:
+        return self._engine.has_ref_text(voice)
+
+    def set_ref_text(self, name: str, text: str) -> None:
+        self._engine.set_ref_text(name, text)
 
     def synthesize(self, text: str) -> np.ndarray:
         return self._engine.synthesize(text)

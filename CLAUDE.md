@@ -58,12 +58,18 @@ local-tts/
 ├── config.yaml                # user-editable; stt:/turn:/tts: blocks, Nemotron default
 ├── README.md                  # user-facing; mirror for changelog
 ├── ARCHITECTURE.md            # system-level view: cascade, threading model, lifecycle
+├── voice/                     # reference clips for Qwen3-TTS voice cloning
+│                              # (e.g. intro.wav); *.wav is gitignored — local only
+├── scripts/
+│   └── make_clone_voice.sh    # ffmpeg re-encode ANY audio → mono/24k/16-bit PCM
+│                              # wav; default out-dir = ./voice; prints config snippet
 │
 └── local_tts/
     ├── __main__.py            # `local-tts` entry: argparse, optional --auto-cert/--cert/--key,
     │                          # uvicorn boot, banner with TLS fingerprint
     ├── config.py              # Pydantic config; STTConfig/TTSConfig/TurnConfig; load() drops
-    │                          # unknown top-level keys + migrates legacy whisper:/ollama.system_prompt
+    │                          # unknown top-level keys, migrates legacy whisper:/ollama.system_prompt,
+    │                          # resolves relative clone wav paths against the config file's dir
     │
     ├── llm/client.py          # LLMClient: Ollama streaming (think=False), _ThinkStripper,
     │                          # sentence splitter, persona snapshot, tool-call probe loop
@@ -128,10 +134,17 @@ local-tts/
 - LLM streaming runs in a producer **thread** that pushes finished sentences
   onto an `asyncio.Queue` via `loop.call_soon_threadsafe`. The consumer races
   each `queue.get()` against `interrupt_event` so Skip takes effect mid-sentence.
-- Mic frames are dropped entirely while `pipeline_task is not None` (and during
-  `_awaiting_finalize`). This is the only speaker-bleed guard — no separate
-  "muted-during-playback" flag. If a future change accepts audio during
-  speaking, **this gate must be replaced** or the wake-word detector self-fires.
+- Mic frames are dropped while `pipeline_task is not None`, during
+  `_awaiting_finalize`, AND while `_speaking` (the speaker-bleed guard). The
+  bytes-sent ≠ bytes-played gap matters: the server finishes sending TTS long
+  before the browser finishes *playing* the queued buffers, so `_speaking` stays
+  set until the client posts `playback_done` (then a `SPEAKING_COOLDOWN_SEC`
+  reverb cooldown), with a duration-based fallback (`_arm_playback_guard`:
+  audio-seconds-sent + cooldown + slack) so a lost message can't wedge the mic
+  shut. `_begin_speaking()` at phase=speaking; `_stop_speaking()` on
+  interrupt/mute (nothing audible → reopen immediately). If a future change
+  accepts audio during speaking, **this gate must be replaced** or the wake-word
+  detector self-fires.
 - Utterance segmentation: 8 speech frames to start (~240 ms), 25 silence frames
   (~750 ms) → **candidate** end-of-turn confirmed by Smart-Turn (re-checked every
   ~300 ms, forced at `turn.max_wait_sec`), 12-frame minimum (~360 ms).
@@ -238,6 +251,30 @@ and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
 - ⚠ `generate_custom_voice` has no `speed` arg (only `generate()` does) → the UI
   speed slider is currently a no-op for Qwen.
 
+#### Reference-audio voice cloning (`tts.qwen.clones`)
+
+- Beyond the 9 presets, `config.yaml` can list cloned voices under
+  `tts.qwen.clones` (`CloneVoiceConfig`). Each appears in the UI picker as
+  `clone:<name>`. Cloning uses the **Base** checkpoint (`qwen.base_model`), not
+  CustomVoice — selecting a clone reloads Base (~1.2 GB first use); picking a
+  preset reloads CustomVoice. One model is loaded at a time.
+- A clone entry: `name`, `wav` (reference clip), optional `label`, `ref_text`
+  (transcript in the clip's OWN language — auto-filled via Whisper if omitted),
+  `ref_lang`, `instruct` (emotion/style — shapes HOW it speaks; the wav sets
+  WHO), and per-clone `speed`/`temperature`. `QwenEngine._ref_for` returns
+  `(expanded wav path, cached ref_text)`; the server resolves/caches `ref_text`
+  off the MLX thread before synth.
+- **Reference clips live in the project `voice/` folder.** `wav:` is resolved in
+  `Config.load()`: a **relative** path (e.g. `voice/intro.wav`) is anchored to
+  the **config file's directory** (not the launch CWD); absolute and `~/…` paths
+  are left as written. So clones are portable regardless of where `local-tts`
+  is started. `*.wav` is gitignored — clips stay local.
+- **`scripts/make_clone_voice.sh`** prepares clips: re-encodes ANY audio/video
+  (m4a/mp3/mp4/…) to the mono/24 kHz/16-bit PCM wav the Base model can load
+  (a renamed `.m4a` will NOT decode), optional `-s/-d` trim, `--batch` a folder.
+  Default out-dir is the project `./voice`; it prints a ready-to-paste
+  `tts.qwen.clones` snippet.
+
 ### STT — dual engine (stt/)
 
 - `ASREngine` protocol (`stt/base.py`): `supported_models`, `current_model`,
@@ -292,7 +329,8 @@ Client → server:
   `set_model {model}` (Ollama LLM swap), `set_speed {speed}`,
   `set_persona {name}`, `set_persona_custom_prompt {prompt}`,
   `set_input_mode {mode: "vad"|"wake_word"}`, `set_tools_enabled {value: bool}`,
-  `set_tool_allowed {tool, value: bool}`.
+  `set_tool_allowed {tool, value: bool}`, `playback_done` (client finished
+  playing the queued TTS → server reopens the mic after a reverb cooldown).
 
 Server → client:
 - Binary: raw Float32 PCM @ 24 kHz mono (TTS output).
@@ -371,6 +409,10 @@ trust ceiling.
 `swap_voice()` just sets `cfg.tts.qwen.speaker` (per-call arg — instant). The
 optional `qwen.instruct` field is a voice-design hint (e.g. "warm, fast").
 
+Plus any **cloned voices** from `tts.qwen.clones` (id `clone:<name>`) — reference
+clips in the project `voice/` folder, prepped via `scripts/make_clone_voice.sh`.
+See the cloning subsection under "TTS — Qwen3-TTS" for the full picture.
+
 ## Latency budget (M5 — measured in P1/P4b)
 
 | Stage | Value |
@@ -389,9 +431,13 @@ Tool-call probes add one full Ollama non-streaming round-trip per hop
 ## Echo / feedback handling
 
 The web browser's `getUserMedia({ echoCancellation: true })` handles AEC, so
-there's no PTT key, no RMS gate, no headphones requirement. Whisper's
-hallucination guards (see STT section) handle the residual "AI bleed during
-LISTENING" case on near-silent buffers.
+there's no PTT key, no RMS gate, no headphones requirement. AEC alone is not
+enough on built-in MacBook speaker+mic (loud, non-linear echo close together),
+so the **`_speaking` mic gate** (see Server pipeline) keeps the mic closed for
+the full *playback* duration — not just until the bytes are sent — plus a short
+reverb cooldown, which is what stops the assistant hearing its own reply.
+Whisper's hallucination guards (see STT section) handle the residual "AI bleed
+during LISTENING" case on near-silent buffers.
 
 ## Install & verification
 

@@ -305,6 +305,9 @@ export default function App() {
       },
     });
     wsRef.current = ws;
+    // Tell the server when the TTS queue finishes playing so it can reopen the
+    // mic only after the speaker tail is gone (anti speaker-bleed).
+    engine.setOnDrained(() => ws.send({ type: "playback_done" }));
     ws.connect();
 
     return () => {

@@ -147,6 +147,8 @@ export function SettingsModal({
   const voiceOptions: PickerOption[] = voicesAvailable.map((v) => ({
     value: v.id,
     label: v.label,
+    // Clone ids are namespaced "clone:<name>" — group them under a heading.
+    group: v.id.startsWith("clone:") ? "Cloned voices" : undefined,
   }));
   const modelOptions: PickerOption[] = modelsAvailable.map((name) => ({
     value: name,

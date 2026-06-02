@@ -127,3 +127,24 @@ class WhisperEngine:
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
         return text
+
+    def transcribe_file(self, path: str, language: Optional[str] = None) -> str:
+        """Transcribe a clean audio FILE (any format/rate faster-whisper can
+        decode). Unlike `transcribe()` this does NOT pin English and drops the
+        speaker-bleed hallucination clamps — it's for a deliberate, clean
+        reference clip (e.g. a Hindi voice-clone sample), where we want a
+        faithful transcript in the clip's own language. `language=None`
+        autodetects."""
+        if self._model is None:
+            self.load()
+        beam = max(1, int(self.cfg.beam_size))
+        model = self._model
+        segments, _info = model.transcribe(
+            path,
+            language=language,
+            beam_size=beam,
+            best_of=beam,
+            condition_on_previous_text=False,
+            vad_filter=True,
+        )
+        return " ".join(seg.text.strip() for seg in segments).strip()

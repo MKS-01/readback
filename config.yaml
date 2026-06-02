@@ -23,6 +23,27 @@ tts:
     speaker: "ryan"
     speed: 1.0                        # currently a no-op for Qwen custom voice
     # instruct: "warm, conversational"  # optional voice-design hint
+    base_model: "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16"  # for clones
+    #
+    # Reference-audio voice cloning. Each clone appears in the UI picker as
+    # "clone:<name>". Selecting one reloads the Base model (~1.2 GB on first use)
+    # and synthesizes in the cloned timbre — works cross-lingual (e.g. a Hindi
+    # reference clip speaking English replies). ref_text is the transcript of the
+    # clip in its OWN language; omit it to auto-transcribe via Whisper.
+    # instruct = emotion/style hint: shapes HOW the clone speaks (the wav sets
+    # WHO). Change it to retune the mood, e.g. "angry", "sad, soft", "excited,
+    # fast", "calm, conversational".
+    # K's voice (k-hi.wav reference) across moods — each entry differs only by
+    # `instruct`. (speed <1.0 = slower; temperature higher = more expressive.)
+    # (speed <1.0 = slower; temperature higher = more expressive.)
+    clones:
+      - name: k-voice
+        label: "K-Voice"
+        wav: voice/intro.wav         # relative to this config file's directory
+        ref_lang: en               # transcription language (omit = autodetect)
+        instruct: "speak slowly with intense, sharp anger and strong raw emotion"
+        speed: 0.85                # noticeably slower than default 1.0
+        temperature: 0.9  #1.05          # more expressive (default ~0.9)
 
 stt:
   # Two ASR engines, switchable at runtime from the web UI.

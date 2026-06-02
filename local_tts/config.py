@@ -29,13 +29,38 @@ class KokoroConfig(BaseModel):
     torch_device: Literal["mps", "cpu", "auto"] = "cpu"
 
 
+class CloneVoiceConfig(BaseModel):
+    # A reference-audio cloned voice. Selectable in the UI as id "clone:<name>".
+    # Cloning needs the Base Qwen3-TTS checkpoint (see QwenTTSConfig.base_model);
+    # ref_text is the transcript of the clip IN ITS OWN LANGUAGE (auto-filled via
+    # the multilingual Whisper engine when left None, e.g. a Hindi clip → Hindi
+    # transcript). The cloned timbre then speaks whatever (English) text we send.
+    name: str
+    label: Optional[str] = None          # picker label; defaults to name
+    wav: str                             # path to the reference wav (tilde-expanded)
+    ref_text: Optional[str] = None       # transcript; auto-transcribed if None
+    ref_lang: Optional[str] = None       # ISO code for transcription (None = autodetect)
+    # Emotion/style hint applied when speaking in this clone ("smiling, cheerful",
+    # "angry", "sad, soft", "excited, fast"). Shapes HOW it speaks; wav sets WHO.
+    instruct: Optional[str] = None
+    # Per-clone tuning (fall back to the engine defaults when None):
+    #   speed       — <1.0 slower / >1.0 faster (1.0 = natural)
+    #   temperature — higher = more expressive/varied, lower = flatter/steadier
+    speed: Optional[float] = None
+    temperature: Optional[float] = None
+
+
 class QwenTTSConfig(BaseModel):
-    # Qwen3-TTS via mlx-audio (MLX/Metal, 24 kHz). CustomVoice = preset speakers.
+    # Qwen3-TTS via mlx-audio (MLX/Metal, 24 kHz). CustomVoice = preset speakers;
+    # Base = reference-audio voice cloning. One model is loaded at a time: picking
+    # a clone reloads the Base model, picking a preset reloads CustomVoice.
     model: str = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
-    speaker: str = "ryan"
+    base_model: str = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16"
+    speaker: str = "ryan"                # active voice; may hold "clone:<name>"
     speed: float = 1.0
     # Optional voice-design instruction (e.g. "excited, fast"); None = neutral.
     instruct: Optional[str] = None
+    clones: list[CloneVoiceConfig] = Field(default_factory=list)
 
 
 class TTSConfig(BaseModel):
@@ -213,5 +238,16 @@ class Config(BaseModel):
                 if p.name == "default":
                     p.system_prompt = cfg.ollama.system_prompt
                     break
+
+        # Resolve clone wav paths so they don't depend on the launch CWD. A
+        # relative path (e.g. "voice/intro.wav") is anchored to the config
+        # file's directory; absolute and "~"-paths are left as the user wrote
+        # them. The engine reads cfg.tts.qwen.clones[].wav verbatim afterward.
+        base_dir = path.resolve().parent
+        for c in cfg.tts.qwen.clones:
+            wav = Path(c.wav).expanduser()
+            if not wav.is_absolute():
+                wav = base_dir / wav
+            c.wav = str(wav)
 
         return cfg
