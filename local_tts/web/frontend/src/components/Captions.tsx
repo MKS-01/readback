@@ -20,8 +20,17 @@ export function Captions() {
   const wakewordModel = useAppStore((s) => s.wakewordModel);
 
   const [copied, setCopied] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const aiBoxRef = useRef<HTMLDivElement | null>(null);
   const userCaptionTimer = useRef<number | null>(null);
+
+  // The response box auto-scrolls to the newest sentence, so the meaningful
+  // affordance for a long reply is a top fade showing text scrolled out of
+  // view above. Toggle it whenever the box is scrolled away from the top.
+  const onAiScroll = () => {
+    const el = aiBoxRef.current;
+    if (el) setScrolled(el.scrollTop > 6);
+  };
 
   // Fade the user caption so it doesn't compete with the streamed AI response.
   useEffect(() => {
@@ -38,8 +47,10 @@ export function Captions() {
 
   // Auto-scroll AI captions as new sentences arrive.
   useEffect(() => {
-    if (aiBoxRef.current) {
-      aiBoxRef.current.scrollTop = aiBoxRef.current.scrollHeight;
+    const el = aiBoxRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+      setScrolled(el.scrollTop > 6);
     }
   }, [aiSentences.length]);
 
@@ -112,7 +123,8 @@ export function Captions() {
         <div
           id="ai-caption"
           ref={aiBoxRef}
-          className={`caption ai ${hasAi ? "show" : ""}`}
+          onScroll={onAiScroll}
+          className={`caption ai ${hasAi ? "show" : ""} ${scrolled ? "scrolled" : ""}`}
         >
           {aiSentences.map((line, i) => (
             <div key={i} className="ai-sentence">

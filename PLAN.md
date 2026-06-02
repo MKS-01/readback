@@ -220,3 +220,88 @@ None`" gate in `web/server.py` is the only speaker-bleed guard and must stay.
 - parakeet-mlx: https://github.com/senstella/parakeet-mlx
 - Qwen3-TTS: https://github.com/QwenLM/Qwen3-TTS · mlx-audio: https://github.com/Blaizzy/mlx-audio
 - Smart-Turn: https://github.com/pipecat-ai/smart-turn
+
+---
+
+## 🔲 Phase 7 — Per-chunk TTS streaming (fix choppy/slow reply voice) — PLANNED
+
+> Not implemented. The client jitter buffer (below, "Already shipped") is in.
+> This phase is the server-side root-cause fix; needs real-audio testing.
+
+### Problem
+Reply voice is **choppy (gaps between sentences)** and **slow to start**, worst
+on the cloned voice (`clone:k-voice`, Base model). Two layers:
+1. `qwen_engine._synthesize_impl` runs the model generator to completion and
+   `np.concatenate`s — nothing leaves the engine until the **whole sentence** is
+   synthesized.
+2. The model is called with **`stream=False`** (default). Verified in installed
+   `mlx_audio/tts/models/qwen3_tts/qwen3_tts.py`: both `generate(...)` and
+   `generate_custom_voice(...)` accept `stream: bool=False` +
+   `streaming_interval: float=2.0`. With `stream=False`, a one-segment sentence
+   yields **once at the end**. With `stream=True` it yields incremental
+   `is_streaming_chunk=True` audio every `max(1, int(streaming_interval*12.5))`
+   tokens (~12.5 tok/s of audio) — `interval=0.5` ⇒ a chunk ~every 0.5 s.
+
+Net: the client's gapless scheduler (`audioEngine.enqueueAudio`) gets one big
+buffer per sentence with a synth-time stall between sentences; when synth can't
+stay ahead of realtime playback (slow Base model / LLM stalls), the queue drains,
+`startAt` snaps to `currentTime`, and you hear a gap.
+
+### Fix
+Stream the generator's chunks out of the engine (`stream=True`, smaller
+`streaming_interval`) and send each chunk to the client immediately. Cuts
+first-audio latency and keeps the client queue continuously fed. Complementary to
+the client jitter buffer, not a replacement.
+
+### Steps
+1. **`tts/qwen_engine.py`** — add `synthesize_stream(text, should_stop=None) ->
+   Iterator[np.ndarray]`. **All model work stays on the single MLX executor
+   thread**; chunks cross to the caller via a `queue.Queue(maxsize=8)` bridge
+   (executor runs `self._model.generate(..., stream=True,
+   streaming_interval=STREAM_INTERVAL_SEC)` and `q.put`s each
+   `_to_numpy(result.audio)`; caller yields from the queue until a sentinel,
+   then `fut.result()` to surface exceptions). New module const
+   `STREAM_INTERVAL_SEC = 0.5` (tune up if decode overhead too high). On
+   `should_stop()` → `gen.close()` to cooperatively cancel — **this also fixes a
+   latent bug**: today an interrupt returns early but the executor keeps grinding
+   the full generation (running Futures can't be cancelled), delaying the next
+   utterance's synth. Keep non-streaming `synthesize()` for back-compat
+   (optionally `np.concatenate(list(synthesize_stream(text)))`).
+2. **`tts/synthesizer.py`** — thin passthrough `synthesize_stream(text,
+   should_stop=None)` → engine.
+3. **`web/server.py` `_run_pipeline`** — replace the per-sentence
+   `synthesize`→`send_audio` block (~L1014–1021) with an `asyncio.Queue` bridge
+   mirroring the existing LLM `sentence_q` producer: a `to_thread` producer pushes
+   chunks via `loop.call_soon_threadsafe`; the loop drains, `_race_with_interrupt`
+   each `get()`, and `await self.send_audio(chunk)` per chunk. Pass
+   `should_stop=self.interrupt_event.is_set` (asyncio.Event `.is_set()` is a safe
+   bool read off-thread; never `.wait()`/`.set()` there). `_begin_speaking()`
+   stays at L971; `send_audio` keeps accumulating `_audio_seconds_sent` so the
+   `_arm_playback_guard` fallback (L1031–1038) is unaffected.
+
+### Risks / verification (real audio required — not testable in repo env)
+- **MLX thread safety** — generator must only iterate on the executor thread
+  (queue bridge guarantees it); watch for `"no Stream(gpu, 0)"`.
+- **Skip mid-sentence** — `gen.close()` stops promptly; next utterance synths
+  without a stall; no leaked-future / "generator ignored GeneratorExit" warnings.
+- **Non-overlapping chunks** — `is_streaming_chunk` slices must not double-emit
+  the tail; streamed audio should sound identical to non-streamed, just earlier.
+- **Seam clicks** at chunk boundaries → raise `streaming_context_size`/interval.
+- **Backpressure** — `maxsize=8` pauses synth if the client lags (no data loss).
+
+### Manual test checklist
+- Preset (`serena`) long reply → no gaps, first audio sooner.
+- Clone (`clone:k-voice`) long reply → gaps gone/reduced.
+- Skip mid-reply → audio stops, re-ask → next reply synths without long stall.
+- Tools-ON path still streams once tokens start.
+- `playback_done` round-trip + mic-reopen timing (the `_speaking` gate) still ok.
+
+### Already shipped (this work, client-side + UI)
+- **Client jitter buffer** (`web/frontend/src/lib/audioEngine.ts`): on (re)fill of
+  a drained queue, schedule the first buffer `LEAD_SEC=0.28 s` ahead to absorb
+  inter-sentence stalls. Keep alongside Phase 7.
+- **RESPONSE long-reply UI** (`Captions.tsx` + `styles.css`): max-height
+  `min(42vh,440px)`, auto-scroll to newest line, soft top-fade
+  (`.caption.ai.scrolled`) so older text dissolves instead of hard-cutting.
+- **Mobile header overflow** fix (`styles.css`, commit `435d614`): `.hdr-meta`
+  wraps within the viewport.

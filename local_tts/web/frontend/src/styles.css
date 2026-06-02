@@ -446,10 +446,17 @@ body {
   letter-spacing: 0.005em;
   /* Sentences flow inline — no bullets, no forced line breaks. */
   display: block;
-  max-height: min(34vh, 360px);
+  max-height: min(42vh, 440px);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--accent-dim) transparent;
+  overscroll-behavior: contain;
+}
+/* When a long reply has scrolled, soft-fade the top edge so older text
+   dissolves out of view instead of hard-cutting mid-line. */
+.caption.ai.scrolled {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
 }
 .caption.ai::-webkit-scrollbar { width: 6px; }
 .caption.ai::-webkit-scrollbar-thumb { background: var(--accent-dim); border-radius: 3px; }
