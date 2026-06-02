@@ -137,7 +137,7 @@ UI-switchable settings persist on their own; edit `config.yaml` for the rest:
 | `persona.active` / `persona.personas` | Active persona + overrides | `default` / (5 seeded) |
 | `tools.enabled` / `tools.allowed` | Function-calling switch + allowlist | `true` / `[clock, web_search]` |
 | `obsidian.enabled` / `obsidian.vault_root` | Markdown export (opt-in) + vault path | `false` / `~/Documents/Obsidian/vox-tinker` |
-| `memory.session_dir` / `memory.keep_days` | Crash-recovery JSONL location + rotation | `~/.vox-tinker/sessions` / `30` |
+| `memory.session_dir` | Crash-recovery JSONL location | `~/.vox-tinker/sessions` |
 
 ---
 

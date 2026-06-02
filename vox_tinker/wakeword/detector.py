@@ -33,8 +33,6 @@ class WakeWordDetector:
         self._model = None
         self._buf: list[np.ndarray] = []
         self._buf_len = 0
-        # Updated each time we cross the threshold so callers can throttle.
-        self.last_score: float = 0.0
 
     def load(self) -> None:
         """Loads onnxruntime + the wake-word model. Raises WakeWordUnavailable
@@ -86,7 +84,6 @@ class WakeWordDetector:
         (e.g. when the AI starts speaking) so stale audio can't trigger."""
         self._buf = []
         self._buf_len = 0
-        self.last_score = 0.0
         if self._model is not None and hasattr(self._model, "reset"):
             try:
                 self._model.reset()
@@ -115,7 +112,6 @@ class WakeWordDetector:
                 continue
             # scores is a dict keyed by model name → confidence in [0,1].
             best = max(scores.values()) if scores else 0.0
-            self.last_score = best
             if best >= self.threshold:
                 triggered = True
                 # Don't break: drain the remaining buffer so the next call

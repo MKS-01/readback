@@ -128,7 +128,7 @@ obsidian:
 #   mode: "vad"                     # "wake_word" to require trigger word on launch
 
 # ── Memory ──────────────────────────────────────────────────────────────────
-# Crash-recovery JSONL files for in-progress sessions. Rotated after keep_days.
+# Crash-recovery JSONL files for in-progress sessions (deleted on successful
+# markdown export).
 memory:
   session_dir: "~/.vox-tinker/sessions"
-  keep_days: 30

@@ -235,7 +235,6 @@ class InputConfig(BaseModel):
 
 class MemoryConfig(BaseModel):
     session_dir: Path = Path.home() / ".vox-tinker" / "sessions"
-    keep_days: int = 30
 
 
 class Config(BaseModel):
