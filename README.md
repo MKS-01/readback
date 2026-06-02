@@ -93,9 +93,9 @@ Prefs persist in `localStorage` (`vox-tinker.prefs.v10`); STT engine/model, voic
 
 ## Second brain (optional)
 
-Ships **on** in the bundled `config.yaml`; flip `obsidian.enabled` / `tools.enabled` to `false` to disable.
+Tools ship **on** in the bundled `config.yaml`; Obsidian export ships **off** (opt-in). Flip either `enabled` flag to change it.
 
-**Obsidian export** — with `obsidian.enabled: true`, each session is written as a topic-filed markdown transcript at disconnect (the folder name is chosen by the LLM), with YAML frontmatter plus the full turn-by-turn body. In-progress sessions are mirrored to crash-recovery JSONL under `~/.vox-tinker/sessions/` and deleted once the markdown commits.
+**Obsidian export** — set `obsidian.enabled: true`, then each session is written as a topic-filed markdown transcript at disconnect (the folder name is chosen by the LLM), with YAML frontmatter plus the full turn-by-turn body. In-progress sessions are mirrored to crash-recovery JSONL under `~/.vox-tinker/sessions/` and deleted once the markdown commits.
 
 ```yaml
 obsidian:
@@ -136,7 +136,7 @@ UI-switchable settings persist on their own; edit `config.yaml` for the rest:
 | `vad.aggressiveness` | WebRTC VAD aggressiveness 0–3 | `2` |
 | `persona.active` / `persona.personas` | Active persona + overrides | `default` / (5 seeded) |
 | `tools.enabled` / `tools.allowed` | Function-calling switch + allowlist | `true` / `[clock, web_search]` |
-| `obsidian.enabled` / `obsidian.vault_root` | Markdown export + vault path | `true` / `~/Documents/Obsidian/vox-tinker` |
+| `obsidian.enabled` / `obsidian.vault_root` | Markdown export (opt-in) + vault path | `false` / `~/Documents/Obsidian/vox-tinker` |
 | `memory.session_dir` / `memory.keep_days` | Crash-recovery JSONL location + rotation | `~/.vox-tinker/sessions` / `30` |
 
 ---
