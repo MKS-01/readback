@@ -976,9 +976,22 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
     grid-template-rows: auto 1fr; /* dock is fixed, footer row collapses */
   }
 
-  .hdr { padding: 14px 16px 0; }
-  .hdr-title { font-size: 18px; gap: 10px; }
-  .hdr-sub { font-size: 10px; margin-top: 3px; }
+  .hdr { padding: 14px 12px 0; }
+
+  /* The React header is a 5-chip row (.hdr-meta) — not the legacy
+     title/sub markup. At ~455px it overflows a phone and forces the whole
+     body grid wider than the viewport (clipping captions + HUD brackets).
+     max-width caps the inline-flex item so flex-wrap can actually wrap;
+     the dot dividers are dropped since they strand awkwardly across rows. */
+  .hdr-meta {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 5px 14px;
+    max-width: 100%;
+  }
+  .hdr-meta .meta-div { display: none; }
+  .meta-label { font-size: 9px; }
+  .meta-value { font-size: 12px; }
 
   /* Center content vertically between the two paddings.
      padding-top ≥ 40px → corner brackets (.hud-corner at top: -32px) clear
