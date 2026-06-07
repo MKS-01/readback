@@ -1,10 +1,10 @@
 # local-tts — Project Context
 
 A local voice + text assistant with a browser UI. Speak or type → STT → Ollama
-LLM (with optional tools) → TTS → playback, all on-device. Speech-to-text is a
-**dual engine** (NVIDIA Parakeet via MLX, default + streaming; faster-whisper as
-a batch alternative), with **Smart-Turn v3** semantic end-of-turn on top of
-webrtcvad. TTS is **Qwen3-TTS** (mlx-audio). Optional second-brain layer
+LLM (with optional tools) → TTS → playback, all on-device. Speech-to-text is
+**NVIDIA Parakeet** via MLX (streaming, the sole ASR engine — faster-whisper was
+dropped in v0.7.0), with **Smart-Turn v3** semantic end-of-turn on top of
+webrtcvad. TTS is **CSM-1B** (Sesame, via mlx-audio). Optional second-brain layer
 auto-files every conversation as a markdown transcript in an Obsidian vault.
 
 This project is **web-only**. The CLI is one command (`local-tts`) that boots
@@ -23,21 +23,24 @@ knobs; ARCHITECTURE.md holds the "how it fits together / why."
 
 - Apple M5 Pro, 48 GB unified memory (primary target).
 - No CUDA. Accelerator mapping: **MLX/Metal (20-core GPU)** runs Parakeet ASR and
-  Qwen3-TTS; **CPU** runs Whisper (CTranslate2 ARM NEON int8) and Smart-Turn
+  CSM-1B TTS; **CPU** runs Whisper (CTranslate2 ARM NEON int8) and Smart-Turn
   (onnxruntime); Ollama runs Nemotron. **MLX is not multi-thread safe** — its
   default GPU stream binds to the thread that first touches the device, so
-  Parakeet and Qwen each own a single-thread executor (see STT/TTS sections).
+  Parakeet and CSM each own a single-thread executor (see STT/TTS sections).
 
 ## Stack
 
 - **LLM**: Ollama, default **`nemotron-3-nano:4b`** (NVIDIA) with `think=False`
   + `<think>` stripping. Any pulled model is selectable (`nemotron3:33b`,
   `qwen3`, …); tool-capable models required when `tools.enabled: true`.
-- **TTS**: **Qwen3-TTS-0.6B** (`mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit`)
-  via `mlx-audio` on Metal, 24 kHz, 9 preset speakers. (Kokoro was removed; the
-  `Synthesizer` facade keeps a one-engine seam for re-adding it.)
-- **STT**: **dual engine** behind an `ASREngine` protocol — Parakeet (MLX,
-  default, streaming) + Whisper (faster-whisper, batch); switchable at runtime.
+- **TTS**: **CSM-1B** (`mlx-community/csm-1b`, Sesame Conversational Speech Model;
+  the open base MisoTTS is built on) via `mlx-audio` on Metal, 24 kHz, 2 preset
+  voices + reference-audio clones. English-best. (Qwen3-TTS was replaced in
+  v0.6.0; the `Synthesizer` facade keeps a one-engine seam for a future
+  MisoTTS-8B port.)
+- **STT**: **Parakeet** (MLX, streaming) behind an `ASREngine` protocol — the
+  sole ASR engine (faster-whisper dropped in v0.7.0; the protocol/facade seam is
+  kept so a second engine stays a one-file addition).
 - **Turn detection**: Smart-Turn v3 (pipecat `smart-turn-v3.2-cpu.onnx`) via
   onnxruntime, hybrid with webrtcvad; graceful VAD-only fallback.
 - **Wake-word**: openWakeWord backend exists (`local_tts/wakeword/`, optional
@@ -54,11 +57,11 @@ knobs; ARCHITECTURE.md holds the "how it fits together / why."
 
 ```
 local-tts/
-├── pyproject.toml             # v0.5.0; parakeet-mlx + mlx-audio + onnxruntime + transformers<5
+├── pyproject.toml             # v0.6.0; parakeet-mlx + mlx-audio + onnxruntime + transformers<5
 ├── config.yaml                # user-editable; stt:/turn:/tts: blocks, Nemotron default
 ├── README.md                  # user-facing; mirror for changelog
 ├── ARCHITECTURE.md            # system-level view: cascade, threading model, lifecycle
-├── voice/                     # reference clips for Qwen3-TTS voice cloning
+├── voice/                     # reference clips for CSM-1B voice cloning
 │                              # (e.g. intro.wav); *.wav is gitignored — local only
 ├── scripts/
 │   └── make_clone_voice.sh    # ffmpeg re-encode ANY audio → mono/24k/16-bit PCM
@@ -68,22 +71,21 @@ local-tts/
     ├── __main__.py            # `local-tts` entry: argparse, optional --auto-cert/--cert/--key,
     │                          # uvicorn boot, banner with TLS fingerprint
     ├── config.py              # Pydantic config; STTConfig/TTSConfig/TurnConfig; load() drops
-    │                          # unknown top-level keys, migrates legacy whisper:/ollama.system_prompt,
+    │                          # unknown top-level keys, migrates legacy qwen tts:/ollama.system_prompt,
     │                          # resolves relative clone wav paths against the config file's dir
     │
     ├── llm/client.py          # LLMClient: Ollama streaming (think=False), _ThinkStripper,
     │                          # sentence splitter, persona snapshot, tool-call probe loop
-    ├── stt/                   # dual ASR engine
+    ├── stt/                   # ASR (Parakeet only)
     │   ├── base.py            # ASREngine Protocol + shared resample()
-    │   ├── whisper_engine.py  # WhisperEngine (faster-whisper, batch); SUPPORTED_MODELS
     │   ├── parakeet_engine.py # ParakeetEngine (parakeet-mlx, streaming); single-thread MLX
-    │   │                      # executor; transcribe_stream/add_audio; SUPPORTED_MODELS
+    │   │                      # executor; transcribe_stream/add_audio; transcribe_file (clone refs)
     │   ├── transcriber.py     # Transcriber facade: swap_engine/swap_model/streaming_engine
     │   └── turn.py            # TurnDetector: Smart-Turn v3 ONNX; probability()/is_complete()
-    ├── tts/                   # Qwen3-TTS (Kokoro removed)
-    │   ├── qwen_engine.py     # QwenEngine (mlx-audio); single-thread MLX executor;
-    │   │                      # generate_custom_voice; SUPPORTED_VOICES (9 speakers)
-    │   └── synthesizer.py     # Synthesizer facade over QwenEngine (same server surface)
+    ├── tts/                   # CSM-1B (Sesame; Qwen3-TTS replaced in v0.6.0)
+    │   ├── csm_engine.py      # CsmEngine (mlx-audio "sesame" model); single-thread
+    │   │                      # MLX executor; generate(voice=|ref_audio=); 2 presets + clones
+    │   └── synthesizer.py     # Synthesizer facade over CsmEngine (same server surface)
     │
     ├── tools/                 # function-calling
     │   ├── base.py            # Tool protocol (name, schema, run(args) -> str)
@@ -130,7 +132,16 @@ local-tts/
   `{"type":"partial"}` via `loop.call_soon_threadsafe`, and on end-of-turn
   finalizes → launches the pipeline with the streamed text (batch fallback if
   empty). `_awaiting_finalize` gates late frames during the launch window.
-  Whisper has no streaming API and uses the batch path (`_dispatch_utterance`).
+  `_dispatch_utterance` (batch, non-streaming) remains as the fallback path for
+  any engine that reports `supports_streaming = False`.
+- **Phantom-utterance guard** (`_is_phantom_utterance`): Parakeet has no
+  no-speech / log-prob hallucination guards (Whisper's did), so it transcribes
+  TTS bleed, reverb, or background music into short backchannels. Any whole
+  finalized ASR utterance that normalizes to a pure filler (`okay`, `mm-hmm`,
+  `uh huh`, `thank you`, `hi`, …) is dropped before launching the pipeline,
+  killing the self-reply loop. Applied to ASR text ONLY — typed input is never
+  filtered; `yes`/`no` are kept. Pairs with the `_speaking` mic gate + the
+  `SPEAKING_COOLDOWN_SEC` reverb cooldown.
 - LLM streaming runs in a producer **thread** that pushes finished sentences
   onto an `asyncio.Queue` via `loop.call_soon_threadsafe`. The consumer races
   each `queue.get()` against `interrupt_event` so Skip takes effect mid-sentence.
@@ -148,9 +159,13 @@ local-tts/
   interrupt/mute (nothing audible → reopen immediately). If a future change
   accepts audio during speaking, **this gate must be replaced** or the wake-word
   detector self-fires.
-- Utterance segmentation: 8 speech frames to start (~240 ms), 25 silence frames
-  (~750 ms) → **candidate** end-of-turn confirmed by Smart-Turn (re-checked every
-  ~300 ms, forced at `turn.max_wait_sec`), 12-frame minimum (~360 ms).
+- Utterance segmentation (config-tunable timings, ms → 30 ms frames per Session
+  in `__init__`): voiced-ratio onset over a 10-frame pre-roll ring (internal),
+  `vad.silence_end_ms` (480) of silence → **candidate** end-of-turn confirmed by
+  Smart-Turn (re-checked every `turn.recheck_ms` (300), forced at
+  `turn.max_wait_sec`), `vad.min_utterance_ms` (360) minimum. The post-playback
+  echo cooldown is `vad.speaking_cooldown_ms` (600). Lower `silence_end_ms` for a
+  fast talker — Smart-Turn backstops false early ends.
 
 ### Wake-word (deferred — UI hidden, backend retained)
 
@@ -203,21 +218,13 @@ and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
   the only place to add Tavily/Brave. Provider parses HTML with the stdlib
   `html.parser`, no extra deps.
 
-### Persona (llm/client.py)
+### System prompt (llm/client.py)
 
-- `PersonaConfig` seeds five personas via `_default_personas()`: `default`
-  (sharp, tech-savvy + easygoing), `concise` (one sentence), `researcher`
-  (answer-first, cites specifics, separates fact from inference), `chef`
-  (veg-leaning Indian home cooking), and `professor` (Miss Phd — witty AI/ML
-  lecturer with a once-per-conversation intro). A `custom` slot is created on
-  first `set_custom_prompt()` call from the UI.
-- `swap_persona(name)` mirrors `Transcriber.swap_model`: `threading.Lock`,
-  atomic write of `personas.active`. `stream_tokens()` snapshots
-  `active_persona.system_prompt` once at the top so an in-flight response
-  finishes on its original prompt — no half-swap mid-sentence.
-- Legacy `ollama.system_prompt` in `config.yaml` is migrated at load time:
-  if the user has it set AND no `persona` section, the value overrides the
-  seeded `default` persona's prompt. Other seed personas stay intact.
+- The multi-persona system was removed in v0.7.x. `LLMClient` takes a single
+  fixed `system_prompt` (`cfg.ollama.system_prompt`, defaulting to
+  `DEFAULT_PERSONA_PROMPT` in config.py — sharp, tech-savvy + easygoing). Edit
+  `ollama.system_prompt` in `config.yaml` to change the assistant's behavior.
+  `stream_tokens()` prepends it as the system message; no runtime switching.
 
 ### Obsidian / session persistence (memory/)
 
@@ -238,83 +245,127 @@ and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
   `voice`, `persona`, `topic`, `turn_count`) + human-readable turn-by-turn body.
 - JSONL is deleted on successful markdown commit.
 
-### TTS — Qwen3-TTS (tts/qwen_engine.py, tts/synthesizer.py)
+### TTS — CSM-1B (tts/csm_engine.py, tts/synthesizer.py)
 
-- `QwenEngine` wraps `mlx_audio.tts.utils.load_model(...)` +
-  `generate_custom_voice(text, speaker, instruct)`. Output is float32 @ **24 kHz**
-  (native — matches the WS contract, no resample).
+CSM-1B (Sesame Conversational Speech Model) replaced Qwen3-TTS in v0.6.0. It's
+the open base the MisoTTS family is built on; the MLX build
+`mlx-community/csm-1b` (config `model_type: "sesame"`, ~6.2 GB F32) runs through
+the **same mlx-audio** library, so this was a model swap, not a new dependency.
+
+- `CsmEngine` wraps `mlx_audio.tts.utils.load_model("mlx-community/csm-1b")` +
+  the `sesame.Model.generate(...)` **generator**. Output is float32 @ **24 kHz**
+  (Mimi-native — matches the WS contract, no resample).
+- **One model serves both paths, no checkpoint swap** (unlike Qwen's
+  CustomVoice/Base split): presets via `generate(voice="conversational_a")`,
+  clones via `generate(ref_audio=<wav>, ref_text=<transcript>)`. So preset↔clone
+  swaps are **instant** — `swap_voice()` just sets `cfg.speaker`.
 - **Batch per sentence (server default).** `_run_pipeline` calls `synthesize()`
-  per sentence and sends the whole sentence as one buffer. Playback is gapless
-  *within* a sentence regardless of synth speed; the only stall is *between*
-  sentences, absorbed by the client jitter buffer (`audioEngine.ts`
-  `LEAD_SEC=0.28`).
-- ⚠ **Per-chunk model streaming exists but the server does NOT use it.**
-  `synthesize_stream(text, should_stop)` yields a sentence's audio in chunks as
-  the model produces them (`stream=True, streaming_interval=STREAM_INTERVAL_SEC=0.5`;
-  generator on the MLX executor thread, chunks bridged out via a bounded
-  `queue.Queue`; `should_stop` `gen.close()`s on interrupt). It cuts first-audio
-  latency on **fast** engines (preset CustomVoice, RTF ~0.21 → first audio
-  ~0.12 s, chunk boundaries measured continuous). But on a **slow** engine — the
-  cloned **Base** model (RTF near realtime) — each 0.5 s chunk must *arrive* in
-  realtime; when it can't, the client queue underruns *mid-sentence* and chops.
-  So streaming was tried (Phase 7) and reverted to batch. Kept as opt-in API for
-  a future "stream only when the engine is fast enough" path.
-  `_build_gen(text, stream)` is shared by both `synthesize` and `synthesize_stream`.
+  per sentence, sends the whole sentence as one buffer; gapless within a
+  sentence, between-sentence stalls absorbed by the client jitter buffer
+  (`audioEngine.ts` `LEAD_SEC=0.28`). Non-stream `generate()` yields exactly one
+  `GenerationResult` per sentence.
+- ⚠ **Per-chunk streaming exists but the server does NOT use it.**
+  `synthesize_stream(text, should_stop)` drives `generate(stream=True,
+  streaming_interval=0.5)`, bridging chunks off the MLX executor through a
+  bounded `queue.Queue` (`should_stop` → `gen.close()`). Kept as opt-in API; the
+  server stays on batch (same rationale as before — measure CSM RTF before
+  enabling). `_build_gen(text, stream)` is shared by `synthesize` /
+  `synthesize_stream`.
 - **MLX single-thread:** like Parakeet, MLX binds its GPU stream to the first
-  thread that touches the device. `QwenEngine` owns a `ThreadPoolExecutor(max_workers=1)`
-  and runs ALL model work (load + synth) on it; public methods submit and block.
-  `_impl` methods run on that thread and must never re-submit.
-- First load downloads the model and **warms the graph** (cold first synth ~2.4 s;
-  warm RTF ~0.21 on M5, ~664 ms for a 3.2 s clip).
-- `SUPPORTED_VOICES` = 9 `(speaker_id, label)` pairs; `swap_voice()` just sets
-  `cfg.speaker` (a per-call arg — instant, no reload).
+  thread that touches the device. `CsmEngine` owns a
+  `ThreadPoolExecutor(max_workers=1)` and runs ALL model work (load + synth) on
+  it; public methods submit and block. `_impl` methods run on that thread and
+  must never re-submit.
+- First load downloads ~6.2 GB and **warms the graph** (`load()` runs one
+  throwaway synth). `temperature`/`top_k` feed `make_sampler`; `max_audio_length_ms`
+  is capped per-sentence (`_max_ms_for`) so a missing EOS can't hang the pipeline
+  and the long preset voice-prompt stays under CSM's 2048-token budget.
+- ⚠ **bf16 precision (NOT int8 quant) — `cfg.csm.precision`.** F32 CSM-1B runs
+  RTF ~1.4 on M5 (stalls). We follow MisoTTS (same Sesame CSM architecture): run
+  **bf16, no quantization**. `_load_impl` casts via `self._model.set_dtype(...)`.
+  We previously int8 group-quantized (`nn.quantize`) for speed, but it
+  **garbled/robotized the voice** — the Mimi-codec-skip predicate (a
+  `_audio_tokenizer` path-prefix guess) couldn't be trusted across mlx-audio
+  versions, and int8 carries per-op dequant overhead anyway. bf16 ~halves F32,
+  has native Apple-Silicon matmul (no dequant), and keeps decode clean — at least
+  as fast as int8 here. `precision`: `"bf16"` (default), `"fp16"` (a touch
+  faster), `"fp32"` (cleanest, ~RTF 1.4, may stall). Memory isn't the constraint
+  at 48 GB; clean realtime is.
+- ⚠ **Reference-prompt length is the other big RTF lever AND the voice-quality
+  lever** (`cfg.csm.ref_max_sec`, default 4 s). CSM re-encodes + re-prefills the
+  conditioning prompt on EVERY sentence, so the built-in presets' ~10 s prompt
+  pushed RTF to ~1.0 → audio "mashed up" (queue underrun). But too SHORT a prompt
+  destabilizes the voice → **garbled/robotic** output. `CsmEngine._prompt_for`
+  caps the prompt audio AND proportionally trims the transcript (both presets and
+  clones — a mismatched text/audio pair garbles the voice) to `ref_max_sec`, and
+  **caches the resulting `Segment` per voice** (cleared on clone/ref_text change),
+  passed via `generate(context=[seg])`. 10 s→1.0, 5 s→~0.9, 4 s→~0.65, 3 s→~0.51
+  on M5; **raise toward 5 s if the voice sounds robotic**, lower for more headroom.
+- `SUPPORTED_VOICES` = 2 presets: `conversational_a` (female ★),
+  `conversational_b` (male). Voice prompts auto-download from `sesame/csm-1b` on
+  first use. **English-best** (multilingual presets are gone with Qwen).
 - `Synthesizer(TTSConfig)` is a thin facade keeping the server surface
-  (`synthesize`, `sample_rate`, `current_voice`, `swap_voice`, `load`). Kokoro
-  was removed; `cfg.tts.engine` is a single-value enum for a future re-add.
-- ⚠ `generate_custom_voice` has no `speed` arg (only `generate()` does) → the UI
-  speed slider is currently a no-op for Qwen.
+  (`synthesize`, `sample_rate`, `current_voice`, `swap_voice`, `load`,
+  `reset_context`). `cfg.tts.engine` is a single-value enum (`"csm"`), extensible
+  to a future `"miso"` (MisoTTS-8B port).
+- ⚠ **No `speed` arg** (CSM's `generate()` has none) → the UI speed slider stays
+  a no-op, same as Qwen was. `cfg.csm.speed` is kept inert for server/UI compat.
+- ⚠ **Watermarking ON by default** — `generate()` applies a SilentCipher
+  watermark (imperceptible, marks AI audio). Toggle off with `tts.csm.watermark:
+  false` (the engine sets `model._watermarker = None`); kept on by default.
+- ⚠ **Conversational context is single-segment only.** mlx-audio's public
+  `generate()` conditions on `context[0]` when `voice_match=True`; the
+  multi-segment (`voice_match=False`) branch is unusable in this version. So
+  `reset_context()` is a no-op and `cfg.csm.context_turns` is reserved — true
+  rolling multi-turn context needs the lower-level frame API (roadmap).
 
-#### Reference-audio voice cloning (`tts.qwen.clones`)
+#### Reference-audio voice cloning (`tts.csm.clones`)
 
-- Beyond the 9 presets, `config.yaml` can list cloned voices under
-  `tts.qwen.clones` (`CloneVoiceConfig`). Each appears in the UI picker as
-  `clone:<name>`. Cloning uses the **Base** checkpoint (`qwen.base_model`), not
-  CustomVoice — selecting a clone reloads Base (~1.2 GB first use); picking a
-  preset reloads CustomVoice. One model is loaded at a time.
+- Beyond the 2 presets, `config.yaml` can list cloned voices under
+  `tts.csm.clones` (`CloneVoiceConfig`). Each appears in the UI picker as
+  `clone:<name>`. CSM clones from the reference clip directly (no separate
+  checkpoint, no reload) — the same loaded model takes `ref_audio` + `ref_text`.
 - A clone entry: `name`, `wav` (reference clip), optional `label`, `ref_text`
-  (transcript in the clip's OWN language — auto-filled via Whisper if omitted),
-  `ref_lang`, `instruct` (emotion/style — shapes HOW it speaks; the wav sets
-  WHO), and per-clone `speed`/`temperature`. `QwenEngine._ref_for` returns
-  `(expanded wav path, cached ref_text)`; the server resolves/caches `ref_text`
-  off the MLX thread before synth.
+  (clip transcript — auto-filled via **Parakeet, English-only** if omitted, so a
+  non-English clip MUST set `ref_text` explicitly), and per-clone `temperature`.
+  `CsmEngine._ref_for` returns `(expanded wav path, cached ref_text)`; the server
+  resolves/caches `ref_text` off the MLX thread before synth (via
+  `Transcriber.transcribe_clone_ref` → `ParakeetEngine.transcribe_file`).
+  `ref_lang` is accepted for back-compat but ignored (Parakeet is English).
+  ⚠ `instruct`/`speed` are Qwen-era fields —
+  CSM **ignores** them (the clip sets timbre + prosody); kept for config
+  back-compat.
 - **Reference clips live in the project `voice/` folder.** `wav:` is resolved in
   `Config.load()`: a **relative** path (e.g. `voice/intro.wav`) is anchored to
   the **config file's directory** (not the launch CWD); absolute and `~/…` paths
   are left as written. So clones are portable regardless of where `local-tts`
   is started. `*.wav` is gitignored — clips stay local.
 - **`scripts/make_clone_voice.sh`** prepares clips: re-encodes ANY audio/video
-  (m4a/mp3/mp4/…) to the mono/24 kHz/16-bit PCM wav the Base model can load
-  (a renamed `.m4a` will NOT decode), optional `-s/-d` trim, `--batch` a folder.
-  Default out-dir is the project `./voice`; it prints a ready-to-paste
-  `tts.qwen.clones` snippet.
+  (m4a/mp3/mp4/…) to the mono/24 kHz/16-bit PCM wav CSM can load (a renamed
+  `.m4a` will NOT decode), optional `-s/-d` trim, `--batch` a folder. Default
+  out-dir is the project `./voice`; it prints a ready-to-paste clones snippet.
 
-### STT — dual engine (stt/)
+### STT — Parakeet (stt/)
 
 - `ASREngine` protocol (`stt/base.py`): `supported_models`, `current_model`,
   `load`, `swap_model`, `transcribe(audio, sr)`, `supports_streaming`. Shared
   `resample()` enforces the 16 kHz contract. `Transcriber` (transcriber.py) is a
-  facade over both engines: `current_engine`, `engines_available`,
-  `models_for(engine)`, `swap_engine`, `swap_model`, `streaming_engine()`.
-- **ParakeetEngine** (default, `parakeet_engine.py`): MLX/Metal. `transcribe()`
-  is file/ffmpeg-only upstream, so we route BOTH batch and streaming through
-  `transcribe_stream` + `add_audio(mx.array)`. Owns a **single-thread executor**
-  (same MLX rule as Qwen). `add_audio` underflows on <~100 ms chunks, so the
-  engine buffers mic frames to `stream_chunk_ms` (320 ms) per encoder step.
-  Streaming: `start_stream/feed/finalize/abort_stream`. ~2.5 GB first download.
-- **WhisperEngine** (`whisper_engine.py`, batch): the old faster-whisper code
-  verbatim — CPU int8, `threading.Lock` swap, all hallucination guards
-  (`no_speech_threshold=0.6`, `log_prob_threshold=-1.0`, `vad_filter`, …) and the
-  `mel_filters @ magnitudes` RuntimeWarning filter. Sizes tiny→large-v3.
+  thin facade over the single engine: `current_engine`, `engines_available`
+  (`("parakeet",)`), `models_for()`, `swap_engine` (only `"parakeet"` valid),
+  `swap_model`, `streaming_engine()`. The facade/protocol is retained so adding a
+  second engine later stays a one-file change.
+- **ParakeetEngine** (`parakeet_engine.py`, sole engine): MLX/Metal.
+  `transcribe()` is file/ffmpeg-only upstream, so we route BOTH batch and
+  streaming through `transcribe_stream` + `add_audio(mx.array)`. Owns a
+  **single-thread executor** (same MLX rule as CSM). `add_audio` underflows on
+  <~100 ms chunks, so the engine buffers mic frames to `stream_chunk_ms` (320 ms)
+  per encoder step. Streaming: `start_stream/feed/finalize/abort_stream`.
+  `transcribe_file(path)` (loads via `mlx_audio.load_audio` → `transcribe`) backs
+  clone-reference transcription. ~2.5 GB first download. **English-best** (v2);
+  v3 covers 25 langs if selected.
+- ⚠ **No hallucination guards** (unlike the removed Whisper) — Parakeet
+  transcribes whatever audio it's fed. The server's `_is_phantom_utterance`
+  filter + `_speaking` mic gate are what prevent echo/music self-trigger loops.
 
 ### Turn detection — Smart-Turn v3 (stt/turn.py)
 
@@ -348,7 +399,8 @@ and `config.yaml` ships the `wakeword:` / `input:` blocks commented out.
 Client → server:
 - Binary: raw Int16 PCM @ 16 kHz mono (mic audio).
 - JSON: `mute`, `unmute`, `interrupt`, `text_input {text}`, `set_voice {voice}`,
-  `set_stt_engine {engine: "parakeet"|"whisper"}`, `set_stt_model {model}`,
+  `set_stt_engine {engine: "parakeet"}` (single-engine; kept for protocol
+  stability), `set_stt_model {model}`,
   `set_model {model}` (Ollama LLM swap), `set_speed {speed}`,
   `set_persona {name}`, `set_persona_custom_prompt {prompt}`,
   `set_input_mode {mode: "vad"|"wake_word"}`, `set_tools_enabled {value: bool}`,
@@ -387,9 +439,10 @@ those mirror `config.yaml` on each fresh connection.
   tree as singletons; they push events into a zustand store, so React
   re-renders never tear down the socket or audio context.
 - Header is five clickable chips (`voice` · `model` · `persona` · `tools` ·
-  `vault`). Every chip opens Settings. The ASR control is **two-level** in
-  Settings: an engine selector (Parakeet ★ / Whisper, hidden when only one
-  engine) above the model picker, which the server filters to the active engine.
+  `vault`). Every chip opens Settings. The ASR control shows just the Parakeet
+  model picker; the engine selector is gated on `sttEnginesAvailable.length > 1`,
+  so with Parakeet as the sole engine it stays hidden (the two-level UI revives
+  automatically if a second engine is added).
   Live partials render dimmed in the INPUT caption; a "Listening — go on…" hint
   shows while `turnWaiting`.
 - INPUT label animates per phase: `LISTENING_` (blinking cursor CSS) /
@@ -422,31 +475,30 @@ the detected LAN IP changes (tracked in `cert.meta.json`). Cert SAN includes
 the LAN IP, `127.0.0.1`, and `localhost`. 825-day validity matches Safari's
 trust ceiling.
 
-## Voice options (Qwen3-TTS)
+## Voice options (CSM-1B)
 
-`SUPPORTED_VOICES` (tts/qwen_engine.py) = 9 preset speakers, exposed via
+`SUPPORTED_VOICES` (tts/csm_engine.py) = 2 preset voices, exposed via
 `config.voices_available`:
-- Male: `ryan` ★, `eric`, `aiden`, `dylan`, `uncle_fu`
-- Female: `serena` ★, `vivian`, `ono_anna`, `sohee`
+- `conversational_a` ★ (female), `conversational_b` (male)
 
-`swap_voice()` just sets `cfg.tts.qwen.speaker` (per-call arg — instant). The
-optional `qwen.instruct` field is a voice-design hint (e.g. "warm, fast").
+`swap_voice()` just sets `cfg.tts.csm.speaker` (per-call arg — instant; presets
+and clones share one loaded model). CSM is **English-best** — the multilingual
+Qwen speakers (Chinese `uncle_fu`, `ono_anna`, `sohee`) are gone.
 
-Plus any **cloned voices** from `tts.qwen.clones` (id `clone:<name>`) — reference
+Plus any **cloned voices** from `tts.csm.clones` (id `clone:<name>`) — reference
 clips in the project `voice/` folder, prepped via `scripts/make_clone_voice.sh`.
-See the cloning subsection under "TTS — Qwen3-TTS" for the full picture.
+See the cloning subsection under "TTS — CSM-1B" for the full picture.
 
 ## Latency budget (M5 — measured in P1/P4b)
 
 | Stage | Value |
 |---|---|
-| VAD silence-end gate | ~750 ms |
+| VAD silence-end gate | ~480 ms (`vad.silence_end_ms`, config-tunable; was 750 ms) |
 | Smart-Turn v3 decision | ~7–12 ms (CPU) |
 | Parakeet streaming finalize | near-zero (most already streamed) |
 | Parakeet batch (4.7s clip) | ~1.1 s cold / RTF ~0.24 |
-| Whisper medium batch (4.7s clip) | ~2.9 s / RTF ~0.61 |
 | Nemotron-3-nano:4b first sentence | ~1.3 s cold (~200–500 ms warm) |
-| Qwen3-TTS first sentence | warm RTF ~0.21 (batch per sentence; streaming reverted, P7) |
+| CSM-1B first sentence | batch per sentence; **bf16** (MisoTTS-style, no quant) + 4 s prompt cap → realtime on M5 (F32 ~1.4 stalls; int8 was ~0.86 but garbled; raise ref toward 5 s for steadier timbre, lower for more headroom) |
 
 Tool-call probes add one full Ollama non-streaming round-trip per hop
 (usually 400–800 ms) before the final response streams. Three hops max.
@@ -457,10 +509,14 @@ The web browser's `getUserMedia({ echoCancellation: true })` handles AEC, so
 there's no PTT key, no RMS gate, no headphones requirement. AEC alone is not
 enough on built-in MacBook speaker+mic (loud, non-linear echo close together),
 so the **`_speaking` mic gate** (see Server pipeline) keeps the mic closed for
-the full *playback* duration — not just until the bytes are sent — plus a short
-reverb cooldown, which is what stops the assistant hearing its own reply.
-Whisper's hallucination guards (see STT section) handle the residual "AI bleed
-during LISTENING" case on near-silent buffers.
+the full *playback* duration — not just until the bytes are sent — plus a
+`SPEAKING_COOLDOWN_SEC` (0.6 s) reverb cooldown, which is what stops the
+assistant hearing its own reply. Because Parakeet (unlike the removed Whisper)
+has no hallucination guards, the **`_is_phantom_utterance` filter** (see Server
+pipeline) is the second line of defense — it drops short backchannels the ASR
+produces from any residual bleed/reverb/background-music during LISTENING.
+⚠ Arbitrary background music (e.g. lyrics) can still be transcribed — the filter
+only catches filler phrases; use headphones or stop other audio for clean runs.
 
 ## Install & verification
 
@@ -475,15 +531,15 @@ local-tts                                # boots; opens http://127.0.0.1:8000
 
 **Dependency note:** `transformers` is pinned `<5`. mlx-audio declares
 `transformers>=5.5`, but 5.x's import chain needs torch≥2.5
-(`torch.distributed.tensor.device_mesh`); Qwen3-TTS and Smart-Turn both run fine
+(`torch.distributed.tensor.device_mesh`); CSM-1B and Smart-Turn both run fine
 on transformers 4.x with torch 2.4, so we override the pin.
 
 First launch (weights download silently on first use):
-1. Parakeet (~2.5 GB), Qwen3-TTS-0.6B, Smart-Turn v3 (~8 MB). `nemotron-3-nano:4b`
-   must be pulled in Ollama (`ollama pull nemotron-3-nano:4b`).
+1. Parakeet (~2.5 GB), CSM-1B (~6.2 GB) + its Mimi codec, Smart-Turn v3 (~8 MB).
+   `nemotron-3-nano:4b` must be pulled in Ollama (`ollama pull nemotron-3-nano:4b`).
 2. Open the page → orb breathes, "STANDBY" status.
 3. Say "hello" → live partial caption appears → reply streams + speaks.
-4. Settings → switch ASR engine Parakeet↔Whisper; switch speaker.
+4. Settings → switch Parakeet model; switch voice (presets/clones).
 5. (Tools on) Say "what time is it" → log shows `tool_call: clock -> N chars`.
 6. (Obsidian on) 2+ turn convo, close tab → markdown lands in the vault.
 
@@ -503,20 +559,33 @@ First launch (weights download silently on first use):
 - **Persona "custom" doesn't appear in personas_available until first save.**
   It's added to `PersonaConfig.personas` on first `set_custom_prompt` call.
   Cosmetic only.
-- **First Qwen3-TTS / Parakeet utterance is slow (~2–3 s).** One-time MLX graph
-  warm-up; `load()` pre-warms but the very first real synth/transcribe still pays
-  some compile cost. Warm calls are near-real-time.
-- **`<think>` leaks only on qwen3, not Nemotron.** `qwen3` ignores `think=False`
-  and emits untagged reasoning prose — no stripper can catch untagged text. The
-  default `nemotron-3-nano:4b` is clean. Pick a different model if it bothers you.
-- **Speed slider does nothing on Qwen3-TTS.** `generate_custom_voice` has no
-  `speed` arg (only `generate()` does). Left as a no-op until ref-voice mode.
-- **MLX "no Stream(gpu, 0)" if you call Parakeet/Qwen off their executor.** Both
+- **First CSM-1B / Parakeet utterance is slow.** One-time MLX graph warm-up;
+  `load()` pre-warms but the very first real synth/transcribe still pays some
+  compile cost. Warm calls are faster. (CSM is a ~6.2 GB model — heavier cold
+  start than the old 0.6 B Qwen.)
+- **`<think>` leaks only on qwen3, not Nemotron.** `qwen3` (the LLM) ignores
+  `think=False` and emits untagged reasoning prose — no stripper can catch
+  untagged text. The default `nemotron-3-nano:4b` is clean. Pick a different
+  model if it bothers you.
+- **Speed slider does nothing on CSM-1B.** CSM's `generate()` has no `speed` arg.
+  `cfg.csm.speed` is inert, kept only so the UI slider / config message stay
+  wired (same no-op as Qwen was).
+- **Cloned voices ignore `instruct`.** That was a Qwen voice-design hint; CSM
+  takes timbre + prosody straight from the reference clip. The field is kept for
+  config back-compat but has no effect.
+- **MLX "no Stream(gpu, 0)" if you call Parakeet/CSM off their executor.** Both
   engines MUST run all model work on their own single-thread executor; never call
   the `_impl` methods or `mx` ops from another thread.
 
 ## Roadmap candidates (not committed)
 
+- **MisoTTS-8B → MLX port.** Convert/quantize the 8B CSM-finetune (MisoLabs) to
+  MLX and slot it into `cfg.tts.engine` as `"miso"` (the `Synthesizer` seam is
+  ready). English-only, ~8B params — gate on measured M5 RTF; likely needs heavy
+  quant to approach realtime.
+- **True multi-turn CSM context.** mlx-audio's public `generate()` conditions on
+  one segment only; drive the lower-level frame API to feed rolling conversation
+  Segments (`cfg.csm.context_turns`) for cross-turn prosodic continuity.
 - Round-trip persona/tools/inputMode/customPrompt prefs on reconnect (currently
   only sttModel/voice/speed are re-emitted in `App.tsx:78-100`).
 - Wake-word download progress over WS.
@@ -527,6 +596,9 @@ First launch (weights download silently on first use):
 
 ## Version
 
-Current: **v0.5.0** (Open-model voice pipeline: dual ASR + Smart-Turn + Nemotron
-+ Qwen3-TTS). Set in `pyproject.toml` and `local_tts/__init__.py`. Bump both when
+Current: **v0.7.0** (Parakeet-only ASR — removed faster-whisper + the dual-engine
+selector; added the phantom-utterance / speaker-bleed guard against echo/music
+self-trigger loops; tuned end-of-turn gate to ~480 ms and CSM `ref_max_sec` to
+3 s. CSM-1B TTS + Smart-Turn + Nemotron unchanged). Set in `pyproject.toml`,
+`local_tts/__init__.py`, and `web/frontend/package.json`. Bump all three when
 releasing. See [README.md#changelog](README.md#changelog) for release notes.

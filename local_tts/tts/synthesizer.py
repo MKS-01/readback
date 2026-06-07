@@ -1,37 +1,36 @@
 """Synthesizer — TTS facade.
 
-Kokoro was removed; Qwen3-TTS (mlx-audio) is the sole engine for now. This thin
-facade keeps the surface the web server depends on (`synthesize`, `sample_rate`,
-`current_voice`, `swap_voice`, `load`, `reset_context`, `SUPPORTED_VOICES`) so
-re-adding a second engine later is a factory change, not a server rewrite.
+CSM-1B (mlx-audio) is the sole engine (Qwen3-TTS was replaced; reference-audio
+cloning was removed in v0.7.x — two preset voices only). This thin facade keeps
+the surface the web server depends on (`synthesize`, `sample_rate`,
+`current_voice`, `swap_voice`, `load`, `reset_context`, `SUPPORTED_VOICES`) so a
+future engine (e.g. a MisoTTS-8B MLX port) is a factory change, not a server
+rewrite.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
-from local_tts.config import CloneVoiceConfig, TTSConfig
-from local_tts.tts.qwen_engine import (
-    CLONE_PREFIX,
+from local_tts.config import TTSConfig
+from local_tts.tts.csm_engine import (
     SUPPORTED_VOICES,
     SUPPORTED_VOICE_NAMES,
-    QwenEngine,
+    CsmEngine,
 )
 
 __all__ = [
     "Synthesizer",
     "SUPPORTED_VOICES",
     "SUPPORTED_VOICE_NAMES",
-    "CLONE_PREFIX",
 ]
 
 
 class Synthesizer:
     def __init__(self, cfg: TTSConfig):
         self.cfg = cfg
-        # Only one engine today; selected by cfg.engine for forward-compat.
-        self._engine = QwenEngine(cfg.qwen)
+        # Single engine today; selected by cfg.engine for forward-compat with a
+        # future engine branch (e.g. "miso").
+        self._engine = CsmEngine(cfg.csm)
 
     def load(self):
         self._engine.load()
@@ -46,26 +45,11 @@ class Synthesizer:
 
     @property
     def supported_voices(self) -> tuple[tuple[str, str], ...]:
-        """Preset speakers + configured clones, as (id, label) pairs."""
+        """Preset speakers as (id, label) pairs."""
         return self._engine.supported_voices
 
     def swap_voice(self, voice: str) -> str:
         return self._engine.swap_voice(voice)
-
-    # ---- clone helpers (used by the server's voice-swap handler) ----
-
-    @staticmethod
-    def is_clone(voice: str) -> bool:
-        return QwenEngine.is_clone(voice)
-
-    def clone_for(self, voice: str) -> Optional[CloneVoiceConfig]:
-        return self._engine.clone_for(voice)
-
-    def has_ref_text(self, voice: str) -> bool:
-        return self._engine.has_ref_text(voice)
-
-    def set_ref_text(self, name: str, text: str) -> None:
-        self._engine.set_ref_text(name, text)
 
     def synthesize(self, text: str) -> np.ndarray:
         return self._engine.synthesize(text)

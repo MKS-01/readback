@@ -13,7 +13,7 @@ Mac. The pipeline is a **streaming cascade**:
 
 ```
 speech ─▶ STT ─▶ turn detection ─▶ LLM ─▶ TTS ─▶ speech
-         (Parakeet/Whisper)  (Smart-Turn)  (Ollama/Nemotron)  (Qwen3-TTS)
+         (Parakeet/Whisper)  (Smart-Turn)  (Ollama/Nemotron)  (CSM-1B)
 ```
 
 Optional layers: function-calling **tools** (clock, web search) and an
@@ -29,8 +29,8 @@ WebSocket endpoint (`/ws`), one React UI.
  │         │ ◀─────────────────────────── │  webrtcvad → utterance segmentation  │
  │ (orb +  │  Float32 PCM 24k (binary WS) │         │                            │
  │ caption)│ ◀─────────────────────────── │         ▼                            │
- │         │  JSON: phase/partial/turn/   │   ASR (Parakeet streaming │ Whisper  │
- │         │        transcript/config/... │        batch)  ──▶ partial captions  │
+ │         │  JSON: phase/partial/turn/   │   ASR (Parakeet, streaming)          │
+ │         │        transcript/config/... │           ──▶ partial captions       │
  └─────────┘                              │         │                            │
                                           │         ▼  on pause                  │
                                           │   Smart-Turn v3 (complete?) ──no──┐  │
@@ -39,7 +39,7 @@ WebSocket endpoint (`/ws`), one React UI.
                                           │   LLM (Ollama/Nemotron, streaming)   │
                                           │         │ sentences                  │
                                           │         ▼                            │
-                                          │   TTS (Qwen3-TTS) per sentence       │
+                                          │   TTS (CSM-1B) per sentence          │
                                           │         │ Float32 24k                │
                                           │         ▼                            │
                                           │   WS send_audio ─────────────────────┘
@@ -62,7 +62,7 @@ this design.
 | **asyncio event loop** | WS recv/send, control messages, VAD `_process_frame`, pipeline orchestration | Never runs a model inline; offloads via `to_thread` or queues |
 | **ASR worker thread** (per session, `_asr_worker_loop`) | Orders mic frames → Parakeet streaming; emits partials; triggers finalize | One per session; talks to the Parakeet executor, not MLX directly |
 | **Parakeet executor** (1 thread, in `ParakeetEngine`) | *All* Parakeet MLX work (load, batch, streaming feed/finalize) | `ThreadPoolExecutor(max_workers=1)`; public methods submit + block |
-| **Qwen executor** (1 thread, in `QwenEngine`) | *All* Qwen3-TTS MLX work (load + synth) | Same single-thread pattern as Parakeet |
+| **CSM executor** (1 thread, in `CsmEngine`) | *All* CSM-1B MLX work (load + synth) | Same single-thread pattern as Parakeet |
 | **LLM producer thread** (per turn, via `to_thread`) | Streams Ollama → finished sentences onto an `asyncio.Queue` | Consumer races each `get()` against `interrupt_event` |
 | **`to_thread` pool** | Whisper batch transcribe, Smart-Turn inference, model/voice/persona swaps | CPU-bound or onnx; thread-safe under their own locks |
 
@@ -72,7 +72,7 @@ Cross-thread handoffs back to the loop always go through
 Why the executors: a model loaded on thread A and called from thread B raises
 `RuntimeError: no Stream(gpu, 0) in current thread`. Pinning each MLX model to
 one owned thread makes correctness independent of which caller invokes it (this
-also fixed a latent crash in the Whisper-era batch path, which the server calls
+also fixed a latent crash in the batch transcribe path, which the server calls
 from arbitrary `to_thread` pool threads).
 
 ## 4. Turn lifecycle (one spoken exchange)
@@ -84,34 +84,38 @@ from arbitrary `to_thread` pool threads).
 2. **Segment.** `_process_frame` runs webrtcvad: 8 speech frames (~240 ms) to
    start, frames accumulate into `utterance_frames`. For the streaming engine,
    each frame is also queued to the ASR worker, which emits `partial` captions.
-3. **Pause → confirm.** After ~750 ms of silence, `_turn_is_complete()` asks
+3. **Pause → confirm.** After ~480 ms of silence, `_turn_is_complete()` asks
    **Smart-Turn** (off-loop). If `P(complete) < threshold`, keep listening
    (re-check every ~300 ms, hard cap at `turn.max_wait_sec`) and emit
    `turn:{state:waiting}`; otherwise end the turn.
-4. **Finalize transcript.** Streaming: the ASR worker finalizes the live stream
-   (batch fallback if empty) and hands the text to the loop. Batch (Whisper):
-   `_dispatch_utterance` transcribes the buffered audio via `to_thread`.
+4. **Finalize transcript.** The ASR worker finalizes the live stream (batch
+   fallback if empty) and hands the text to the loop; `_dispatch_utterance` is
+   the batch path kept for any future non-streaming engine. A phantom-utterance
+   filter drops pure backchannels (echo/reverb/music false triggers) before
+   launch.
 5. **Generate.** `_run_pipeline(text=…)` appends the user turn, then a producer
    thread streams Nemotron output; a `_ThinkStripper` removes `<think>` spans and
    the sentence splitter yields complete sentences.
-6. **Speak.** Each sentence → Qwen3-TTS → Float32 24 kHz → `send_audio`. Every
+6. **Speak.** Each sentence → CSM-1B → Float32 24 kHz → `send_audio`. Every
    step races `interrupt_event` so **Skip** stops mid-sentence.
 7. **Persist.** On disconnect, `SessionWriter.finalize` (background) classifies a
    topic and writes the Obsidian markdown; JSONL mirror deleted on success.
 
 ## 5. Component layers
 
-### STT — dual engine (`local_tts/stt/`)
-`ASREngine` protocol (`base.py`) with two implementations behind a `Transcriber`
-facade:
-- **ParakeetEngine** (default, streaming) — NVIDIA Parakeet via `parakeet-mlx`
-  on Metal. Both batch and streaming route through `transcribe_stream` /
-  `add_audio`. Owns its MLX executor; buffers frames to `stream_chunk_ms`.
-- **WhisperEngine** (batch) — faster-whisper / CTranslate2, CPU int8.
+### STT — Parakeet (`local_tts/stt/`)
+`ASREngine` protocol (`base.py`) with one implementation behind a `Transcriber`
+facade (the protocol/facade seam is kept so a second engine stays a one-file
+addition; faster-whisper was the second engine through v0.6.0, removed in v0.7.0):
+- **ParakeetEngine** (streaming) — NVIDIA Parakeet via `parakeet-mlx` on Metal.
+  Both batch and streaming route through `transcribe_stream` / `add_audio`. Owns
+  its MLX executor; buffers frames to `stream_chunk_ms`. `transcribe_file` backs
+  clone-reference transcription (English-only). No hallucination guards — the
+  server's phantom-utterance filter compensates.
 
-The facade exposes `current_engine`, `engines_available`, `models_for(engine)`,
-`swap_engine`, `swap_model`, `transcribe`, `streaming_engine()`. The server only
-talks to the facade.
+The facade exposes `current_engine`, `engines_available` (`("parakeet",)`),
+`models_for()`, `swap_engine`, `swap_model`, `transcribe`, `streaming_engine()`.
+The server only talks to the facade.
 
 ### Turn detection (`stt/turn.py`)
 `TurnDetector` runs Smart-Turn v3 ONNX (Whisper-tiny encoder + linear head) via
@@ -126,10 +130,11 @@ stream. `think=False` + `_ThinkStripper` keep reasoning out of TTS. Personas are
 snapshotted per response so a mid-stream swap can't split a prompt.
 
 ### TTS (`tts/`)
-`QwenEngine` wraps `mlx-audio`'s Qwen3-TTS (`generate_custom_voice`), 24 kHz
-native, behind a `Synthesizer` facade that preserves the server's surface. Owns
-its MLX executor. (Kokoro was removed; the facade keeps a one-engine seam for a
-future re-add.)
+`CsmEngine` wraps `mlx-audio`'s CSM-1B (Sesame model; `generate(voice=…)` for
+presets, `generate(ref_audio=…, ref_text=…)` for clones — one loaded model for
+both), 24 kHz native, behind a `Synthesizer` facade that preserves the server's
+surface. Owns its MLX executor. (Qwen3-TTS was replaced in v0.6.0; the facade
+keeps a one-engine seam for a future MisoTTS-8B port.)
 
 ### Server (`web/server.py`)
 `PipelineModels` is a lazy singleton holding the transcriber, LLM, synth, and
@@ -161,7 +166,7 @@ partials and the "still listening" turn hint.
 
 - **New ASR engine:** implement `ASREngine` (`stt/base.py`), register it in the
   `Transcriber` facade's engine map. Mirror the MLX-executor pattern if it's MLX.
-- **New TTS engine:** implement the same shape as `QwenEngine`, select it via
+- **New TTS engine:** implement the same shape as `CsmEngine`, select it via
   `TTSConfig.engine` in the `Synthesizer` factory.
 - **New search provider:** implement `WebSearchProvider` and wire it in
   `tools/web_search.py:build_default_provider`.
@@ -176,11 +181,11 @@ local_tts/
 ├── llm/client.py    LLMClient: streaming, think-strip, tools, personas
 ├── stt/
 │   ├── base.py          ASREngine protocol + resample()
-│   ├── whisper_engine.py / parakeet_engine.py   the two engines
-│   ├── transcriber.py   Transcriber facade (engine/model swap)
+│   ├── parakeet_engine.py   ParakeetEngine (MLX, streaming) — sole ASR engine
+│   ├── transcriber.py   Transcriber facade (model swap)
 │   └── turn.py          Smart-Turn v3 detector (+ graceful fallback)
 ├── tts/
-│   ├── qwen_engine.py   QwenEngine (mlx-audio, MLX executor)
+│   ├── csm_engine.py    CsmEngine (mlx-audio "sesame", MLX executor)
 │   └── synthesizer.py   Synthesizer facade
 ├── tools/           Tool protocol, registry, clock, web_search
 ├── memory/          SessionWriter (JSONL mirror) + topic classifier

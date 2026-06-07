@@ -1060,3 +1060,142 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
   .hud-ring { animation: none !important; }
   .ai-sentence { animation: none !important; opacity: 1; transform: none; }
 }
+
+/* ── Article reader ─────────────────────────────────────────────────────── */
+.reader-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.reader-panel {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 8px 20px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.reader-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.reader-url {
+  flex: 1;
+  background: var(--bg-pill);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 14px;
+  padding: 12px 18px;
+  outline: none;
+}
+.reader-url:focus { border-color: var(--accent); }
+.reader-url::placeholder { color: var(--text-mute); }
+.reader-go {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 0 22px;
+  cursor: pointer;
+}
+.reader-go:disabled { opacity: 0.4; cursor: default; }
+
+.reader-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.seg-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 12px;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+.seg-btn.active { background: var(--accent); color: var(--bg); }
+.seg-btn:disabled { opacity: 0.5; cursor: default; }
+.reader-voice { flex: 1; min-width: 200px; }
+
+.reader-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reader-status-text {
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+.reader-bar {
+  display: block;
+  height: 3px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.reader-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.reader-error {
+  color: var(--danger);
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+.reader-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.reader-title {
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 600;
+}
+.reader-result-meta {
+  color: var(--text-mute);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.reader-audio { width: 100%; margin-top: 4px; }
+.reader-download {
+  align-self: flex-start;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 12px;
+  text-decoration: none;
+}
+.reader-download:hover { color: var(--accent); }
+
+/* Reader layout refinements: contained orb, clean centered column. */
+.reader-root { padding-top: 28px; }
+.reader-root .orb-wrap { --orb-size: 148px; margin: 16px 0 4px; }
+.reader-root .hud-corner { display: none; }
+.reader-root .seg-btn { min-width: 96px; text-align: center; }
+.reader-root .reader-voice .settings-row { margin: 0; }

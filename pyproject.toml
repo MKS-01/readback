@@ -4,43 +4,29 @@ build-backend = "hatchling.build"
 
 [project]
 name = "local-tts"
-version = "0.5.0"
-description = "Local voice conversation using Kokoro TTS + Ollama on Apple Silicon"
-requires-python = ">=3.10"
+version = "0.8.0"
+description = "Local offline article reader: URL → article → audio, via CSM-1B TTS + Ollama on Apple Silicon"
+requires-python = ">=3.10,<3.13"
 authors = [{ name = "mks" }]
 license = { text = "MIT" }
 readme = "README.md"
 
+# v0.8.0 pivot: offline article reader. The real-time voice cascade (Parakeet
+# STT, Smart-Turn, webrtcvad, torch/transformers) was removed — TTS is pure MLX
+# (csm-mlx) and the LLM runs in Ollama, so none of that is needed anymore.
 dependencies = [
-    "torch>=2.4.0",
-    "torchaudio>=2.4.0",
-    "faster-whisper>=1.0.3",         # Whisper ASR engine (batch, CPU int8)
-    "parakeet-mlx>=0.3.0",           # Parakeet ASR engine (MLX/Metal, streaming)
-    "mlx-audio>=0.4.3",              # Qwen3-TTS engine (MLX/Metal, 24kHz)
-    "onnxruntime>=1.16.0",           # Smart-Turn v3 end-of-turn detection (CPU)
-    # transformers <5 is required: 5.x's import chain needs torch>=2.5
-    # (torch.distributed.tensor.device_mesh), but we pin torch 2.4. 4.x serves
-    # WhisperFeatureExtractor (Smart-Turn) and Qwen3-TTS fine. mlx-audio declares
-    # >=5.5 but runs on 4.x here, so we override the pin.
-    "transformers>=4.40.0,<5",
-    "ollama>=0.6.0",                 # >=0.6 for chat(think=...)
+    "csm-mlx @ git+https://github.com/senstella/csm-mlx",  # CSM-1B TTS (dedicated MLX impl, 24kHz)
+    "ollama>=0.6.0",                 # LLM client (summary mode); >=0.6 for chat(think=...)
+    "trafilatura>=1.8.0",            # article extraction (URL → clean text)
     "numpy>=1.24.0,<3.0.0",
-    "webrtcvad-wheels>=2.0.14",
+    "soundfile>=0.12.1",             # write generated WAVs
+    "huggingface-hub>=0.28.0",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
-    "huggingface-hub>=0.28.0",
-    "soundfile>=0.12.1",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.9",
-    "cryptography>=41.0",
-]
-
-[project.optional-dependencies]
-# openwakeword for the (hidden) wake-word listening mode. onnxruntime is already
-# a core dep (Smart-Turn), so it's not repeated here.
-wakeword = [
-    "openwakeword>=0.6.0",
+    "cryptography>=41.0",            # self-signed TLS for LAN access
 ]
 
 [project.scripts]

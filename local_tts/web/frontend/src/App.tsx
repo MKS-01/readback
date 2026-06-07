@@ -1,585 +1,233 @@
-// Top-level wiring. Owns the AudioEngine + WSClient singletons, plugs the WS
-// message router into the store, and dispatches user actions back through WS.
-//
-// React only handles the "view" — the audio queue, mic worklet, and three.js
-// brain are imperative inside refs/effects so the 60fps animation loops never
-// re-render anything.
+// Article reader. Paste a URL → the server fetches, optionally summarizes, and
+// synthesizes the whole piece offline, then streams progress and hands back an
+// audio URL we play in-page (and offer for download). The three.js orb is reused
+// as the working/playing visual (driven by store.phase).
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AudioEngine } from "./lib/audioEngine";
-import { FreqBuffer } from "./lib/brain";
+import { useEffect, useRef, useState } from "react";
+import { OrbContainer } from "./components/OrbContainer";
+import { Picker, PickerOption } from "./components/Picker";
 import { WSClient, WSMessage } from "./lib/ws";
-import { useAppStore } from "./state/store";
-import { OrbContainer, OrbHandle } from "./components/OrbContainer";
-import { Header } from "./components/Header";
-import { Captions } from "./components/Captions";
-import { MicMeter } from "./components/MicMeter";
-import { Dock } from "./components/Dock";
-import { TypePopover } from "./components/TypePopover";
-import { SettingsModal } from "./components/SettingsModal";
+import { patchPrefs, useAppStore } from "./state/store";
+
+const PHASE_LABEL: Record<string, string> = {
+  loading: "Loading model…",
+  fetching: "Fetching article…",
+  summarizing: "Summarizing…",
+  synthesizing: "Synthesizing audio…",
+};
+
+function fmtDuration(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
 
 export default function App() {
-  const orbRef = useRef<OrbHandle | null>(null);
   const wsRef = useRef<WSClient | null>(null);
-  const engineRef = useRef<AudioEngine | null>(null);
+  const [url, setUrl] = useState("");
 
-  const [typeOpen, setTypeOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-
-  // ------------------------------------------------------------------
-  // Apply prefs (theme + orb size + show/hide) on every change.
-  // ------------------------------------------------------------------
+  const connected = useAppStore((s) => s.connected);
+  const statusText = useAppStore((s) => s.statusText);
+  const progress = useAppStore((s) => s.progress);
+  const busy = useAppStore((s) => s.busy);
+  const error = useAppStore((s) => s.error);
+  const result = useAppStore((s) => s.result);
+  const voicesAvailable = useAppStore((s) => s.voicesAvailable);
+  const model = useAppStore((s) => s.model);
   const prefs = useAppStore((s) => s.prefs);
-  useEffect(() => {
-    document.documentElement.style.setProperty(
-      "--orb-size",
-      prefs.orbSize + "px",
-    );
-  }, [prefs.orbSize]);
 
   useEffect(() => {
-    document.body.classList.remove("theme-ghost");
-    document.body.classList.add(`theme-${prefs.theme || "ghost"}`);
-  }, [prefs.theme]);
-
-  // ------------------------------------------------------------------
-  // WS message router.
-  // ------------------------------------------------------------------
-  const handleControl = useCallback((msg: WSMessage) => {
-    const store = useAppStore.getState();
-    switch (msg.type) {
-      case "config": {
-        const patch: Record<string, any> = {};
-        if (msg.session_id) patch.sessionId = msg.session_id;
-        if (msg.voice) patch.voice = msg.voice;
-        if (msg.model) patch.model = msg.model;
-        if (msg.output_sample_rate) patch.outSampleRate = msg.output_sample_rate;
-        if (msg.voices_available) patch.voicesAvailable = msg.voices_available;
-        if (msg.stt_engine) patch.sttEngine = msg.stt_engine;
-        if (msg.stt_engines_available)
-          patch.sttEnginesAvailable = msg.stt_engines_available;
-        if (msg.stt_model) patch.sttModel = msg.stt_model;
-        if (msg.stt_models_available)
-          patch.sttModelsAvailable = msg.stt_models_available;
-        if (typeof msg.turn_enabled === "boolean")
-          patch.turnEnabled = msg.turn_enabled;
-        if (msg.models_available) patch.modelsAvailable = msg.models_available;
-        if (msg.persona) patch.persona = msg.persona;
-        if (msg.personas_available)
-          patch.personasAvailable = msg.personas_available;
-        if (typeof msg.tools_enabled === "boolean")
-          patch.toolsEnabled = msg.tools_enabled;
-        if (msg.tools_available) patch.toolsAvailable = msg.tools_available;
-        if (msg.tools_allowed) patch.toolsAllowed = msg.tools_allowed;
-        if (msg.input_mode) patch.inputMode = msg.input_mode;
-        if (msg.wakeword_model) patch.wakewordModel = msg.wakeword_model;
-        if (msg.wakeword_display_name)
-          patch.wakewordDisplayName = msg.wakeword_display_name;
-        if (typeof msg.obsidian_enabled === "boolean")
-          patch.obsidianEnabled = msg.obsidian_enabled;
-        if (typeof msg.speed === "number") {
-          patch.speed = msg.speed;
-        }
-        store.setSession(patch);
-
-        // Re-emit saved prefs that diverge from server-side defaults.
-        const p = store.prefs;
-        if (
-          p.sttEngine &&
-          p.sttEngine !== msg.stt_engine &&
-          msg.stt_engines_available?.includes(p.sttEngine)
-        ) {
-          wsRef.current?.send({ type: "set_stt_engine", engine: p.sttEngine });
-          store.setSttSwapping(true);
-          store.setSttStatus("loading…", "loading");
-        }
-        if (
-          p.sttModel &&
-          p.sttModel !== msg.stt_model &&
-          msg.stt_models_available?.includes(p.sttModel)
-        ) {
-          wsRef.current?.send({ type: "set_stt_model", model: p.sttModel });
-          store.setSttSwapping(true);
-          store.setSttStatus("loading…", "loading");
-        }
-        if (
-          p.voice &&
-          p.voice !== msg.voice &&
-          (msg.voices_available || []).some((v: any) => v.id === p.voice)
-        ) {
-          wsRef.current?.send({ type: "set_voice", voice: p.voice });
-          store.setVoiceSwapping(true);
-          store.setVoiceStatus("loading…", "loading");
-        }
-        if (p.speed !== 1.0) {
-          wsRef.current?.send({ type: "set_speed", speed: p.speed });
-        }
-        break;
+    const handleControl = (msg: WSMessage) => {
+      const st = useAppStore.getState();
+      switch (msg.type) {
+        case "config":
+          st.setSession({
+            voicesAvailable: msg.voices_available || [],
+            model: msg.model || "",
+          });
+          if (!st.prefs.voice && msg.voice) patchPrefs({ voice: msg.voice });
+          break;
+        case "phase":
+          st.setPhase("thinking", PHASE_LABEL[msg.value] || msg.value);
+          break;
+        case "progress":
+          st.setProgress({ done: msg.done, total: msg.total });
+          st.setStatus(`Synthesizing audio… ${msg.done}/${msg.total}`);
+          break;
+        case "done":
+          st.setResult({
+            title: msg.title,
+            audioUrl: msg.audio_url,
+            durationSec: msg.duration_sec,
+            wordCount: msg.word_count,
+            mode: msg.mode,
+          });
+          st.setProgress(null);
+          st.setBusy(false);
+          st.setPhase("idle", "");
+          break;
+        case "error":
+          st.setError(msg.message || "Something went wrong.");
+          st.setProgress(null);
+          st.setBusy(false);
+          st.setPhase("idle", "");
+          break;
       }
-      case "model":
-        if (msg.state === "unloading") {
-          store.setModelStatus("unloading…", "loading");
-        } else {
-          store.setModel(msg.model);
-          store.setModelStatus("ready", "ready");
-          window.setTimeout(() => store.setModelStatus("", ""), 1400);
-        }
-        break;
-      case "stt_model":
-        if (msg.state === "loading") {
-          store.setSttSwapping(true);
-          store.setSttStatus(`loading ${msg.model}…`, "loading");
-        } else if (msg.state === "ready") {
-          store.setSttSwapping(false);
-          store.setSttModel(msg.model);
-          store.setSttStatus("ready", "ready");
-          store.patchPrefs({ sttModel: msg.model });
-          window.setTimeout(() => store.setSttStatus("", ""), 1400);
-        } else if (msg.state === "error") {
-          store.setSttSwapping(false);
-          store.setSttStatus(msg.message || "swap failed", "error");
-        }
-        break;
-      case "stt_engine":
-        if (msg.state === "loading") {
-          store.setSttSwapping(true);
-          store.setSttStatus(`loading ${msg.engine}…`, "loading");
-        } else if (msg.state === "ready") {
-          store.setSttSwapping(false);
-          store.setSttEngine(msg.engine);
-          const enginePatch: Record<string, any> = {};
-          if (Array.isArray(msg.models_available))
-            enginePatch.sttModelsAvailable = msg.models_available;
-          if (msg.model) enginePatch.sttModel = msg.model;
-          store.setSession(enginePatch);
-          store.setSttStatus("ready", "ready");
-          store.patchPrefs({ sttEngine: msg.engine });
-          window.setTimeout(() => store.setSttStatus("", ""), 1400);
-        } else if (msg.state === "error") {
-          store.setSttSwapping(false);
-          store.setSttStatus(msg.message || "engine switch failed", "error");
-        }
-        break;
-      case "turn":
-        // Smart-Turn said the pause is mid-thought — surface "still listening".
-        store.setTurnWaiting(msg.state === "waiting");
-        break;
-      case "voice":
-        if (msg.state === "loading") {
-          store.setVoiceSwapping(true);
-          store.setVoiceStatus("loading…", "loading");
-        } else if (msg.state === "ready") {
-          store.setVoiceSwapping(false);
-          store.setVoice(msg.voice);
-          store.setVoiceStatus("ready", "ready");
-          store.patchPrefs({ voice: msg.voice });
-          window.setTimeout(() => store.setVoiceStatus("", ""), 1400);
-        } else if (msg.state === "error") {
-          store.setVoiceSwapping(false);
-          store.setVoiceStatus(msg.message || "swap failed", "error");
-        }
-        break;
-      case "phase":
-        store.setPhase(msg.value);
-        // Reset scale when leaving speaking phase.
-        if (msg.value !== "speaking") {
-          orbRef.current?.brain?.setScale(1);
-        }
-        // A short/aborted utterance ends at idle with no final transcript —
-        // drop any lingering live partial so it doesn't stick on screen.
-        if (msg.value === "idle") {
-          store.setPartialCaption("");
-        }
-        // "still listening" only applies during a listening pause.
-        if (msg.value !== "listening") {
-          store.setTurnWaiting(false);
-        }
-        break;
-      case "partial":
-        // Live streaming ASR (Parakeet): replace-in-place while the user speaks.
-        store.setPartialCaption(msg.text);
-        break;
-      case "transcript":
-        if (msg.role === "user") {
-          store.clearAiCaption();
-          store.setPartialCaption(""); // promote partial → final
-          store.setUserCaption(msg.text);
-        } else {
-          if (store.skipping) break;
-          store.appendAiSentence(msg.text);
-        }
-        break;
-      case "level":
-        store.setMicLevel(msg.value);
-        if (store.phase === "idle" || store.phase === "listening") {
-          orbRef.current?.brain?.setScale(
-            1 + Math.min(0.18, msg.value * 1.4),
-          );
-        }
-        break;
-      case "tools_enabled":
-        store.setToolsEnabled(!!msg.value);
-        store.patchPrefs({ toolsEnabled: !!msg.value });
-        break;
-      case "tools_allowed":
-        if (Array.isArray(msg.value)) {
-          store.setToolsAllowed(msg.value);
-        }
-        break;
-      case "persona":
-        if (msg.state === "ready") {
-          store.setPersona(msg.name);
-          store.setPersonaStatus("ready", "ready");
-          store.patchPrefs({ persona: msg.name });
-          if (Array.isArray(msg.personas_available)) {
-            store.setSession({ personasAvailable: msg.personas_available });
-          }
-          window.setTimeout(() => store.setPersonaStatus("", ""), 1400);
-        } else if (msg.state === "error") {
-          store.setPersonaStatus(msg.message || "swap failed", "error");
-        }
-        break;
-      case "input_mode":
-        if (msg.state === "error") {
-          store.setInputModeStatus(msg.message || "switch failed", "error");
-          if (msg.value) store.setInputMode(msg.value);
-        } else {
-          store.setInputMode(msg.value);
-          store.setInputModeStatus("ready", "ready");
-          store.patchPrefs({ inputMode: msg.value });
-          window.setTimeout(() => store.setInputModeStatus("", ""), 1400);
-        }
-        break;
-      case "error":
-        store.setStatusText("ERROR: " + msg.message);
-        break;
-    }
-  }, []);
+    };
 
-  // ------------------------------------------------------------------
-  // Boot: connect WS, start mic, set up audio engine + playback RAF.
-  // ------------------------------------------------------------------
-  useEffect(() => {
-    const engine = new AudioEngine({
-      onMicFrame: (buf) => {
-        wsRef.current?.sendBinary(buf);
-      },
-    });
-    engineRef.current = engine;
-
-    const store = useAppStore.getState();
+    const st = useAppStore.getState();
     const ws = new WSClient({
+      onOpen: () => st.setConnected(true),
+      onClose: () => st.setConnected(false),
+      onError: () => st.setConnected(false),
+      onAudio: () => {},
       onControl: handleControl,
-      onAudio: async (buf) => {
-        if (store.skipping || store.paused) return;
-        await engine.enqueueAudio(buf);
-        // Kick off the analyser RAF the first time audio is queued.
-        startPlaybackRaf();
-      },
-      onOpen: async () => {
-        store.setStatusText("ONLINE");
-        try {
-          await engine.startMic(useAppStore.getState().prefs.micId);
-        } catch (e) {
-          console.error(e);
-          // Fall back to system default if a saved deviceId no longer exists.
-          if (useAppStore.getState().prefs.micId) {
-            store.patchPrefs({ micId: null });
-            try {
-              await engine.startMic(null);
-              return;
-            } catch {
-              /* */
-            }
-          }
-          store.setStatusText("MIC PERMISSION DENIED");
-        }
-      },
-      onClose: () => {
-        if (!useAppStore.getState().ended) {
-          store.setStatusText("DISCONNECTED");
-        }
-      },
-      onError: () => {
-        store.setStatusText("CONNECTION ERROR");
-      },
     });
-    wsRef.current = ws;
-    // Tell the server when the TTS queue finishes playing so it can reopen the
-    // mic only after the speaker tail is gone (anti speaker-bleed).
-    engine.setOnDrained(() => ws.send({ type: "playback_done" }));
     ws.connect();
-
-    return () => {
-      ws.close();
-      engine.stopMic();
-      engine.stopAllPlayback();
-      wsRef.current = null;
-      engineRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    wsRef.current = ws;
+    return () => ws.close();
   }, []);
 
-  // ------------------------------------------------------------------
-  // Playback RAF: feeds the analyser FFT into the brain while speaking.
-  // ------------------------------------------------------------------
-  const playbackRafRef = useRef(0);
-  const freqBufRef = useRef<FreqBuffer | null>(null);
-  const startPlaybackRaf = useCallback(() => {
-    if (playbackRafRef.current) return; // already running
-    const tick = () => {
-      const engine = engineRef.current;
-      const analyser = engine?.getAnalyser();
-      if (!analyser) {
-        playbackRafRef.current = requestAnimationFrame(tick);
-        return;
-      }
-      if (
-        !freqBufRef.current ||
-        freqBufRef.current.length !== analyser.frequencyBinCount
-      ) {
-        freqBufRef.current = new Uint8Array(analyser.frequencyBinCount);
-      }
-      analyser.getByteFrequencyData(freqBufRef.current);
-
-      const store = useAppStore.getState();
-      if (store.phase === "speaking") {
-        let sum = 0;
-        for (let i = 0; i < freqBufRef.current.length; i++) {
-          sum += freqBufRef.current[i];
-        }
-        const energy = sum / (freqBufRef.current.length * 255);
-        orbRef.current?.brain?.setScale(1 + Math.min(0.32, energy * 2.6));
-        orbRef.current?.brain?.setFreq(freqBufRef.current);
-      }
-      playbackRafRef.current = requestAnimationFrame(tick);
-    };
-    playbackRafRef.current = requestAnimationFrame(tick);
-  }, []);
-
-  // ------------------------------------------------------------------
-  // visibilitychange + first-touch audio unlock.
-  // ------------------------------------------------------------------
-  useEffect(() => {
-    const onVis = async () => {
-      if (document.visibilityState === "visible") {
-        await engineRef.current?.unlockOutCtx();
-      }
-    };
-    document.addEventListener("visibilitychange", onVis);
-    const unlock = () => engineRef.current?.unlockOutCtx();
-    document.addEventListener("touchstart", unlock, {
-      once: true,
-      passive: true,
+  const onRead = () => {
+    const u = url.trim();
+    if (!u || busy) return;
+    const st = useAppStore.getState();
+    st.setError("");
+    st.setResult(null);
+    st.setProgress(null);
+    st.setBusy(true);
+    st.setPhase("thinking", "Starting…");
+    wsRef.current?.send({
+      type: "read",
+      url: u,
+      mode: prefs.mode,
+      voice: prefs.voice || undefined,
     });
-    document.addEventListener("click", unlock, { once: true });
-    return () => {
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, []);
-
-  // ------------------------------------------------------------------
-  // User actions: dock buttons + text input + settings.
-  // ------------------------------------------------------------------
-  const send = (msg: WSMessage) => wsRef.current?.send(msg);
-
-  const onToggleMute = () => {
-    const store = useAppStore.getState();
-    const next = !store.muted;
-    store.setMuted(next);
-    engineRef.current?.setMuted(next);
-    send({ type: next ? "mute" : "unmute" });
-    store.setStatusText(next ? "MUTED" : "LISTENING");
   };
 
-  const skipCurrent = () => {
-    const store = useAppStore.getState();
-    store.setSkipping(true);
-    engineRef.current?.stopAllPlayback();
-    send({ type: "interrupt" });
-    store.clearAiCaption();
-    store.setStatusText("SKIPPING");
-  };
-
-  const onToggleType = () => setTypeOpen((v) => !v);
-  const closeType = () => setTypeOpen(false);
-  const onSubmitText = (text: string) => {
-    const store = useAppStore.getState();
-    if (store.phase === "speaking" || store.phase === "thinking") {
-      skipCurrent();
-    }
-    send({ type: "text_input", text });
-  };
-
-  const onTogglePause = async () => {
-    const store = useAppStore.getState();
-    if (store.ended) return;
-    if (!store.paused) {
-      store.setPaused(true);
-      engineRef.current?.stopAllPlayback();
-      send({ type: "interrupt" });
-      engineRef.current?.stopMic();
-      store.setPhase("idle");
-      store.setStatusText("PAUSED");
-      if (typeOpen) setTypeOpen(false);
-      document.body.classList.add("paused");
-    } else {
-      store.setPaused(false);
-      document.body.classList.remove("paused");
-      try {
-        await engineRef.current?.startMic(store.prefs.micId);
-      } catch (e) {
-        console.warn("[pause] resume mic failed:", e);
-      }
-      store.setStatusText(store.muted ? "MUTED" : "LISTENING");
-    }
-  };
-
-  const onOpenSettings = () => setSettingsOpen(true);
-  const onCloseSettings = () => setSettingsOpen(false);
-
-  // Picker action dispatchers — split so SettingsModal stays agnostic of WS.
-  const onSwapStt = (model: string) => {
-    const store = useAppStore.getState();
-    if (!model || model === store.sttModel) return;
-    store.setSttSwapping(true);
-    store.setSttStatus("loading…", "loading");
-    send({ type: "set_stt_model", model });
-  };
-
-  const onSwapSttEngine = (engine: string) => {
-    const store = useAppStore.getState();
-    if (!engine || engine === store.sttEngine) return;
-    store.setSttSwapping(true);
-    store.setSttStatus(`loading ${engine}…`, "loading");
-    send({ type: "set_stt_engine", engine });
-  };
-
-  const onSwapVoice = (voice: string) => {
-    const store = useAppStore.getState();
-    if (!voice || voice === store.voice) return;
-    store.setVoiceSwapping(true);
-    store.setVoiceStatus("loading…", "loading");
-    send({ type: "set_voice", voice });
-  };
-
-  const onSwapModel = (model: string) => {
-    const store = useAppStore.getState();
-    if (!model || model === store.model) return;
-    store.setModelStatus("switching…", "loading");
-    send({ type: "set_model", model });
-  };
-
-  const onSpeedChange = (speed: number) => {
-    const store = useAppStore.getState();
-    store.setSpeed(speed);
-    store.patchPrefs({ speed });
-    send({ type: "set_speed", speed });
-  };
-
-  const onToggleTools = (value: boolean) => {
-    send({ type: "set_tools_enabled", value });
-  };
-
-  const onToggleTool = (tool: string, value: boolean) => {
-    send({ type: "set_tool_allowed", tool, value });
-  };
-
-  const onSwapPersona = (name: string) => {
-    const store = useAppStore.getState();
-    if (!name || name === store.persona) return;
-    store.setPersonaStatus("loading…", "loading");
-    send({ type: "set_persona", name });
-  };
-
-  const onSubmitCustomPersona = (prompt: string) => {
-    const trimmed = prompt.trim();
-    if (!trimmed) return;
-    useAppStore.getState().setPersonaStatus("saving…", "loading");
-    useAppStore.getState().patchPrefs({ customPersonaPrompt: trimmed });
-    send({ type: "set_persona_custom_prompt", prompt: trimmed });
-  };
-
-  const onMicChange = async (deviceId: string | null) => {
-    const store = useAppStore.getState();
-    store.patchPrefs({ micId: deviceId });
-    if (store.ended) return;
-    engineRef.current?.stopMic();
-    try {
-      await engineRef.current?.startMic(deviceId);
-      store.setStatusText(store.muted ? "MUTED" : "LISTENING");
-    } catch (e: any) {
-      console.error(e);
-      store.setStatusText("MIC ERROR: " + (e?.message || ""));
-    }
-  };
-
-  // Orb tap-to-interrupt (separate from button-driven Skip).
-  const onOrbClick = () => {
-    const store = useAppStore.getState();
-    if (store.phase === "speaking" || store.phase === "thinking") {
-      engineRef.current?.stopAllPlayback();
-      send({ type: "interrupt" });
-    }
-  };
-
-  // Caption/meter visibility classes mirror the legacy `hidden` toggle.
-  useEffect(() => {
-    const captionsEl = document.getElementById("captions");
-    captionsEl?.classList.toggle("hidden", !prefs.showCaptions);
-  }, [prefs.showCaptions]);
+  const voiceOptions: PickerOption[] = voicesAvailable.map((v) => ({
+    value: v.id,
+    label: v.label,
+  }));
+  const pct = progress
+    ? Math.round((100 * progress.done) / Math.max(1, progress.total))
+    : 0;
 
   return (
-    <>
-      <span id="timer" style={{ display: "none" }} aria-hidden="true">
-        00:00
-      </span>
-      <span id="assistant-name" style={{ display: "none" }} aria-hidden="true">
-        local-tts
-      </span>
+    <div className="reader-root">
+      <header className="hdr">
+        <div className="hdr-meta">
+          <span className="meta-item">
+            <span className="meta-label">app</span>
+            <span className="meta-value">READER</span>
+          </span>
+          <span className="meta-div" aria-hidden="true" />
+          <span className="meta-item">
+            <span className="meta-label">model</span>
+            <span className="meta-value">{model || "…"}</span>
+          </span>
+          <span className="meta-div" aria-hidden="true" />
+          <span className="meta-item">
+            <span className="meta-label">link</span>
+            <span
+              className="meta-value"
+              style={{ color: connected ? "var(--accent)" : "var(--text-mute)" }}
+            >
+              {connected ? "ON" : "OFF"}
+            </span>
+          </span>
+        </div>
+      </header>
 
-      <Header onOpenSettings={onOpenSettings} />
+      <OrbContainer />
 
-      <main className="stage" onClick={(e) => {
-        // Tap-to-interrupt only fires for the orb itself, not its parent.
-        const target = e.target as HTMLElement;
-        if (target.closest("#orb")) onOrbClick();
-      }}>
-        <OrbContainer ref={orbRef} />
-        <MicMeter />
-        <Captions />
+      <main className="reader-panel">
+        <div className="reader-input-row">
+          <input
+            className="reader-url"
+            type="url"
+            inputMode="url"
+            placeholder="Paste an article URL…"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onRead();
+            }}
+            disabled={busy}
+          />
+          <button
+            className="reader-go"
+            type="button"
+            onClick={onRead}
+            disabled={busy || !url.trim()}
+          >
+            {busy ? "···" : "READ"}
+          </button>
+        </div>
+
+        <div className="reader-controls">
+          <div className="seg" role="group" aria-label="read mode">
+            {(["full", "summary"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={`seg-btn ${prefs.mode === m ? "active" : ""}`}
+                disabled={busy}
+                onClick={() => patchPrefs({ mode: m })}
+              >
+                {m === "full" ? "Full article" : "Summary"}
+              </button>
+            ))}
+          </div>
+          {voiceOptions.length > 0 ? (
+            <div className="reader-voice">
+              <Picker
+                label="Voice"
+                options={voiceOptions}
+                value={prefs.voice}
+                disabled={busy}
+                onChange={(v) => patchPrefs({ voice: v })}
+              />
+            </div>
+          ) : null}
+        </div>
+
+        {busy || statusText ? (
+          <div className="reader-status">
+            <span className="reader-status-text">{statusText}</span>
+            {progress ? (
+              <span className="reader-bar">
+                <span className="reader-bar-fill" style={{ width: `${pct}%` }} />
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        {error ? <div className="reader-error">{error}</div> : null}
+
+        {result ? (
+          <div className="reader-result">
+            <div className="reader-title">{result.title}</div>
+            <div className="reader-result-meta">
+              {result.mode === "summary" ? "Summary" : "Full"} ·{" "}
+              {result.wordCount.toLocaleString()} words ·{" "}
+              {fmtDuration(result.durationSec)}
+            </div>
+            <audio
+              className="reader-audio"
+              controls
+              autoPlay
+              src={result.audioUrl}
+              onPlay={() => useAppStore.getState().setPhase("speaking")}
+              onPause={() => useAppStore.getState().setPhase("idle")}
+              onEnded={() => useAppStore.getState().setPhase("idle")}
+            />
+            <a className="reader-download" href={result.audioUrl} download>
+              ↓ Download audio
+            </a>
+          </div>
+        ) : null}
       </main>
-
-      <SettingsModal
-        open={settingsOpen}
-        onClose={onCloseSettings}
-        onSwapStt={onSwapStt}
-        onSwapSttEngine={onSwapSttEngine}
-        onSwapVoice={onSwapVoice}
-        onSwapModel={onSwapModel}
-        onSpeedChange={onSpeedChange}
-        onMicChange={onMicChange}
-        onToggleTools={onToggleTools}
-        onToggleTool={onToggleTool}
-        onSwapPersona={onSwapPersona}
-        onSubmitCustomPersona={onSubmitCustomPersona}
-      />
-
-      <footer className="dock">
-        <TypePopover
-          open={typeOpen}
-          onClose={closeType}
-          onSubmit={onSubmitText}
-        />
-        <Dock
-          onToggleMute={onToggleMute}
-          onSkip={skipCurrent}
-          onToggleType={onToggleType}
-          onTogglePause={onTogglePause}
-          onOpenSettings={onOpenSettings}
-          typeOpen={typeOpen}
-        />
-      </footer>
-    </>
+    </div>
   );
 }

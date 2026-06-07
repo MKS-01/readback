@@ -1,9 +1,6 @@
-// Generic select-with-status-hint. Used by STT, voice, LLM model, and
-// (Phase 5) persona pickers. The legacy app.js had three near-identical
-// copies of populate*/setStatus/request*Swap/handle*Event — this single
-// component replaces all of them. The "ready → clear hint" auto-fade is
-// owned by App.tsx (where the WS event lands), so this component is a pure
-// view.
+// Generic select-with-status-hint. Used by the STT, voice, and LLM model
+// pickers. The "ready → clear hint" auto-fade is owned by App.tsx (where the
+// WS event lands), so this component is a pure view.
 
 import { useId } from "react";
 import { SwapState } from "../state/store";
@@ -12,8 +9,7 @@ export interface PickerOption {
   value: string;
   label: string;
   // Optional <optgroup> heading. Options sharing a group are rendered together
-  // under it; ungrouped options render before any groups (used to set off
-  // cloned voices from presets in the voice picker).
+  // under it; ungrouped options render before any groups.
   group?: string;
 }
 

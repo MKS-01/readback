@@ -1,10 +1,11 @@
-// Zustand store. Single source of truth for everything React renders. The
-// audio engine, WS client, and brain controller live OUTSIDE the store as
-// singletons; they only push events into it via setters.
+// Zustand store for the article reader. Lives outside React so the WS client and
+// three.js orb can push updates without re-mounting.
 
 import { create } from "zustand";
 import { defaultPrefs, loadPrefs, Prefs, savePrefs } from "../lib/prefs";
 
+// Phase drives the orb (brain.ts). We reuse its existing vocabulary: "thinking"
+// while a read job runs, "speaking" while audio plays, "idle" otherwise.
 export type Phase = "idle" | "listening" | "thinking" | "speaking";
 export type SwapState = "" | "loading" | "ready" | "error";
 
@@ -13,199 +14,66 @@ export interface VoiceOption {
   label: string;
 }
 
-export interface AppState {
-  // --- session / config ---
-  sessionId: string | null;
-  voice: string | null;
-  voicesAvailable: VoiceOption[];
-  model: string | null;
-  modelsAvailable: string[];
-  sttEngine: string | null;
-  sttEnginesAvailable: string[];
-  sttModel: string | null;
-  sttModelsAvailable: string[];
-  turnEnabled: boolean; // Smart-Turn active server-side
-  turnWaiting: boolean; // mid-thought pause: model said "not done yet"
-  persona: string | null;
-  personasAvailable: string[];
-  personaStatus: { text: string; kind: SwapState };
-  toolsEnabled: boolean;
-  toolsAvailable: string[];
-  toolsAllowed: string[];
-  inputMode: "vad" | "wake_word";
-  wakewordModel: string | null;
-  wakewordDisplayName: string | null;
-  inputModeStatus: { text: string; kind: SwapState };
-  obsidianEnabled: boolean;
-  speed: number;
-  outSampleRate: number;
-
-  // --- runtime ---
-  phase: Phase;
-  statusText: string;
-  muted: boolean;
-  paused: boolean;
-  skipping: boolean;
-  ended: boolean;
-
-  // --- picker UI state ---
-  sttSwapping: boolean;
-  sttStatus: { text: string; kind: SwapState };
-  voiceSwapping: boolean;
-  voiceStatus: { text: string; kind: SwapState };
-  modelStatus: { text: string; kind: SwapState };
-
-  // --- transcripts ---
-  userCaption: string;
-  partialCaption: string; // live streaming ASR partial (Parakeet), pre-finalize
-  aiSentences: string[];
-  aiAccum: string;
-
-  // --- mic input level ---
-  micLevel: number;
-
-  // --- prefs ---
-  prefs: Prefs;
-
-  // --- actions ---
-  setSession: (config: Partial<AppState>) => void;
-  setPhase: (phase: Phase) => void;
-  setStatusText: (text: string) => void;
-  setMuted: (muted: boolean) => void;
-  setPaused: (paused: boolean) => void;
-  setSkipping: (skipping: boolean) => void;
-  setEnded: (ended: boolean) => void;
-  setUserCaption: (text: string) => void;
-  setPartialCaption: (text: string) => void;
-  appendAiSentence: (text: string) => void;
-  clearAiCaption: () => void;
-  clearCaptions: () => void;
-  setMicLevel: (level: number) => void;
-  setSttSwapping: (s: boolean) => void;
-  setSttStatus: (text: string, kind?: SwapState) => void;
-  setVoiceSwapping: (s: boolean) => void;
-  setVoiceStatus: (text: string, kind?: SwapState) => void;
-  setModelStatus: (text: string, kind?: SwapState) => void;
-  setSttModel: (model: string) => void;
-  setSttEngine: (engine: string) => void;
-  setTurnWaiting: (waiting: boolean) => void;
-  setVoice: (voice: string) => void;
-  setModel: (model: string) => void;
-  setPersona: (name: string) => void;
-  setPersonaStatus: (text: string, kind?: SwapState) => void;
-  setToolsEnabled: (enabled: boolean) => void;
-  setToolsAllowed: (allowed: string[]) => void;
-  setInputMode: (mode: "vad" | "wake_word") => void;
-  setInputModeStatus: (text: string, kind?: SwapState) => void;
-  setSpeed: (speed: number) => void;
-  patchPrefs: (patch: Partial<Prefs>) => void;
+export interface ReadResult {
+  title: string;
+  audioUrl: string;
+  durationSec: number;
+  wordCount: number;
+  mode: string;
 }
 
-// Phase → status text. Mirrors the labels from the legacy app.js.
-const PHASE_STATUS: Record<Phase, string> = {
-  idle: "STANDBY",
-  listening: "LISTENING",
-  thinking: "ANALYZING",
-  speaking: "TRANSMITTING",
-};
+export interface AppState {
+  connected: boolean;
+  phase: Phase;
+  statusText: string;
+  progress: { done: number; total: number } | null;
+  busy: boolean;
+  error: string;
+  result: ReadResult | null;
+
+  // server config
+  voicesAvailable: VoiceOption[];
+  model: string;
+
+  // prefs
+  prefs: Prefs;
+
+  setConnected: (connected: boolean) => void;
+  setPhase: (phase: Phase, statusText?: string) => void;
+  setStatus: (statusText: string) => void;
+  setProgress: (p: { done: number; total: number } | null) => void;
+  setBusy: (busy: boolean) => void;
+  setError: (error: string) => void;
+  setResult: (result: ReadResult | null) => void;
+  setSession: (patch: Partial<AppState>) => void;
+  patchPrefs: (patch: Partial<Prefs>) => void;
+}
 
 const initialPrefs = loadPrefs();
 
 export const useAppStore = create<AppState>((set, get) => ({
-  sessionId: null,
-  voice: null,
-  voicesAvailable: [],
-  model: null,
-  modelsAvailable: [],
-  sttEngine: null,
-  sttEnginesAvailable: [],
-  sttModel: null,
-  sttModelsAvailable: [],
-  turnEnabled: false,
-  turnWaiting: false,
-  persona: null,
-  personasAvailable: [],
-  personaStatus: { text: "", kind: "" },
-  toolsEnabled: initialPrefs.toolsEnabled,
-  toolsAvailable: [],
-  toolsAllowed: [],
-  inputMode: initialPrefs.inputMode,
-  wakewordModel: null,
-  wakewordDisplayName: null,
-  inputModeStatus: { text: "", kind: "" },
-  obsidianEnabled: false,
-  speed: initialPrefs.speed,
-  outSampleRate: 24000,
-
+  connected: false,
   phase: "idle",
-  statusText: "CONNECTING",
-  muted: false,
-  paused: false,
-  skipping: false,
-  ended: false,
+  statusText: "",
+  progress: null,
+  busy: false,
+  error: "",
+  result: null,
 
-  sttSwapping: false,
-  sttStatus: { text: "", kind: "" },
-  voiceSwapping: false,
-  voiceStatus: { text: "", kind: "" },
-  modelStatus: { text: "", kind: "" },
-
-  userCaption: "",
-  partialCaption: "",
-  aiSentences: [],
-  aiAccum: "",
-
-  micLevel: 0,
+  voicesAvailable: [],
+  model: "",
 
   prefs: initialPrefs,
 
-  setSession: (partial) => set(partial as any),
-  setPhase: (phase) => {
-    const s = get();
-    if (s.ended) return;
-    if (s.paused && phase !== "idle") return;
-    set({
-      phase,
-      statusText: PHASE_STATUS[phase] || phase.toUpperCase(),
-      skipping: s.skipping && phase === "idle" ? false : s.skipping,
-    });
-  },
-  setStatusText: (statusText) => set({ statusText }),
-  setMuted: (muted) => set({ muted }),
-  setPaused: (paused) => set({ paused }),
-  setSkipping: (skipping) => set({ skipping }),
-  setEnded: (ended) => set({ ended }),
-  setUserCaption: (text) => set({ userCaption: text }),
-  setPartialCaption: (text) => set({ partialCaption: text }),
-  appendAiSentence: (text) => {
-    if (!text) return;
-    const cur = get();
-    const sentences = [...cur.aiSentences, text];
-    const accum = cur.aiAccum ? cur.aiAccum + " " + text : text;
-    set({ aiSentences: sentences, aiAccum: accum });
-  },
-  clearAiCaption: () => set({ aiSentences: [], aiAccum: "" }),
-  clearCaptions: () =>
-    set({ userCaption: "", partialCaption: "", aiSentences: [], aiAccum: "" }),
-  setMicLevel: (micLevel) => set({ micLevel }),
-  setSttSwapping: (sttSwapping) => set({ sttSwapping }),
-  setSttStatus: (text, kind = "") => set({ sttStatus: { text, kind } }),
-  setVoiceSwapping: (voiceSwapping) => set({ voiceSwapping }),
-  setVoiceStatus: (text, kind = "") => set({ voiceStatus: { text, kind } }),
-  setModelStatus: (text, kind = "") => set({ modelStatus: { text, kind } }),
-  setSttModel: (sttModel) => set({ sttModel }),
-  setSttEngine: (sttEngine) => set({ sttEngine }),
-  setTurnWaiting: (turnWaiting) => set({ turnWaiting }),
-  setVoice: (voice) => set({ voice }),
-  setModel: (model) => set({ model }),
-  setPersona: (persona) => set({ persona }),
-  setPersonaStatus: (text, kind = "") => set({ personaStatus: { text, kind } }),
-  setToolsEnabled: (toolsEnabled) => set({ toolsEnabled }),
-  setToolsAllowed: (toolsAllowed) => set({ toolsAllowed }),
-  setInputMode: (inputMode) => set({ inputMode }),
-  setInputModeStatus: (text, kind = "") =>
-    set({ inputModeStatus: { text, kind } }),
-  setSpeed: (speed) => set({ speed }),
+  setConnected: (connected) => set({ connected }),
+  setPhase: (phase, statusText) =>
+    set(statusText !== undefined ? { phase, statusText } : { phase }),
+  setStatus: (statusText) => set({ statusText }),
+  setProgress: (progress) => set({ progress }),
+  setBusy: (busy) => set({ busy }),
+  setError: (error) => set({ error }),
+  setResult: (result) => set({ result }),
+  setSession: (patch) => set(patch),
   patchPrefs: (patch) => {
     const next = { ...get().prefs, ...patch };
     set({ prefs: next });
@@ -216,3 +84,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 export function patchPrefs(patch: Partial<Prefs>) {
   useAppStore.getState().patchPrefs(patch);
 }
+
+export { defaultPrefs };
+export type { Prefs };

@@ -81,7 +81,7 @@ def _fingerprint(cert_path: Path) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="local-tts — local voice conversation (web UI)"
+        description="local-tts — offline article reader (URL → audio, web UI)"
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8000, type=int)

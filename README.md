@@ -31,7 +31,7 @@ Most "local AI voice" projects are either a CLI loop with no real UI, a thin wra
 | **Cross-device** | Phone + tablet over LAN via HTTPS | Localhost only |
 | **Echo cancellation** | Browser WebRTC AEC — no headphones needed | PTT key or headphones required |
 
-The pipeline is a streaming cascade: Parakeet transcribes **live as you speak**, Smart-Turn decides when you're actually done, Ollama generates, and Qwen3-TTS synthesizes each sentence as it arrives — so the assistant **starts speaking before the full reply is generated**.
+The pipeline is a streaming cascade: Parakeet transcribes **live as you speak**, Smart-Turn decides when you're actually done, Ollama generates, and CSM-1B synthesizes each sentence as it arrives — so the assistant **starts speaking before the full reply is generated**.
 
 ---
 
@@ -40,9 +40,9 @@ The pipeline is a streaming cascade: Parakeet transcribes **live as you speak**,
 | Layer | Technology |
 |---|---|
 | **LLM** | [Ollama](https://ollama.ai/) — default NVIDIA **`nemotron-3-nano:4b`** (`think=False`); any local chat model selectable, with **function-calling / tools** |
-| **STT** | **Dual engine, switchable:** NVIDIA [Parakeet](https://github.com/senstella/parakeet-mlx) (MLX, default, **streaming**) + [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (batch, 6 sizes) |
+| **STT** | NVIDIA [Parakeet](https://github.com/senstella/parakeet-mlx) (MLX, **streaming** live captions) — the sole ASR engine |
 | **Turn-taking** | [Smart-Turn v3](https://github.com/pipecat-ai/smart-turn) — semantic end-of-turn (ONNX/CPU ~12 ms) over webrtcvad; VAD-only fallback |
-| **TTS** | [Qwen3-TTS-0.6B](https://github.com/QwenLM/Qwen3-TTS) via [mlx-audio](https://github.com/Blaizzy/mlx-audio) — Metal, 24 kHz, 9 speakers |
+| **TTS** | [CSM-1B](https://huggingface.co/mlx-community/csm-1b) (Sesame Conversational Speech Model) via [mlx-audio](https://github.com/Blaizzy/mlx-audio) — Metal, 24 kHz, 2 presets + voice cloning |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams audio sentence-by-sentence |
 | **Frontend** | React + TypeScript + Vite + zustand — three.js neural orb, AudioWorklet capture |
 | **Wake-word** | [openWakeWord](https://github.com/dscripka/openWakeWord) (optional, opt-in extra) |
@@ -74,7 +74,7 @@ cd local_tts/web/frontend && npm install && npm run build && cd ../../..
 local-tts                               # http://127.0.0.1:8000
 ```
 
-Speech models download automatically on first run (Parakeet ~2.5 GB, Qwen3-TTS-0.6B, Smart-Turn ~8 MB). No HuggingFace login needed.
+Speech models download automatically on first run (Parakeet ~2.5 GB, CSM-1B ~6.2 GB, Smart-Turn ~8 MB). No HuggingFace login needed.
 
 ---
 
@@ -103,18 +103,16 @@ The UI is a single browser page — no Electron, no desktop app. Open `http://12
 The settings panel lets you change every runtime parameter **without restarting the server**:
 
 - **Microphone** — switch between any input device the browser sees; new device activates instantly.
-- **ASR Engine** — switch between **Parakeet** (NVIDIA, MLX, default — streams live captions as you speak) and **Whisper** (faster-whisper, batch). The model picker below filters to the active engine's models.
-  - Parakeet: `parakeet-tdt-0.6b-v2` ★ (English), `-v3` (25 langs), `-1.1b` (most accurate), `-rnnt-0.6b`, `-ctc-0.6b`.
-  - Whisper: `tiny` / `base` / `small` / `medium` / `large-v3-turbo` / `large-v3`.
+- **ASR Model** — **Parakeet** (NVIDIA, MLX) streams live captions as you speak — the sole ASR engine. Pick the checkpoint:
+  - `parakeet-tdt-0.6b-v2` ★ (English), `-v3` (25 langs), `-1.1b` (most accurate), `-rnnt-0.6b`, `-ctc-0.6b`.
   - The picker disables while the new model loads; re-enables on server confirmation.
 - **LLM Model** — switch between any model currently pulled in Ollama (default `nemotron-3-nano:4b`). Change takes effect on the next message.
-- **Voice (TTS)** — 9 Qwen3-TTS speakers, switchable instantly while idle:
-  - `ryan` ★ (male, default), `eric`, `aiden`, `dylan`, `uncle_fu`
-  - `serena` ★ (female), `vivian`, `ono_anna`, `sohee`
-  - Plus any **cloned voices** you add under `tts.qwen.clones` (shown as `clone:<name>`) — clone any voice from a short reference clip; see `scripts/make_clone_voice.sh`.
+- **Voice (TTS)** — CSM-1B voices, switchable instantly while idle (presets and clones share one model — no reload):
+  - `conversational_a` ★ (female, default), `conversational_b` (male)
+  - Plus any **cloned voices** you add under `tts.csm.clones` (shown as `clone:<name>`) — clone any voice from a short reference clip; see `scripts/make_clone_voice.sh`. CSM is **English-best**.
 - **Persona** — swap the system prompt at runtime. Ships with `default` (sharp, tech-savvy and easygoing, 3–4 sentences), `concise` (one sentence), `researcher` (answer-first, cites specifics, separates fact from inference), `chef` (veg-leaning Indian home cooking), `professor` (Miss Phd — witty AI/ML lecturer), and a `custom` slot with a textarea you can edit and save.
 - **Internet research (Tools)** — master toggle plus per-tool checkboxes. When on, the LLM can call `clock` and `web_search` (DuckDuckGo, no API key) and fold results into its response.
-- **Speech Speed** — Slow / Medium / Fast, applied to every TTS synthesis call.
+- **Speech Speed** — Slow / Medium / Fast (currently a no-op — CSM-1B has no speed control; the slider is kept for a future engine).
 - **Orb size** — 120–380 px slider.
 - **Mic meter / Captions** — toggle the 5-bar input meter and live transcript display.
 
@@ -205,13 +203,18 @@ Edit `config.yaml` for non-UI knobs:
 | Key | What | Default |
 |---|---|---|
 | `ollama.model` | Any local Ollama chat model | `nemotron-3-nano:4b` |
-| `tts.qwen.speaker` | Qwen3-TTS speaker (9 presets, see [CLAUDE.md](CLAUDE.md)) | `ryan` |
-| `stt.engine` | ASR engine: `parakeet` or `whisper` | `parakeet` |
+| `tts.csm.speaker` | CSM-1B voice (`conversational_a`/`_b` or `clone:<name>`) | `conversational_a` |
+| `stt.engine` | ASR engine (single value: `parakeet`) | `parakeet` |
 | `stt.parakeet.model` | Parakeet checkpoint | `…parakeet-tdt-0.6b-v2` |
-| `stt.whisper.model` | Whisper checkpoint (when engine=whisper) | `medium` |
+| `tts.csm.precision` | Inference precision: `bf16` (clean+fast) / `fp16` / `fp32` (slow) | `bf16` |
+| `tts.csm.ref_max_sec` | Voice-prompt cap (s); `null`/`0` = full reference; raise for steadier timbre | `4.0` |
 | `turn.enabled` | Smart-Turn v3 end-of-turn (VAD-only fallback if off) | `true` |
 | `turn.threshold` | P(turn complete) ≥ this ends the turn | `0.5` |
+| `turn.recheck_ms` | How often Smart-Turn re-checks during a pause | `300` |
 | `vad.aggressiveness` | WebRTC VAD aggressiveness 0–3 | `2` |
+| `vad.silence_end_ms` | Pause before end-of-turn; **lower = snappier** for fast talkers | `480` |
+| `vad.min_utterance_ms` | Drop utterances shorter than this (noise blips) | `360` |
+| `vad.speaking_cooldown_ms` | Mic stays shut this long after playback (echo guard) | `600` |
 | `persona.active` | Active persona name | `default` |
 | `persona.personas` | List of `{name, system_prompt}` overrides | (5 seeded) |
 | `tools.enabled` | Master switch for function-calling tools | `false` |
@@ -223,7 +226,7 @@ Edit `config.yaml` for non-UI knobs:
 | `memory.session_dir` | Crash-recovery JSONL location | `~/.local-tts/sessions` |
 | `memory.keep_days` | Rotate JSONLs older than N days | `30` |
 
-> **Picking an ASR engine.** Parakeet (MLX/Metal) streams live captions and finalizes near-instantly — the default. Whisper is batch-only (transcript appears at turn end) but its multilingual checkpoints handle heavy accents well; switch to it in Settings when you need that.
+> **ASR.** Parakeet (MLX/Metal) streams live captions and finalizes near-instantly. It has no built-in hallucination filtering, so the server drops short filler/backchannel transcripts (`okay`, `mm-hmm`, …) to stop echo/music self-trigger loops. For clean voice input, use headphones or avoid playing other audio through the same speakers.
 
 ---
 
@@ -232,23 +235,37 @@ Edit `config.yaml` for non-UI knobs:
 ```
 browser mic → WebSocket (Int16 PCM 16kHz)
   → webrtcvad utterance segmentation
-  → Parakeet STT (streaming → live partial captions)   [or Whisper, batch]
+  → Parakeet STT (streaming → live partial captions)
+  → phantom/backchannel filter (drop echo/music false triggers)
   → Smart-Turn v3 confirms end-of-turn (else keep listening)
   → Ollama streaming LLM (Nemotron, think=False) ⇄ (tools — when enabled)
   → sentence splitter
-  → Qwen3-TTS (per sentence)
+  → CSM-1B TTS (per sentence)
   → WebSocket (Float32 PCM 24kHz)
   → browser speaker (gapless AudioBufferSourceNode queue)
   → (on disconnect) topic classifier → Obsidian markdown export
 ```
 
-The pipeline is **streaming end-to-end**: words appear live while you speak, Smart-Turn avoids cutting you off at mid-thought pauses, and Qwen3-TTS synthesizes each sentence the moment it arrives from Ollama — so playback starts well before the full reply is generated. Tool round-trips do one non-streaming probe (max 3 hops) before the final response streams, so "what time is it?" comes back as natural speech, not a JSON blob.
+The pipeline is **streaming end-to-end**: words appear live while you speak, Smart-Turn avoids cutting you off at mid-thought pauses, and CSM-1B synthesizes each sentence the moment it arrives from Ollama — so playback starts well before the full reply is generated. Tool round-trips do one non-streaming probe (max 3 hops) before the final response streams, so "what time is it?" comes back as natural speech, not a JSON blob.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-level view (cascade, threading model, turn lifecycle, extension points) and [CLAUDE.md](CLAUDE.md) for deeper implementation notes on the MLX single-thread executors, interrupt handling, hot-swap locking, Smart-Turn fallback, and Whisper hallucination mitigations.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-level view (cascade, threading model, turn lifecycle, extension points) and [CLAUDE.md](CLAUDE.md) for deeper implementation notes on the MLX single-thread executors, interrupt handling, hot-swap locking, Smart-Turn fallback, and the phantom-utterance / speaker-bleed guards.
 
 ---
 
 ## Changelog
+
+### v0.7.0 — Parakeet-only ASR + anti-feedback tuning + bf16 TTS
+- **CSM now runs bf16, not int8 quant (cleaner voice).** Aligned with [MisoTTS](https://github.com/MisoLabsAI/MisoTTS) (same Sesame CSM architecture, which runs bf16 and never quantizes): the int8 group-quantization was garbling/robotizing output (and risked quantizing the Mimi codec). bf16 keeps decode clean and is at least as fast on Apple Silicon (native matmul, no dequant). New `tts.csm.precision` knob (`bf16`/`fp16`/`fp32`). Reference handling matches MisoLab — `tts.csm.ref_max_sec: null` uses the full reference; the cap now trims prompt audio *and* transcript together (a mismatched pair garbled clones).
+- **Whisper removed.** Parakeet (MLX, streaming) is now the sole ASR engine; the `faster-whisper` dependency and the dual-engine selector are gone. The `ASREngine` protocol + `Transcriber` facade stay, so a second engine remains a one-file addition. Lighter install, simpler config (`stt.whisper` dropped).
+- **Phantom-utterance guard.** Parakeet has no no-speech/log-prob hallucination filtering, so it transcribed TTS bleed, room reverb, and background music into short backchannels that self-triggered a runaway reply loop. The server now drops whole ASR utterances that normalize to pure fillers (`okay`, `mm-hmm`, `uh huh`, `thank you`, …) — ASR text only; typed input and `yes`/`no` are untouched. Reverb cooldown raised to 0.6 s.
+- **Latency tuning, now config-driven.** The turn/segmentation timings are exposed in `config.yaml` instead of hardcoded — `vad.silence_end_ms` (end-of-turn pause, default 480 ms, was 750 ms), `turn.recheck_ms` (Smart-Turn re-check cadence, 300 ms), `vad.min_utterance_ms` (360 ms), `vad.speaking_cooldown_ms` (echo guard, 600 ms). Dial `silence_end_ms` down for fast talkers — Smart-Turn backstops false early ends. CSM voice-prompt cap (`tts.csm.ref_max_sec`) defaults to 4 s — raise toward 5 s if the voice sounds garbled/robotic (too-short prompt destabilizes timbre), lower toward 3 s for more realtime headroom. `tts.csm.temperature` default lowered to 0.7 for steadier output.
+- **Clone reference transcription** now runs through Parakeet (English-only). Non-English clones must set `ref_text` explicitly in config.
+
+### v0.6.0 — CSM-1B TTS (Sesame, MisoTTS-family)
+- **CSM-1B replaces Qwen3-TTS.** [`mlx-community/csm-1b`](https://huggingface.co/mlx-community/csm-1b) (Sesame Conversational Speech Model — the open base the [MisoTTS](https://www.misolabs.ai/) family is built on) via the same `mlx-audio` library (Metal, 24 kHz). More natural, conversational voice quality, with built-in reference-audio voice cloning. SilentCipher watermark on by default (`tts.csm.watermark`).
+- **One model, instant voice swaps.** Presets (`conversational_a`/`_b`) and `clone:<name>` voices share a single loaded model — no checkpoint reload between them (Qwen swapped between CustomVoice/Base). Clones reuse the existing `voice/` clips + `scripts/make_clone_voice.sh`.
+- **Engine seam kept** for a future MisoTTS-8B MLX port (`cfg.tts.engine`). Legacy `tts.qwen` configs auto-migrate to CSM on load.
+- **Tradeoffs:** English-best (the multilingual Qwen speakers are gone); the speed slider and per-clone `instruct` are inert (CSM has no equivalents); multi-turn conversational context is a follow-up (mlx-audio's public `generate()` conditions on one segment). Target hardware: Apple Silicon M-series / 48 GB (M5 Pro).
 
 ### v0.5.0 — Open-model voice pipeline (NVIDIA/Qwen, Apple Silicon)
 - **Dual ASR engine, switchable at runtime.** **Parakeet** (NVIDIA, via `parakeet-mlx` on Metal) is the default with **live streaming captions**; **Whisper** (faster-whisper, batch) stays as a one-click alternative. Two-level picker in Settings (engine + per-engine model). Measured on M5: Parakeet batch RTF ~0.24 vs Whisper medium ~0.61.

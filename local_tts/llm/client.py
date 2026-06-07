@@ -5,7 +5,7 @@ from typing import Iterator, Optional, TYPE_CHECKING
 
 import ollama
 
-from local_tts.config import OllamaConfig, Persona, PersonaConfig
+from local_tts.config import OllamaConfig
 
 if TYPE_CHECKING:
     from local_tts.tools.registry import ToolRegistry
@@ -127,56 +127,13 @@ class LLMClient:
     def __init__(
         self,
         cfg: OllamaConfig,
-        personas: PersonaConfig,
         tools: Optional["ToolRegistry"] = None,
     ):
         self.cfg = cfg
-        self.personas = personas
+        # Single fixed system prompt (the persona system was removed in v0.7.x).
+        self.system_prompt = cfg.system_prompt
         self.tools = tools
         self._client = ollama.Client(host=cfg.host)
-        # Serializes persona swaps. Reads of `personas.active` in `stream_tokens`
-        # are a single atomic attribute access and don't need it; the lock is
-        # only to keep `swap_persona` / `set_custom_prompt` write paths consistent.
-        self._swap_lock = threading.Lock()
-
-    @property
-    def active_persona(self) -> Persona:
-        """The currently selected persona. Falls back to the first persona in
-        the list if `active` references something missing — defensive against
-        config edits or migrations that leave a dangling name."""
-        active_name = self.personas.active
-        for p in self.personas.personas:
-            if p.name == active_name:
-                return p
-        return self.personas.personas[0]
-
-    def list_personas(self) -> list[str]:
-        return [p.name for p in self.personas.personas]
-
-    def swap_persona(self, name: str) -> str:
-        """Switch the active persona. Returns the name that was activated.
-        In-flight `stream_tokens` calls finish on their original prompt (the
-        active name is read once at the top of the function); the next call
-        picks up the new persona. Mirrors `Transcriber.swap_model`."""
-        with self._swap_lock:
-            for p in self.personas.personas:
-                if p.name == name:
-                    self.personas.active = name
-                    return name
-            raise ValueError(f"Unknown persona {name!r}")
-
-    def set_custom_prompt(self, prompt: str) -> str:
-        """Create or update a persona named 'custom' with the given prompt and
-        make it active. Used by the settings panel's free-text persona editor."""
-        with self._swap_lock:
-            for p in self.personas.personas:
-                if p.name == "custom":
-                    p.system_prompt = prompt
-                    self.personas.active = "custom"
-                    return "custom"
-            self.personas.personas.append(Persona(name="custom", system_prompt=prompt))
-            self.personas.active = "custom"
-            return "custom"
 
     def stream_tokens(
         self,
@@ -189,10 +146,7 @@ class LLMClient:
         breaks early and closes the underlying HTTP stream — used by the web
         server's interrupt path so we don't keep burning tokens after Skip.
         """
-        # Snapshot the persona once at the start so a mid-stream swap doesn't
-        # mix prompts within a single response.
-        system_prompt = self.active_persona.system_prompt
-        messages = [{"role": "system", "content": system_prompt}] + history
+        messages = [{"role": "system", "content": self.system_prompt}] + history
         stripper = _ThinkStripper()
         try:
             response = self._client.chat(
@@ -244,7 +198,7 @@ class LLMClient:
         tool-call hop — the partial content is usually just a planning
         preamble that would speak awkwardly before the actual answer."""
         assert self.tools is not None
-        system_prompt = self.active_persona.system_prompt
+        system_prompt = self.system_prompt
         cur_history = list(history)
         tool_schemas = self.tools.schemas_for_active()
 
@@ -338,6 +292,26 @@ class LLMClient:
                 yield _strip_markdown(tail)
         except Exception as e:
             yield f"Sorry, I hit an error talking to Ollama: {e}"
+
+    def oneshot(self, system_prompt: str, user_text: str) -> str:
+        """Single non-streaming completion with an explicit system prompt (no
+        tools, no persona). Used by the reader's summary mode. Returns clean text
+        (think tags stripped)."""
+        try:
+            response = self._client.chat(
+                model=self.cfg.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_text},
+                ],
+                stream=False,
+                think=False,
+                options={"temperature": 0.4},
+            )
+            return strip_think(response.message.content or "").strip()
+        except Exception as e:
+            log.exception("oneshot completion failed")
+            return f"Sorry, I hit an error talking to Ollama: {e}"
 
     def unload_model(self, name: str) -> None:
         """Evict a model from Ollama's unified memory (keep_alive=0)."""

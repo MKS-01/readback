@@ -1,134 +1,28 @@
+# local-tts — offline article reader (v0.8.0).
+# Paste a URL → fetch + extract the article → (optional LLM summary) → CSM-1B TTS
+# → audio you play in-browser or download. All on-device.
+
 ollama:
-  # NVIDIA Nemotron (default). Reasoning is disabled via think=False and any
-  # inline <think>…</think> is stripped before TTS. Any pulled Ollama model is
-  # selectable at runtime from the web UI (e.g. nemotron3:33b, qwen3:4b).
+  # Used only by "summary" mode (turns the article into a spoken explanation).
   model: "nemotron-3-nano:4b"
   host: "http://localhost:11434"
-  # Legacy field. New installs should leave this unset and use `persona` below.
-  # If both are set, `persona` wins. When this is the only thing defined, it is
-  # promoted to the "default" persona at load time.
-  system_prompt: |
-    You are a conversational voice assistant. Speak naturally and concisely.
-    Use complete sentences. Avoid bullet points, markdown, code blocks, or special characters.
-    Keep responses under 3-4 sentences unless explicitly asked for more depth.
-    Never start a sentence with asterisks, hyphens, or other punctuation.
 
 tts:
-  # Qwen3-TTS (mlx-audio) is the sole engine for now (Kokoro removed). 24 kHz.
-  engine: "qwen"
-  qwen:
-    model: "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
-    # Preset speakers: ryan, eric, aiden, dylan, uncle_fu, serena, vivian,
-    # ono_anna, sohee. The web UI exposes a runtime picker.
-    speaker: "ryan"
-    speed: 1.0                        # currently a no-op for Qwen custom voice
-    # instruct: "warm, conversational"  # optional voice-design hint
-    base_model: "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16"  # for clones
-    #
-    # Reference-audio voice cloning. Each clone appears in the UI picker as
-    # "clone:<name>". Selecting one reloads the Base model (~1.2 GB on first use)
-    # and synthesizes in the cloned timbre — works cross-lingual (e.g. a Hindi
-    # reference clip speaking English replies). ref_text is the transcript of the
-    # clip in its OWN language; omit it to auto-transcribe via Whisper.
-    # instruct = emotion/style hint: shapes HOW the clone speaks (the wav sets
-    # WHO). Change it to retune the mood, e.g. "angry", "sad, soft", "excited,
-    # fast", "calm, conversational".
-    # K's voice (k-hi.wav reference) across moods — each entry differs only by
-    # `instruct`. (speed <1.0 = slower; temperature higher = more expressive.)
-    # (speed <1.0 = slower; temperature higher = more expressive.)
-    clones:
-      - name: k-voice
-        label: "K-Voice"
-        wav: voice/intro.wav         # relative to this config file's directory
-        ref_lang: en               # transcription language (omit = autodetect)
-        instruct: "speak slowly with intense, sharp anger and strong raw emotion"
-        speed: 0.85                # noticeably slower than default 1.0
-        temperature: 0.9  #1.05          # more expressive (default ~0.9)
-      - name: miss-phd
-        label: "Miss PhD"
-        wav: voice/miss-phd.wav    # dedicated Miss PhD reference clip
-        # ref_lang omitted → Whisper autodetects the clip's language
-        # A poised PhD introducing herself in English — articulate, confident,
-        # refined; mature scholarly delivery.
-        instruct: "a poised, articulate woman with a PhD introducing herself in English; calm, warm, composed and confident with refined scholarly gravitas; mature adult voice, not high-pitched, girlish or childish"
-        speed: 1.05                # clear, unhurried delivery
-        temperature: 0.85        # steady, less sing-song
+  # CSM-1B (Sesame) via csm-mlx (senstella). Two voices map to CSM speaker IDs;
+  # synth conditions on the built-in Sesame prompt clip for the active voice so
+  # the voice stays good and consistent.
+  engine: "csm"
+  csm:
+    # conversational_a (speaker 0 ★) / conversational_b (speaker 1).
+    speaker: "conversational_a"
+    # bf16 (clean + fast). Offline, so you can also use "fp32" for max quality.
+    precision: "bf16"
+    # Lower = steadier; higher = more varied. (No realtime constraint offline.)
+    temperature: 0.7
 
-stt:
-  # Two ASR engines, switchable at runtime from the web UI.
-  #   parakeet — NVIDIA Parakeet via MLX/Metal (streaming, live captions)
-  #   whisper  — faster-whisper / CTranslate2 (batch, CPU int8)
-  engine: "parakeet"
-  parakeet:
-    # Models: parakeet-tdt-0.6b-v2 (English ★), -v3 (25 langs), -1.1b (accurate),
-    # -rnnt-0.6b, -ctc-0.6b. First use downloads ~2.5GB.
-    model: "mlx-community/parakeet-tdt-0.6b-v2"
-    stream_chunk_ms: 320             # encoder step size while streaming
-  whisper:
-    # Sizes (int8): tiny ~75MB, base ~150MB, small ~480MB,
-    # medium ~1.5GB, large-v3-turbo ~1.6GB, large-v3 ~3GB.
-    model: "medium"
-    compute_type: "int8"             # int8 recommended for Apple Silicon CPU
-    beam_size: 5                     # 5 = balanced, 10 = max accuracy +200-400ms
-
-turn:
-  # Smart-Turn v3 semantic end-of-turn (ONNX, CPU ~12ms) on top of webrtcvad.
-  # Falls back to VAD-only if the model can't be downloaded/loaded.
-  enabled: true
-  model_file: "smart-turn-v3.2-cpu.onnx"
-  threshold: 0.5                     # P(turn complete) >= this ends the turn
-  max_wait_sec: 3.0                  # force end-of-turn after this much silence
-
-vad:
-  aggressiveness: 2                  # 0 (permissive) to 3 (aggressive)
-
-ui:
-  history_turns: 10                  # max turns kept in Ollama context
-
-# ── Personas ────────────────────────────────────────────────────────────────
-# Swappable system prompts. The web UI picker exposes these by name. Defaults
-# (default / concise / researcher) are seeded automatically, so this section
-# is only needed to override or add personas.
-persona:
-  active: "default"
-
-# ── Tools ───────────────────────────────────────────────────────────────────
-# Function-calling: the LLM can ask to run tools and the result is folded
-# back into its response. Toggle per-tool via the Settings panel.
-tools:
-  enabled: true
-  allowed: ["clock", "web_search"]
-  web_search_provider: "duckduckgo"   # only provider shipped today
-
-# ── Obsidian ────────────────────────────────────────────────────────────────
-# Every call writes a markdown transcript into the vault under a topic-named
-# folder chosen by the LLM at session end. The directory is auto-created on
-# first session.
-obsidian:
-  enabled: false
-  vault_root: "~/Documents/Obsidian/local-tts"
-  topic_model: null                  # reuses ollama.model when null
-
-# ── Wake-word (deferred) ────────────────────────────────────────────────────
-# Wake-word support exists in the codebase (`local_tts/wakeword/`,
-# `[wakeword]` extras, server WS handler) but the UI surface is currently
-# hidden because openWakeWord's bundled keywords are limited to alexa /
-# hey_jarvis / hey_mycroft and custom keywords need multi-hour training.
-# We'll revisit with a Picovoice Porcupine backend that supports
-# free-tier-trained custom keywords in ~30 seconds.
-#
-# To re-enable in the current state, uncomment the block below AND restore
-# the listening-mode picker in SettingsModal.tsx + the `mode` chip in Header.tsx.
-#
-# wakeword:
-#   enabled: true
-#   model: "hey_jarvis"             # alexa, hey_jarvis, hey_mycroft, hey_rhasspy
-#   threshold: 0.5
-# input:
-#   mode: "vad"                     # "wake_word" to require trigger word on launch
-
-# ── Memory ──────────────────────────────────────────────────────────────────
-# Crash-recovery JSONL files for in-progress sessions. Rotated after keep_days.
-memory:
-  session_dir: "~/.local-tts/sessions"
-  keep_days: 30
+reader:
+  # Generated WAVs are written here and served for playback + download.
+  output_dir: "~/.local-tts/reader"
+  default_mode: "full"               # "full" (verbatim) or "summary" (LLM)
+  gap_sec: 0.18                      # silence between (trimmed) chunks
+  summary_max_chars: 16000           # cap article text fed to the LLM in summary mode
