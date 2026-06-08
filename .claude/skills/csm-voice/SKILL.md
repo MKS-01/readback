@@ -5,7 +5,7 @@ description: Change, clone, tune, or fine-tune the reader's CSM-1B TTS voice. Us
 
 # Tuning the CSM-1B reading voice
 
-The reader's TTS is **CSM-1B via csm-mlx** (`local_tts/tts/csm_engine.py`). Use this
+The reader's TTS is **CSM-1B via csm-mlx** (`readback/tts/csm_engine.py`). Use this
 skill whenever the user wants to change *who* the reader sounds like.
 
 ## Mental model (state this honestly to the user)

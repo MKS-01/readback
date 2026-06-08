@@ -23,7 +23,7 @@ from typing import Callable, Optional, TypeVar
 
 import numpy as np
 
-from local_tts.config import CsmTTSConfig
+from readback.config import CsmTTSConfig
 
 # (id, label) pairs for the UI picker → CSM speaker id. IDs kept stable for prefs
 # back-compat, but they point at Sesame's READ-SPEECH prompts (fluent literary

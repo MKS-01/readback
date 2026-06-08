@@ -10,7 +10,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-log = logging.getLogger("local_tts.reader")
+log = logging.getLogger("readback.reader")
 
 
 class ExtractError(Exception):

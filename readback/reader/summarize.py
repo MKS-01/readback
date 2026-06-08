@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import logging
 
-from local_tts.reader.extract import Article
+from readback.reader.extract import Article
 
-log = logging.getLogger("local_tts.reader")
+log = logging.getLogger("readback.reader")
 
 _SUMMARY_SYSTEM = (
     "You turn written articles into a clear spoken explanation for a listener. "

@@ -7,7 +7,7 @@ export interface Prefs {
   mode: "full" | "summary";
 }
 
-export const PREFS_KEY = "local-tts.prefs.v12";
+export const PREFS_KEY = "readback.prefs.v12";
 
 export const defaultPrefs: Prefs = {
   theme: "ghost",

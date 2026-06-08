@@ -5,12 +5,12 @@ from typing import Iterator, Optional, TYPE_CHECKING
 
 import ollama
 
-from local_tts.config import OllamaConfig
+from readback.config import OllamaConfig
 
 if TYPE_CHECKING:
-    from local_tts.tools.registry import ToolRegistry
+    from readback.tools.registry import ToolRegistry
 
-log = logging.getLogger("local_tts.llm")
+log = logging.getLogger("readback.llm")
 
 # Cap how many tool→model→tool round-trips we'll do before forcing a final
 # response. Prevents runaway loops on misbehaving models.

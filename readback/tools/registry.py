@@ -9,10 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from local_tts.config import ToolsConfig
-from local_tts.tools.base import Tool
+from readback.config import ToolsConfig
+from readback.tools.base import Tool
 
-log = logging.getLogger("local_tts.tools.registry")
+log = logging.getLogger("readback.tools.registry")
 
 
 class ToolRegistry:

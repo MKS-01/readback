@@ -1,4 +1,4 @@
-# local-tts
+# readback
 
 > A fully local voice assistant **and second brain** — speak or type to your LLM, hear it talk back, and have every conversation auto-filed in your Obsidian vault by topic. No cloud. No API keys. No data leaves your machine.
 
@@ -21,7 +21,7 @@
 
 Most "local AI voice" projects are either a CLI loop with no real UI, a thin wrapper around a cloud STT/TTS API, or require expensive GPU hardware. This project is none of those.
 
-| | local-tts | Typical local voice project |
+| | readback | Typical local voice project |
 |---|---|---|
 | **UI** | Browser — 3D neural orb, live captions, one-click settings | Terminal / CLI |
 | **Cloud dependency** | None — every model runs on-device | STT or TTS calls an API |
@@ -61,17 +61,17 @@ ollama serve &                          # or launch the Ollama desktop app
 ollama pull nemotron-3-nano:4b          # default; any chat model works
 
 # 2. Clone & install
-git clone git@github.com:MKS-01/local-tts.git
-cd local-tts
+git clone git@github.com:MKS-01/readback.git
+cd readback
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install torch==2.4.0 torchaudio==2.4.0
 pip install -e .
 
-# 3. Build the React frontend (one-time; rerun after edits in local_tts/web/frontend/)
-cd local_tts/web/frontend && npm install && npm run build && cd ../../..
+# 3. Build the React frontend (one-time; rerun after edits in readback/web/frontend/)
+cd readback/web/frontend && npm install && npm run build && cd ../../..
 
 # 4. Launch
-local-tts                               # http://127.0.0.1:8000
+readback                               # http://127.0.0.1:8000
 ```
 
 Speech models download automatically on first run (Parakeet ~2.5 GB, CSM-1B ~6.2 GB, Smart-Turn ~8 MB). No HuggingFace login needed.
@@ -116,7 +116,7 @@ The settings panel lets you change every runtime parameter **without restarting 
 - **Orb size** — 120–380 px slider.
 - **Mic meter / Captions** — toggle the 5-bar input meter and live transcript display.
 
-All preferences persist in `localStorage` (key `local-tts.prefs.v9`) and restore on next page load. STT model, voice, and speech-speed prefs round-trip back to the server on reconnect; persona, tools, and listening-mode currently mirror the server's `config.yaml` values on each fresh connection.
+All preferences persist in `localStorage` (key `readback.prefs.v9`) and restore on next page load. STT model, voice, and speech-speed prefs round-trip back to the server on reconnect; persona, tools, and listening-mode currently mirror the server's `config.yaml` values on each fresh connection.
 
 ---
 
@@ -131,14 +131,14 @@ When `obsidian.enabled: true`, every call writes a markdown transcript into your
 ```yaml
 obsidian:
   enabled: true
-  vault_root: ~/Documents/Obsidian/local-tts   # any path, ~ expanded
+  vault_root: ~/Documents/Obsidian/readback   # any path, ~ expanded
   topic_model: null                             # null = reuse ollama.model
 ```
 
 File layout:
 
 ```
-~/Documents/Obsidian/local-tts/
+~/Documents/Obsidian/readback/
 ├── project-planning/
 │   └── 2026-05-19--7f3a9e.md
 ├── recipe-ideas/
@@ -149,7 +149,7 @@ File layout:
 
 Each file has YAML frontmatter (`session_id`, `started`, `ended`, `duration_sec`, `model`, `voice`, `persona`, `topic`, `turn_count`) followed by the full turn-by-turn transcript — readable in any markdown editor, searchable in Obsidian's graph view.
 
-Crash-recovery JSONL files are kept at `~/.local-tts/sessions/<id>.jsonl` while a session is in progress and deleted once the markdown is committed. The topic-classification LLM call runs in `asyncio.to_thread` as a fire-and-forget task on disconnect, so closing the browser tab doesn't block.
+Crash-recovery JSONL files are kept at `~/.readback/sessions/<id>.jsonl` while a session is in progress and deleted once the markdown is committed. The topic-classification LLM call runs in `asyncio.to_thread` as a fire-and-forget task on disconnect, so closing the browser tab doesn't block.
 
 ### Internet research (tools)
 
@@ -173,7 +173,7 @@ The system prompt is one of several runtime-swappable presets (`default`, `conci
 Browsers block microphone access on plain HTTP for non-localhost origins. Use `--auto-cert` for HTTPS over LAN:
 
 ```bash
-local-tts --host 0.0.0.0 --auto-cert
+readback --host 0.0.0.0 --auto-cert
 ```
 
 The startup banner prints the network URL, SHA-256 cert fingerprint, and a `/cert.pem` download link.
@@ -186,12 +186,12 @@ The startup banner prints the network URL, SHA-256 cert fingerprint, and a `/cer
 | **Android** | Open `/cert.pem` → install as CA certificate (Settings › Security › Install from storage) |
 | **macOS** | Download `/cert.pem` → Keychain Access → set to Always Trust |
 
-Cert stored in `~/.local-tts/certs/`, reused across restarts, regenerated if your LAN IP changes.
+Cert stored in `~/.readback/certs/`, reused across restarts, regenerated if your LAN IP changes.
 
 To use your own cert (e.g. from `mkcert`):
 
 ```bash
-local-tts --host 0.0.0.0 --cert cert.pem --key key.pem
+readback --host 0.0.0.0 --cert cert.pem --key key.pem
 ```
 
 ---
@@ -221,9 +221,9 @@ Edit `config.yaml` for non-UI knobs:
 | `tools.allowed` | Allowlist of tool names | `[clock, web_search]` |
 | `tools.web_search_provider` | Search backend (`duckduckgo` only today) | `duckduckgo` |
 | `obsidian.enabled` | Write per-session markdown to the vault | `false` |
-| `obsidian.vault_root` | Vault path; `~` is expanded | `~/Documents/Obsidian/local-tts` |
+| `obsidian.vault_root` | Vault path; `~` is expanded | `~/Documents/Obsidian/readback` |
 | `obsidian.topic_model` | Override LLM model for topic classification (null = reuse `ollama.model`) | `null` |
-| `memory.session_dir` | Crash-recovery JSONL location | `~/.local-tts/sessions` |
+| `memory.session_dir` | Crash-recovery JSONL location | `~/.readback/sessions` |
 | `memory.keep_days` | Rotate JSONLs older than N days | `30` |
 
 > **ASR.** Parakeet (MLX/Metal) streams live captions and finalizes near-instantly. It has no built-in hallucination filtering, so the server drops short filler/backchannel transcripts (`okay`, `mm-hmm`, …) to stop echo/music self-trigger loops. For clean voice input, use headphones or avoid playing other audio through the same speakers.
@@ -275,13 +275,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the system-level view (cascade, threa
 - **Live partial captions** while you speak (Parakeet), plus a "still listening" hint during Smart-Turn pauses.
 
 ### v0.4.0 — Second brain
-- **Obsidian export.** Every call writes a markdown transcript into your vault, topic-organized via an LLM call at session end. Crash-recovery JSONL files at `~/.local-tts/sessions/`. Enabled in the bundled config.
+- **Obsidian export.** Every call writes a markdown transcript into your vault, topic-organized via an LLM call at session end. Crash-recovery JSONL files at `~/.readback/sessions/`. Enabled in the bundled config.
 - **Tools / function-calling.** `clock` and `web_search` (DuckDuckGo, no API key) ship out of the box; provider interface ready for Tavily / Brave swap-ins. Per-tool checkboxes in Settings.
 - **Persona switching.** Five seed personas (`default`, `concise`, `researcher`, `chef`, `professor`) plus a `custom` slot with a textarea. Runtime swap mirrors `Transcriber.swap_model` — in-flight responses finish on the old prompt.
 - **React + Vite + TypeScript frontend.** Replaces the 1,295-line vanilla-JS bundle. Three.js orb and AudioWorklet stay imperative inside hooks; settings/captions/dock are now components. Five header chips surface every runtime-switchable state at a glance.
 
 ### Deferred
-- **Wake-word listening.** Backend (`local_tts/wakeword/`, `[wakeword]` extras, server WS handler) is in place but the UI is hidden — openWakeWord's bundled keywords are limited to `alexa` / `hey_jarvis` / `hey_mycroft` and custom keywords need multi-hour training. Coming back with a Picovoice Porcupine backend that supports free-tier-trained custom keywords in ~30 seconds.
+- **Wake-word listening.** Backend (`readback/wakeword/`, `[wakeword]` extras, server WS handler) is in place but the UI is hidden — openWakeWord's bundled keywords are limited to `alexa` / `hey_jarvis` / `hey_mycroft` and custom keywords need multi-hour training. Coming back with a Picovoice Porcupine backend that supports free-tier-trained custom keywords in ~30 seconds.
 
 ### v0.3.0 — Web UI overhaul
 - Single Ghost theme (matte white/grey), header simplified to inline meta row, captions reworked as borderless open sections, scanline removed. See [CLAUDE.md](CLAUDE.md) for the full v0.3 design notes.

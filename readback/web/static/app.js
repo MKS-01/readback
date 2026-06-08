@@ -1,4 +1,4 @@
-// local-tts web client: getUserMedia → AudioWorklet (16k Int16) → WS → server
+// readback web client: getUserMedia → AudioWorklet (16k Int16) → WS → server
 //                       server → Float32@24k → Web Audio playback queue
 //                       phase + level events animate the orb
 //
@@ -46,7 +46,7 @@ const els = {
 };
 
 // Display labels for the STT picker. Keys must stay in sync with
-// SUPPORTED_MODELS in local_tts/stt/transcriber.py.
+// SUPPORTED_MODELS in readback/stt/transcriber.py.
 const STT_MODEL_LABELS = {
   "tiny": "Tiny — fastest (<300ms), low accuracy",
   "base": "Base — fast (~300ms)",
@@ -921,7 +921,7 @@ els.orb.addEventListener("click", () => {
 
 // ---------- Settings ----------
 
-const PREFS_KEY = "local-tts.prefs.v8";
+const PREFS_KEY = "readback.prefs.v8";
 const THEMES = ["ghost"];
 const defaultPrefs = {
   orbSize: 240,

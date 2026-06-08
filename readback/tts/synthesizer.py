@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from local_tts.config import TTSConfig
-from local_tts.tts.csm_engine import (
+from readback.config import TTSConfig
+from readback.tts.csm_engine import (
     SUPPORTED_VOICES,
     SUPPORTED_VOICE_NAMES,
     CsmEngine,

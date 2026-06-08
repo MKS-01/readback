@@ -89,7 +89,7 @@ training `speakerN` ids to the voices you want behind those slots.
 
 > Quick check before going through the UI:
 > ```bash
-> .venv/bin/python -c "from local_tts.config import Config; from local_tts.tts.synthesizer import Synthesizer; import soundfile as sf, numpy as np; \
+> .venv/bin/python -c "from readback.config import Config; from readback.tts.synthesizer import Synthesizer; import soundfile as sf, numpy as np; \
 > c=Config.load(); s=Synthesizer(c.tts); s.load(); \
 > sf.write('/tmp/ft.wav', np.asarray(s.synthesize('This is the fine-tuned reading voice.'),dtype=np.float32), s.sample_rate); print('wrote /tmp/ft.wav')"
 > ```

@@ -103,7 +103,7 @@ class TTSConfig(BaseModel):
 class ReaderConfig(BaseModel):
     # Offline article reader (project pivot, v0.8.0). Generated WAVs are written
     # here and served for in-browser playback + download.
-    output_dir: Path = Path.home() / ".local-tts" / "reader"
+    output_dir: Path = Path.home() / ".readback" / "reader"
     default_mode: Literal["full", "summary"] = "full"
     gap_sec: float = 0.18                 # silence between (trimmed) chunks
     # Cap article text fed to the LLM in summary mode (keeps it within context).

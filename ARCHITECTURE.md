@@ -1,4 +1,4 @@
-# Architecture — local-tts (v0.5.0)
+# Architecture — readback (v0.5.0)
 
 How the pieces fit together and why. This is the system-level companion to
 [CLAUDE.md](CLAUDE.md) (which holds implementation notes, gotchas, and exact
@@ -17,7 +17,7 @@ speech ─▶ STT ─▶ turn detection ─▶ LLM ─▶ TTS ─▶ speech
 ```
 
 Optional layers: function-calling **tools** (clock, web search) and an
-**Obsidian** second-brain export. One process, one CLI (`local-tts`), one
+**Obsidian** second-brain export. One process, one CLI (`readback`), one
 WebSocket endpoint (`/ws`), one React UI.
 
 ## 2. High-level data flow
@@ -103,7 +103,7 @@ from arbitrary `to_thread` pool threads).
 
 ## 5. Component layers
 
-### STT — Parakeet (`local_tts/stt/`)
+### STT — Parakeet (`readback/stt/`)
 `ASREngine` protocol (`base.py`) with one implementation behind a `Transcriber`
 facade (the protocol/facade seam is kept so a second engine stays a one-file
 addition; faster-whisper was the second engine through v0.6.0, removed in v0.7.0):
@@ -176,7 +176,7 @@ partials and the "still listening" turn hint.
 ## 8. Module map
 
 ```
-local_tts/
+readback/
 ├── config.py        Pydantic config (Ollama/STT/TTS/Turn/…); load() migrations
 ├── llm/client.py    LLMClient: streaming, think-strip, tools, personas
 ├── stt/

@@ -1,4 +1,4 @@
-# PLAN — local-tts: dual-ASR + dual-TTS streaming voice pipeline (Apple Silicon)
+# PLAN — readback: dual-ASR + dual-TTS streaming voice pipeline (Apple Silicon)
 
 > Revised plan. Supersedes the original "replace Whisper / Qwen3-TTS opt-in"
 > draft. `research.md` was deleted (outdated) — its sources are folded into
@@ -6,7 +6,7 @@
 
 ## Context
 
-`local-tts` is a fully **on-device** voice app (speak → STT → LLM → TTS → hear),
+`readback` is a fully **on-device** voice app (speak → STT → LLM → TTS → hear),
 web-only (FastAPI + WebSocket + React). This revamp modernizes it toward open
 NVIDIA/Qwen voice models that run on **Apple M5 Pro (48 GB, no CUDA)**, inspired
 by Daily.co's NVIDIA voice-agent stack and the

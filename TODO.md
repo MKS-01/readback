@@ -23,7 +23,7 @@ graceful client-disconnect handling. Verified via the server end-to-end.
       keep vs remove (csm-mlx checkpoint is fixed in the engine).
 - [ ] **`voice/` folder** (clone clips) + any clone references in docs — gone with
       cloning; remove.
-- [ ] **Generated-WAV rotation**: `~/.local-tts/reader/` grows unbounded — add a
+- [ ] **Generated-WAV rotation**: `~/.readback/reader/` grows unbounded — add a
       cleanup (keep N most-recent / age-out), mirror old `memory.keep_days`.
 - [ ] Remove the stray top-level `vox_tinker/` copy (now gitignored).
 
@@ -37,8 +37,8 @@ graceful client-disconnect handling. Verified via the server end-to-end.
 - [ ] **ARCHITECTURE.md** — rewrite or fold into README; the cascade/threading
       content is obsolete.
 - [ ] **Changelog**: add the v0.8.0 reader-pivot entry.
-- [ ] Consider renaming the package `local_tts` → `vox_tinker` (repo is
-      `vox-tinker`); currently still `local_tts` everywhere.
+- [ ] Consider renaming the package `readback` → `vox_tinker` (repo is
+      `vox-tinker`); currently still `readback` everywhere.
 
 ## 3. Voice improvement
 - [ ] **A/B the read-speech references** (`read_speech_a/b/c/d`) per voice; pick the

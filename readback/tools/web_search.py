@@ -18,7 +18,7 @@ from typing import Any, Protocol
 from urllib.parse import urlencode, urlparse, parse_qs, unquote
 from urllib.request import Request, urlopen
 
-log = logging.getLogger("local_tts.tools.web_search")
+log = logging.getLogger("readback.tools.web_search")
 
 # A real-browser UA stops DDG from returning the empty "JavaScript required"
 # fallback page. The HTML endpoint is server-rendered so this is enough.

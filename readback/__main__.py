@@ -81,7 +81,7 @@ def _fingerprint(cert_path: Path) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="local-tts — offline article reader (URL → audio, web UI)"
+        description="readback — offline article reader (URL → audio, web UI)"
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8000, type=int)
@@ -104,8 +104,8 @@ def main():
         parser.error("--key requires --cert")
 
     import uvicorn
-    from local_tts.config import Config
-    from local_tts.web.server import create_app
+    from readback.config import Config
+    from readback.web.server import create_app
 
     cfg = Config.load(args.config_path)
     if args.model:
@@ -119,7 +119,7 @@ def main():
     scheme = "http"
 
     if args.auto_cert:
-        cert_dir = Path.home() / ".local-tts" / "certs"
+        cert_dir = Path.home() / ".readback" / "certs"
         cert_path = cert_dir / "cert.pem"
         key_path  = cert_dir / "key.pem"
         _ensure_cert(cert_path, key_path, lan_ip)

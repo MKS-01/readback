@@ -1,4 +1,4 @@
-# local-tts — offline article reader (v0.8.0).
+# readback — offline article reader (v0.8.0).
 # Paste a URL → fetch + extract the article → (optional LLM summary) → CSM-1B TTS
 # → audio you play in-browser or download. All on-device.
 
@@ -36,7 +36,7 @@ tts:
 
 reader:
   # Generated WAVs are written here and served for playback + download.
-  output_dir: "~/.local-tts/reader"
+  output_dir: "~/.readback/reader"
   default_mode: "full"               # "full" (verbatim) or "summary" (LLM)
   gap_sec: 0.18                      # silence between (trimmed) chunks
   summary_max_chars: 16000           # cap article text fed to the LLM in summary mode

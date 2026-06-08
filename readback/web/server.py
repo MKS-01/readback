@@ -32,15 +32,15 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from local_tts.config import Config
-from local_tts.llm.client import LLMClient
-from local_tts.reader import ExtractError, fetch_article
-from local_tts.reader.speak import synthesize_article, write_wav
-from local_tts.reader.summarize import summarize_article
-from local_tts.tts.csm_engine import voices_for
-from local_tts.tts.synthesizer import Synthesizer
+from readback.config import Config
+from readback.llm.client import LLMClient
+from readback.reader import ExtractError, fetch_article
+from readback.reader.speak import synthesize_article, write_wav
+from readback.reader.summarize import summarize_article
+from readback.tts.csm_engine import voices_for
+from readback.tts.synthesizer import Synthesizer
 
-log = logging.getLogger("local_tts.server")
+log = logging.getLogger("readback.server")
 
 STATIC_DIR = Path(__file__).parent / "static"
 DIST_DIR = STATIC_DIR / "dist"
