@@ -32,5 +32,9 @@ dependencies = [
 [project.scripts]
 readback = "readback.__main__:main"
 
+# csm-mlx is a direct git reference (no PyPI release); allow it.
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["readback"]

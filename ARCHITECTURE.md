@@ -1,196 +1,124 @@
-# Architecture — readback (v0.5.0)
+# Architecture — readback (v0.8.0)
 
-How the pieces fit together and why. This is the system-level companion to
-[CLAUDE.md](CLAUDE.md) (which holds implementation notes, gotchas, and exact
-knobs) and [README.md](README.md) (user-facing). When in doubt about a specific
-threshold or flag, CLAUDE.md is authoritative.
+How the pieces fit together and why. System-level companion to
+[CLAUDE.md](CLAUDE.md) (implementation notes, gotchas, exact knobs) and
+[README.md](README.md) (user-facing). When a specific threshold or flag is in
+doubt, CLAUDE.md is authoritative.
 
 ## 1. What it is
 
-A fully **on-device** voice assistant served as a web app. The browser captures
-mic audio and plays TTS audio; everything else runs locally on an Apple-Silicon
-Mac. The pipeline is a **streaming cascade**:
+A fully **on-device** article reader served as a web app. You paste a URL; the
+server fetches and extracts the article, optionally summarizes it with a local
+LLM, synthesizes the whole thing offline with CSM-1B, and hands back an audio
+file the browser plays and lets you download. One process, one CLI (`readback`),
+one WebSocket.
 
 ```
-speech ─▶ STT ─▶ turn detection ─▶ LLM ─▶ TTS ─▶ speech
-         (Parakeet/Whisper)  (Smart-Turn)  (Ollama/Nemotron)  (CSM-1B)
+URL ─▶ fetch + extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ browser
+       (trafilatura)    (Ollama)            (CSM-1B / csm-mlx)
 ```
 
-Optional layers: function-calling **tools** (clock, web search) and an
-**Obsidian** second-brain export. One process, one CLI (`readback`), one
-WebSocket endpoint (`/ws`), one React UI.
+Unlike the real-time voice assistant this project began as, synthesis is **batch,
+not streaming**: there is no live turn to keep pace with, so the whole piece is
+synthesized up front. That removes audio-underrun and echo entirely and lets
+voice quality win over latency.
 
-## 2. High-level data flow
+## 2. Process & concurrency model
 
-```
- ┌─────────┐  Int16 PCM 16k (binary WS)   ┌────────────────────────────────────┐
- │ Browser │ ───────────────────────────▶ │ FastAPI server · Session (per conn) │
- │  (mic)  │                              │                                      │
- │         │ ◀─────────────────────────── │  webrtcvad → utterance segmentation  │
- │ (orb +  │  Float32 PCM 24k (binary WS) │         │                            │
- │ caption)│ ◀─────────────────────────── │         ▼                            │
- │         │  JSON: phase/partial/turn/   │   ASR (Parakeet, streaming)          │
- │         │        transcript/config/... │           ──▶ partial captions       │
- └─────────┘                              │         │                            │
-                                          │         ▼  on pause                  │
-                                          │   Smart-Turn v3 (complete?) ──no──┐  │
-                                          │         │ yes                      │  │
-                                          │         ▼              keep listening │
-                                          │   LLM (Ollama/Nemotron, streaming)   │
-                                          │         │ sentences                  │
-                                          │         ▼                            │
-                                          │   TTS (CSM-1B) per sentence          │
-                                          │         │ Float32 24k                │
-                                          │         ▼                            │
-                                          │   WS send_audio ─────────────────────┘
-                                          └──────────────────────────────────────┘
-                                  (on disconnect) ──▶ topic classifier ─▶ Obsidian markdown
-```
+A single FastAPI app (`readback/web/server.py`). The event loop stays responsive
+while a read job runs because all heavy work is pushed off it:
 
-The cascade is streaming end-to-end: partial captions appear *while you speak*,
-and TTS for sentence N plays while the LLM is still generating sentence N+1.
+- **Read jobs run as background `asyncio.Task`s.** The `/ws` receive loop launches
+  `_run_read_job` as a task and keeps reading messages, so a `cancel` (or
+  disconnect) can be handled *mid-synthesis*. A shared `state["alive"]` flag is
+  flipped to abort: it silences further sends and, via `should_stop`, stops the
+  synthesis loop so we don't keep burning GPU on audio nobody will hear.
+- **Model work runs in threads.** Fetch, summarize, and synthesize are dispatched
+  with `asyncio.to_thread`. Synthesis itself is further serialized onto the CSM
+  engine's own single executor thread (see §4).
+- **One job at a time per socket.** A second `read` while one is running is
+  rejected ("still working on the last one").
 
-## 3. Concurrency model (the important part)
+## 3. The pipeline (`readback/reader/`)
 
-The event loop must never block on a model. Work is spread across threads with
-strict ownership rules. **MLX/Metal is not multi-thread safe** — its default GPU
-stream binds to the first thread that touches the device — which dictates much of
-this design.
+1. **Extract** (`extract.py`) — `fetch_article(url)` downloads via trafilatura,
+   falling back to a browser-UA `urllib` fetch when a site 403s the default
+   agent, then `trafilatura.extract(..., favor_precision=True)` pulls the article
+   body. Light TTS-prep scrubbing strips URLs, `[12]` citation markers, and
+   collapses whitespace so the voice doesn't read markup aloud. Returns an
+   `Article{title, text, url}`.
+2. **Summarize** (`summarize.py`, Summary mode only) — `summarize_article` calls
+   `LLMClient.oneshot(system, user)` with a spoken-explanation system prompt;
+   long articles are truncated to `reader.summary_max_chars`. Full mode skips
+   this and reads `article.text` verbatim.
+3. **Chunk + synthesize** (`speak.py`) — `chunk_text` splits into TTS-sized,
+   paragraph-respecting chunks (~280 chars, sentence-aware, over-long sentences
+   split on commas). `synthesize_article` synthesizes each chunk fully,
+   **silence-tidies** it (`_tidy_silence`: trim leading/trailing silence and cap
+   internal pauses to ~300 ms — CSM sprinkles long mid-utterance pauses that
+   otherwise sound halting), and joins chunks with a uniform `reader.gap_sec`
+   gap. `progress(done, total)` fires per chunk; `should_stop()` aborts early.
+4. **Serve** — the concatenated float32 buffer is written to
+   `reader.output_dir` (`~/.readback/reader/<uuid>.wav`) and served at
+   `/audio/<id>.wav` for playback and download.
 
-| Thread / context | Owns | Notes |
-|---|---|---|
-| **asyncio event loop** | WS recv/send, control messages, VAD `_process_frame`, pipeline orchestration | Never runs a model inline; offloads via `to_thread` or queues |
-| **ASR worker thread** (per session, `_asr_worker_loop`) | Orders mic frames → Parakeet streaming; emits partials; triggers finalize | One per session; talks to the Parakeet executor, not MLX directly |
-| **Parakeet executor** (1 thread, in `ParakeetEngine`) | *All* Parakeet MLX work (load, batch, streaming feed/finalize) | `ThreadPoolExecutor(max_workers=1)`; public methods submit + block |
-| **CSM executor** (1 thread, in `CsmEngine`) | *All* CSM-1B MLX work (load + synth) | Same single-thread pattern as Parakeet |
-| **LLM producer thread** (per turn, via `to_thread`) | Streams Ollama → finished sentences onto an `asyncio.Queue` | Consumer races each `get()` against `interrupt_event` |
-| **`to_thread` pool** | Whisper batch transcribe, Smart-Turn inference, model/voice/persona swaps | CPU-bound or onnx; thread-safe under their own locks |
+## 4. TTS engine (`readback/tts/`)
 
-Cross-thread handoffs back to the loop always go through
-`loop.call_soon_threadsafe(...)` (partials, pipeline launch).
+- **`CsmEngine`** (`csm_engine.py`) wraps **CSM-1B via csm-mlx** (`senstella/csm-1b-mlx`),
+  float32 @ 24 kHz (Mimi-native — matches the WS contract, no resample).
+- **MLX single-thread rule.** MLX binds its GPU stream to the first thread that
+  touches the device, so the engine owns a `ThreadPoolExecutor(max_workers=1)` and
+  runs **all** model work (load + synth) on it; public methods submit and block.
+  This is why concurrent read jobs serialize naturally.
+- **Reference conditioning is the voice.** CSM conditions every chunk on a
+  reference `Segment` (audio + its exact transcript) cached per voice in
+  `_ref_for`. Built-in voices use Sesame read-speech prompts (downloaded from
+  `sesame/csm-1b`); **clone voices** (`cfg.voices`) use a local clip; a **LoRA**
+  adapter (`cfg.lora_path`), when set, is loaded over the base weights and
+  generation switches to **empty context** (the voice lives in the adapter).
+- **`Synthesizer`** (`synthesizer.py`) is a thin facade (`synthesize`,
+  `sample_rate`, `current_voice`, `swap_voice`, `supported_voices`, `load`) so the
+  server stays engine-agnostic — a future engine is a factory change, not a
+  rewrite. `tts.engine` is a single-value enum (`"csm"`).
 
-Why the executors: a model loaded on thread A and called from thread B raises
-`RuntimeError: no Stream(gpu, 0) in current thread`. Pinning each MLX model to
-one owned thread makes correctness independent of which caller invokes it (this
-also fixed a latent crash in the batch transcribe path, which the server calls
-from arbitrary `to_thread` pool threads).
+## 5. LLM (`readback/llm/client.py`)
 
-## 4. Turn lifecycle (one spoken exchange)
+Only **Summary mode** uses the LLM, via `LLMClient.oneshot()` — a single
+non-streaming Ollama `chat` (`think=False`, low temperature) with `<think>`
+stripping for GGUF builds that emit inline tags. The streaming/tool-calling
+methods (`stream_response`, `_stream_tokens_with_tools`) are vestigial from the
+voice-assistant era and unused by the reader.
 
-1. **Capture.** Browser AudioWorklet downsamples mic to 16 kHz Int16, streams
-   binary frames. Frames are **dropped** while a pipeline is running
-   (`pipeline_task is not None`) or during the finalize window
-   (`_awaiting_finalize`) — the sole speaker-bleed guard.
-2. **Segment.** `_process_frame` runs webrtcvad: 8 speech frames (~240 ms) to
-   start, frames accumulate into `utterance_frames`. For the streaming engine,
-   each frame is also queued to the ASR worker, which emits `partial` captions.
-3. **Pause → confirm.** After ~480 ms of silence, `_turn_is_complete()` asks
-   **Smart-Turn** (off-loop). If `P(complete) < threshold`, keep listening
-   (re-check every ~300 ms, hard cap at `turn.max_wait_sec`) and emit
-   `turn:{state:waiting}`; otherwise end the turn.
-4. **Finalize transcript.** The ASR worker finalizes the live stream (batch
-   fallback if empty) and hands the text to the loop; `_dispatch_utterance` is
-   the batch path kept for any future non-streaming engine. A phantom-utterance
-   filter drops pure backchannels (echo/reverb/music false triggers) before
-   launch.
-5. **Generate.** `_run_pipeline(text=…)` appends the user turn, then a producer
-   thread streams Nemotron output; a `_ThinkStripper` removes `<think>` spans and
-   the sentence splitter yields complete sentences.
-6. **Speak.** Each sentence → CSM-1B → Float32 24 kHz → `send_audio`. Every
-   step races `interrupt_event` so **Skip** stops mid-sentence.
-7. **Persist.** On disconnect, `SessionWriter.finalize` (background) classifies a
-   topic and writes the Obsidian markdown; JSONL mirror deleted on success.
+## 6. Web layer (`readback/web/`)
 
-## 5. Component layers
+- **Server** (`server.py`) — FastAPI; serves the Vite `dist/` build (falls back to
+  the legacy `static/` bundle if not built), the generated audio, and `/ws`.
+- **WS protocol** —
+  - client → `read {url, mode, voice?}`, `cancel`
+  - server → `phase {value}`, `progress {done, total}`,
+    `done {title, audio_url, duration_sec, word_count, mode, text?}`, `error {message}`
+  - `done.text` carries the spoken summary (Summary mode only) for the
+    transcript panel.
+- **Frontend** (`web/frontend/`) — React 18 + zustand. The three.js orb and WS
+  client live **outside** the React tree as singletons pushing into the store, so
+  re-renders never tear down the socket. Components: the URL input + circular
+  arrow CTA, the Full/Summary segment + voice `<select>`, the hero-orb busy state
+  (phase message + progress + Cancel), the custom `AudioPlayer`, and the summary
+  transcript toggle. Single dark "Ghost" theme.
 
-### STT — Parakeet (`readback/stt/`)
-`ASREngine` protocol (`base.py`) with one implementation behind a `Transcriber`
-facade (the protocol/facade seam is kept so a second engine stays a one-file
-addition; faster-whisper was the second engine through v0.6.0, removed in v0.7.0):
-- **ParakeetEngine** (streaming) — NVIDIA Parakeet via `parakeet-mlx` on Metal.
-  Both batch and streaming route through `transcribe_stream` / `add_audio`. Owns
-  its MLX executor; buffers frames to `stream_chunk_ms`. `transcribe_file` backs
-  clone-reference transcription (English-only). No hallucination guards — the
-  server's phantom-utterance filter compensates.
+## 7. CLI & TLS (`readback/__main__.py`)
 
-The facade exposes `current_engine`, `engines_available` (`("parakeet",)`),
-`models_for()`, `swap_engine`, `swap_model`, `transcribe`, `streaming_engine()`.
-The server only talks to the facade.
+`readback` parses args (`--host/--port/--model/--config`, TLS via
+`--auto-cert` or `--cert/--key`), loads config, and boots uvicorn. `--auto-cert`
+generates a self-signed cert (SAN = LAN IP + 127.0.0.1 + localhost, 825-day
+validity) under `~/.readback/certs/`, regenerated when the LAN IP changes, and
+prints the SHA-256 fingerprint + `/cert.pem` URL so phones/tablets can trust it.
 
-### Turn detection (`stt/turn.py`)
-`TurnDetector` runs Smart-Turn v3 ONNX (Whisper-tiny encoder + linear head) via
-onnxruntime. Loaded once with **graceful fallback**: if it can't load, the
-pipeline finalizes on VAD pause alone. Hybrid by design — cheap webrtcvad gates,
-the semantic model only confirms.
+## 8. Extension points
 
-### LLM (`llm/client.py`)
-`LLMClient` wraps the Ollama client. `stream_response` yields complete sentences;
-the tools branch does non-streaming tool-call probes (≤3 hops) then a final
-stream. `think=False` + `_ThinkStripper` keep reasoning out of TTS. Personas are
-snapshotted per response so a mid-stream swap can't split a prompt.
-
-### TTS (`tts/`)
-`CsmEngine` wraps `mlx-audio`'s CSM-1B (Sesame model; `generate(voice=…)` for
-presets, `generate(ref_audio=…, ref_text=…)` for clones — one loaded model for
-both), 24 kHz native, behind a `Synthesizer` facade that preserves the server's
-surface. Owns its MLX executor. (Qwen3-TTS was replaced in v0.6.0; the facade
-keeps a one-engine seam for a future MisoTTS-8B port.)
-
-### Server (`web/server.py`)
-`PipelineModels` is a lazy singleton holding the transcriber, LLM, synth, and
-turn detector (loaded once at app startup). `Session` is per-WebSocket: VAD
-segmentation, the ASR worker, control-message handlers (swaps, mute, interrupt,
-text input), and pipeline orchestration. See CLAUDE.md for the WS message catalog.
-
-### Frontend (`web/frontend/`)
-React 18 + Vite + zustand. The audio engine, WS client, and three.js orb live as
-singletons *outside* the React tree and push into the store, so re-renders never
-tear down the socket or audio context. Settings holds the two-level ASR picker
-(engine + model), voice/model/persona/tools pickers; captions render live
-partials and the "still listening" turn hint.
-
-## 6. Key invariants (don't break these)
-
-- **MLX work stays on its engine's executor thread.** Never call an engine's
-  `_impl` methods or raw `mx` ops from another thread.
-- **Mic frames are dropped while speaking/finalizing.** This is the only
-  speaker-bleed guard. If you ever accept audio during playback, replace it.
-- **Swaps are refused mid-pipeline** and use atomic ref swaps under a lock, so an
-  in-flight call finishes on its old model/voice/persona.
-- **Smart-Turn and TTS engine failures degrade gracefully**, never crash the turn
-  (VAD-only fallback; TTS errors surface as empty audio).
-- **The WS `config` payload is the source of truth on each connect**; only
-  `sttEngine`/`sttModel`/`voice`/`speed` are re-emitted from saved prefs.
-
-## 7. Extension points
-
-- **New ASR engine:** implement `ASREngine` (`stt/base.py`), register it in the
-  `Transcriber` facade's engine map. Mirror the MLX-executor pattern if it's MLX.
-- **New TTS engine:** implement the same shape as `CsmEngine`, select it via
-  `TTSConfig.engine` in the `Synthesizer` factory.
-- **New search provider:** implement `WebSearchProvider` and wire it in
-  `tools/web_search.py:build_default_provider`.
-- **New tool:** implement the `Tool` protocol (`tools/base.py`) and register it in
-  `PipelineModels.load`.
-
-## 8. Module map
-
-```
-readback/
-├── config.py        Pydantic config (Ollama/STT/TTS/Turn/…); load() migrations
-├── llm/client.py    LLMClient: streaming, think-strip, tools, personas
-├── stt/
-│   ├── base.py          ASREngine protocol + resample()
-│   ├── parakeet_engine.py   ParakeetEngine (MLX, streaming) — sole ASR engine
-│   ├── transcriber.py   Transcriber facade (model swap)
-│   └── turn.py          Smart-Turn v3 detector (+ graceful fallback)
-├── tts/
-│   ├── csm_engine.py    CsmEngine (mlx-audio "sesame", MLX executor)
-│   └── synthesizer.py   Synthesizer facade
-├── tools/           Tool protocol, registry, clock, web_search
-├── memory/          SessionWriter (JSONL mirror) + topic classifier
-├── wakeword/        openWakeWord detector (backend retained, UI hidden)
-└── web/
-    ├── server.py    FastAPI app, PipelineModels, Session, WS protocol
-    └── frontend/    React + Vite + zustand UI (built into static/dist)
-```
+- **New TTS engine** — implement the `Synthesizer` surface and branch on
+  `tts.engine`.
+- **New voice** — a clone clip (`tts.csm.voices`) or a LoRA adapter
+  (`tts.csm.lora_path` + `finetune/`); no code change.
+- **Different extractor / summary prompt** — swap inside `reader/extract.py` /
+  `reader/summarize.py`; the rest of the pipeline is unaffected.

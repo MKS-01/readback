@@ -1,172 +1,97 @@
 # Setup Guide
 
-End-to-end setup for `readback` on Apple Silicon. Follow once; everything caches afterwards.
+End-to-end setup for `readback` on Apple Silicon. Follow once; model weights cache
+afterwards.
 
 ## 1. Prerequisites
 
-- macOS on Apple Silicon (M1/M2/M3/M4/M5)
-- [Ollama](https://ollama.ai/) installed and running with at least one model pulled
-- [uv](https://docs.astral.sh/uv/) installed (`brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- A free [Hugging Face](https://huggingface.co/join) account
+- macOS on Apple Silicon (M1–M5).
+- Python 3.10–3.12 (3.11 recommended).
+- [Ollama](https://ollama.ai/) — only needed for **Summary** mode. Install it and
+  pull a chat model:
+  ```bash
+  ollama serve &                     # or launch the desktop app
+  ollama pull nemotron-3-nano:4b     # default; any chat model works
+  ```
+- [Node.js](https://nodejs.org/) 18+ (to build the React frontend).
 
-## 2. Clone and create the Python environment
+No Hugging Face login is required — the CSM weights come from the ungated
+`senstella/csm-1b-mlx` re-host.
+
+## 2. Clone and install
 
 ```bash
 git clone git@github.com:MKS-01/readback.git
 cd readback
 
-uv python install 3.11
-uv venv --python 3.11 .venv
-source .venv/bin/activate
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -e .          # csm-mlx is a git dependency, pulled automatically
 ```
 
-## 3. Vendor Sesame CSM and install dependencies
-
-CSM is not pip-installable, so it's vendored as a sibling repo.
+## 3. Build the frontend (one-time)
 
 ```bash
-git clone https://github.com/SesameAILabs/csm vendor/csm
-uv pip install -r vendor/csm/requirements.txt
-uv pip install -e .
+cd readback/web/frontend
+npm install
+npm run build            # writes ../static/dist
+cd ../../..
 ```
 
-## 4. Hugging Face authentication
+Re-run `npm run build` after editing anything under `readback/web/frontend/src/`.
+(If you skip this, the server falls back to a legacy static bundle.)
 
-CSM uses two gated models for tokenization. Both are free, both grant instant access.
-
-### 4a. Request access to the gated models
-
-While logged in to Hugging Face, visit each link, click **"Expand to review and access"**, fill in the short form (Personal use is fine), and submit:
-
-- https://huggingface.co/meta-llama/Llama-3.2-1B
-- https://huggingface.co/sesame/csm-1b
-
-Approval is automatic — usually within seconds. Refresh the page; the yellow access banner should disappear.
-
-### 4b. Create an access token
-
-- Go to https://huggingface.co/settings/tokens
-- Click **+ Create new token**
-- Name: `readback`, Type: **Read**
-- Click **Create token** and **copy it immediately** (starts with `hf_...`)
-
-### 4c. Log in from the terminal
+## 4. Run
 
 ```bash
-huggingface-cli login
-# Paste the token when prompted (won't be visible)
-# Answer "n" when asked about git credentials
+readback                 # http://127.0.0.1:8000
+# or, without installing the console script:
+python -m readback
 ```
 
-Verify:
+On the **first read**, CSM-1B downloads (~6 GB) from Hugging Face and the MLX graph
+warms up — the first synthesis takes noticeably longer; subsequent runs are fast.
+Weights cache in `~/.cache/huggingface/hub/`.
+
+Useful flags:
 
 ```bash
-python -c "from huggingface_hub import HfApi; print(HfApi().whoami()['name'])"
+readback --model qwen3                 # override the Ollama model for this run
+readback --port 9000                   # different port
+readback --config /path/to/config.yaml # custom config
+readback --host 0.0.0.0 --auto-cert    # LAN access over HTTPS (phone/tablet)
 ```
 
-## 5. Download model weights (~6.8GB total)
+## 5. Verify
 
-The `sesame/csm-1b` repo on Hugging Face contains **three redundant copies** of the same model in different formats (`model.safetensors`, `ckpt.pt`, and `transformers-*.safetensors` shards). `readback download-models` only fetches the one CSM actually uses (`model.safetensors`), saving ~13GB vs. a naive `snapshot_download`.
+1. Open `http://127.0.0.1:8000` — the orb breathes, the URL field is ready.
+2. Paste an article URL, leave it on **Full article**, hit **→**.
+3. The orb takes over with *Fetching… → Synthesizing N/M*, then a player appears,
+   audio plays, and **↓ Download audio** works.
+4. Switch to **Summary** (requires Ollama running) and read again — after
+   synthesis, **Show transcript** reveals the spoken summary.
 
-### Option A: All-in-one (recommended)
+Voice-only smoke test from a REPL:
 
 ```bash
-export HF_HUB_DOWNLOAD_TIMEOUT=120
-readback download-models
+.venv/bin/python -c "from readback.config import Config; from readback.tts.synthesizer import Synthesizer; \
+import soundfile as sf, numpy as np; c=Config.load(); s=Synthesizer(c.tts); s.load(); \
+sf.write('/tmp/test.wav', np.asarray(s.synthesize('Hello from readback.'),dtype=np.float32), s.sample_rate); print('wrote /tmp/test.wav')"
 ```
-
-This pulls:
-
-| Model | Size | Purpose |
-| --- | --- | --- |
-| `Whisper base.en` (CTranslate2) | ~150MB | STT |
-| `sesame/csm-1b` (`model.safetensors` + voice prompts only) | ~6.3GB | TTS |
-| `meta-llama/Llama-3.2-1B` (tokenizer files only) | ~5MB | CSM text tokenizer |
-| Mimi audio codec | ~500MB | pulled by CSM on first synthesis |
-
-### Option B: Manual, file-by-file (use if Option A hangs or times out)
-
-`huggingface-cli download` has the strongest resume support if the connection is flaky. Pass `--include` to skip the redundant model copies:
-
-```bash
-source /Users/mks/Desktop/C0D3/readback/.venv/bin/activate
-export HF_HUB_DOWNLOAD_TIMEOUT=120
-
-# 1. Whisper base.en (~150MB)
-python -c "from faster_whisper import WhisperModel; WhisperModel('base.en', device='cpu', compute_type='int8')"
-
-# 2. CSM-1B — only the safetensors weights, config, and voice prompts (~6.3GB)
-huggingface-cli download sesame/csm-1b \
-  --include "model.safetensors" "config.json" "generation_config.json" "prompts/*.wav"
-
-# 3. Llama-3.2-1B — tokenizer only, NOT the 2.5GB weights (~5MB)
-huggingface-cli download meta-llama/Llama-3.2-1B \
-  --include "tokenizer.json" "tokenizer_config.json" "special_tokens_map.json"
-
-# 4. Mimi audio codec — auto-pulled by CSM on first synthesis; no manual step needed
-```
-
-> **Warning** — running `huggingface-cli download sesame/csm-1b` *without* `--include` will pull ~20GB (all three model formats). Always use the `--include` filter above.
-
-Cache lives in `~/.cache/huggingface/hub/`. Partial downloads resume automatically.
-
-## 6. Verify
-
-```bash
-# Audio devices
-readback list-devices
-
-# Ollama models reachable
-readback list-models
-
-# TTS smoke test (loads CSM, synthesizes one sentence, plays it)
-readback test-tts "hello from sesame"
-```
-
-First TTS call takes 30-60s while MPS compiles kernels. Subsequent synthesis is much faster (~1.5–2.5s per sentence on M-series).
-
-## 7. Run the app
-
-```bash
-# Voice mode (default)
-readback run
-
-# Text mode
-readback run --text-mode
-
-# Override Ollama model
-readback run --model llama3.1:8b
-```
-
-In-app:
-- **F4** — toggle voice ↔ text mode
-- **Speak during a response** — interrupt the assistant
-- **Ctrl+C** — quit
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| `GatedRepoError` on download | You haven't accepted the model's license yet. Visit the model page on huggingface.co and click "Expand to review and access". |
-| `ReadTimeout` mid-download | Set `HF_HUB_DOWNLOAD_TIMEOUT=120` (or higher), then re-run. Partial files resume automatically. |
-| `NO_TORCH_COMPILE` warnings | Already handled — `readback/tts/synthesizer.py` sets it before importing torch. |
-| Microphone not detected | Grant microphone permission in System Settings → Privacy & Security → Microphone for your terminal app. |
-| `mps not available` on import | Confirm with `python -c "import torch; print(torch.backends.mps.is_available())"`. Should print `True`. If `False`, your PyTorch build wasn't compiled for MPS — reinstall with `uv pip install --force-reinstall torch torchaudio`. |
-| Bluetooth audio sounds bad | macOS routes mic-on Bluetooth devices to a low-quality SCO codec. Use wired audio or built-in speakers for best quality. |
+| Summary mode errors / "error talking to Ollama" | Ollama isn't running or the model isn't pulled. `ollama serve` + `ollama pull <model>`; check `ollama.host` in `config.yaml`. |
+| First synthesis hangs for a while | One-time ~6 GB CSM download + MLX graph warm-up. Subsequent synth is fast. |
+| `ReadTimeout` mid-download | `export HF_HUB_DOWNLOAD_TIMEOUT=120` and re-run; partial files resume. |
+| Page looks unstyled / old | You didn't build the frontend, or built it stale. Re-run `npm run build`. |
+| "no readable article text found" | The page isn't a standard article (paywall, JS-rendered, or login wall). Try a different URL. |
+| Voice sounds garbled on a clone | `ref_text` must exactly match the clip; use a clean 5–8 s reference; raise `tts.csm.temperature` toward 0.6–0.8. See `.claude/skills/csm-voice`. |
 
 ## Disk usage
 
-After full setup (with the filtered download in Option A or B):
-- `.venv/` — ~2.5GB
-- `~/.cache/huggingface/hub/` — ~7GB (CSM `model.safetensors` + voice prompts + Llama tokenizer + Mimi)
-- Whisper cache — ~150MB
-
-Total: **~9.5GB**.
-
-If you accidentally pulled the full `sesame/csm-1b` repo (no `--include` filter), `~/.cache/huggingface/hub/` will be ~20GB. To reclaim space, delete the unused blobs:
-
-```bash
-# Remove the redundant ckpt.pt and transformers-*.safetensors files
-find ~/.cache/huggingface/hub/models--sesame--csm-1b -name "ckpt.pt" -delete
-find ~/.cache/huggingface/hub/models--sesame--csm-1b -name "transformers-*" -delete
-```
+- `.venv/` — ~2–3 GB.
+- `~/.cache/huggingface/hub/` — ~6.5 GB (CSM `ckpt.safetensors` + Mimi codec +
+  Sesame voice prompts).
+- Generated audio — `~/.readback/reader/` (grows with use; safe to clear).
