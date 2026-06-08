@@ -4,8 +4,10 @@
 // as the working/playing visual (driven by store.phase).
 
 import { useEffect, useRef, useState } from "react";
+import { AudioPlayer } from "./components/AudioPlayer";
+import { ArrowIcon, CopyIcon } from "./components/icons";
 import { OrbContainer } from "./components/OrbContainer";
-import { Picker, PickerOption } from "./components/Picker";
+import { PickerOption } from "./components/Picker";
 import { WSClient, WSMessage } from "./lib/ws";
 import { patchPrefs, useAppStore } from "./state/store";
 
@@ -25,6 +27,8 @@ function fmtDuration(sec: number): string {
 export default function App() {
   const wsRef = useRef<WSClient | null>(null);
   const [url, setUrl] = useState("");
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const connected = useAppStore((s) => s.connected);
   const statusText = useAppStore((s) => s.statusText);
@@ -61,6 +65,7 @@ export default function App() {
             durationSec: msg.duration_sec,
             wordCount: msg.word_count,
             mode: msg.mode,
+            text: msg.text,
           });
           st.setProgress(null);
           st.setBusy(false);
@@ -95,6 +100,8 @@ export default function App() {
     st.setError("");
     st.setResult(null);
     st.setProgress(null);
+    setShowTranscript(false);
+    setCopied(false);
     st.setBusy(true);
     st.setPhase("thinking", "Starting…");
     wsRef.current?.send({
@@ -103,6 +110,15 @@ export default function App() {
       mode: prefs.mode,
       voice: prefs.voice || undefined,
     });
+  };
+
+  const onCancel = () => {
+    wsRef.current?.send({ type: "cancel" });
+    const st = useAppStore.getState();
+    st.setBusy(false);
+    st.setProgress(null);
+    st.setStatus("");
+    st.setPhase("idle", "");
   };
 
   const voiceOptions: PickerOption[] = voicesAvailable.map((v) => ({
@@ -117,11 +133,6 @@ export default function App() {
     <div className="reader-root">
       <header className="hdr">
         <div className="hdr-meta">
-          <span className="meta-item">
-            <span className="meta-label">app</span>
-            <span className="meta-value">READER</span>
-          </span>
-          <span className="meta-div" aria-hidden="true" />
           <span className="meta-item">
             <span className="meta-label">model</span>
             <span className="meta-value">{model || "…"}</span>
@@ -139,9 +150,25 @@ export default function App() {
         </div>
       </header>
 
-      <OrbContainer />
+      <div className="reader-center">
+        <OrbContainer />
 
-      <main className="reader-panel">
+        <main className="reader-panel">
+        {busy ? (
+          <div className="reader-busy">
+            <span className="reader-busy-text">{statusText || "Working…"}</span>
+            <span className={`reader-bar ${progress ? "" : "indet"}`}>
+              <span
+                className="reader-bar-fill"
+                style={progress ? { width: `${pct}%` } : undefined}
+              />
+            </span>
+            <button type="button" className="reader-cancel" onClick={onCancel}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+        <>
         <div className="reader-input-row">
           <input
             className="reader-url"
@@ -153,15 +180,15 @@ export default function App() {
             onKeyDown={(e) => {
               if (e.key === "Enter") onRead();
             }}
-            disabled={busy}
           />
           <button
             className="reader-go"
             type="button"
             onClick={onRead}
-            disabled={busy || !url.trim()}
+            disabled={!url.trim()}
+            aria-label="Read"
           >
-            {busy ? "···" : "READ"}
+            <ArrowIcon size={18} />
           </button>
         </div>
 
@@ -172,7 +199,6 @@ export default function App() {
                 key={m}
                 type="button"
                 className={`seg-btn ${prefs.mode === m ? "active" : ""}`}
-                disabled={busy}
                 onClick={() => patchPrefs({ mode: m })}
               >
                 {m === "full" ? "Full article" : "Summary"}
@@ -180,28 +206,20 @@ export default function App() {
             ))}
           </div>
           {voiceOptions.length > 0 ? (
-            <div className="reader-voice">
-              <Picker
-                label="Voice"
-                options={voiceOptions}
-                value={prefs.voice}
-                disabled={busy}
-                onChange={(v) => patchPrefs({ voice: v })}
-              />
-            </div>
+            <select
+              className="reader-select"
+              aria-label="Voice"
+              value={prefs.voice || ""}
+              onChange={(e) => patchPrefs({ voice: e.target.value })}
+            >
+              {voiceOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           ) : null}
         </div>
-
-        {busy || statusText ? (
-          <div className="reader-status">
-            <span className="reader-status-text">{statusText}</span>
-            {progress ? (
-              <span className="reader-bar">
-                <span className="reader-bar-fill" style={{ width: `${pct}%` }} />
-              </span>
-            ) : null}
-          </div>
-        ) : null}
 
         {error ? <div className="reader-error">{error}</div> : null}
 
@@ -213,21 +231,59 @@ export default function App() {
               {result.wordCount.toLocaleString()} words ·{" "}
               {fmtDuration(result.durationSec)}
             </div>
-            <audio
-              className="reader-audio"
-              controls
-              autoPlay
+            <AudioPlayer
               src={result.audioUrl}
+              duration={result.durationSec}
               onPlay={() => useAppStore.getState().setPhase("speaking")}
               onPause={() => useAppStore.getState().setPhase("idle")}
               onEnded={() => useAppStore.getState().setPhase("idle")}
             />
+
+            {result.text ? (
+              <div className="reader-transcript">
+                <div className="reader-transcript-head">
+                  <button
+                    type="button"
+                    className="reader-transcript-toggle"
+                    onClick={() => setShowTranscript((v) => !v)}
+                    aria-expanded={showTranscript}
+                  >
+                    {showTranscript ? "Hide transcript" : "Show transcript"}
+                  </button>
+                  {showTranscript ? (
+                    <button
+                      type="button"
+                      className="reader-transcript-copy"
+                      onClick={() => {
+                        navigator.clipboard
+                          ?.writeText(result.text || "")
+                          .then(() => {
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 1500);
+                          })
+                          .catch(() => {});
+                      }}
+                    >
+                      <CopyIcon size={13} />
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                  ) : null}
+                </div>
+                {showTranscript ? (
+                  <div className="reader-transcript-text">{result.text}</div>
+                ) : null}
+              </div>
+            ) : null}
+
             <a className="reader-download" href={result.audioUrl} download>
               ↓ Download audio
             </a>
           </div>
         ) : null}
-      </main>
+        </>
+        )}
+        </main>
+      </div>
     </div>
   );
 }

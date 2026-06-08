@@ -20,6 +20,8 @@ export interface ReadResult {
   durationSec: number;
   wordCount: number;
   mode: string;
+  // Spoken text for the transcript panel (summary mode only; null otherwise).
+  text?: string | null;
 }
 
 export interface AppState {

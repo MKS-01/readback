@@ -96,6 +96,13 @@ export const SendIcon = ({ size = 16, ...rest }: IconProps) => (
   </svg>
 );
 
+export const ArrowIcon = ({ size = 18, ...rest }: IconProps) => (
+  <svg {...Common({ size, ...rest })}>
+    <line x1="5" y1="12" x2="19" y2="12" />
+    <polyline points="13 6 19 12 13 18" />
+  </svg>
+);
+
 export const CopyIcon = ({ size = 14, ...rest }: IconProps) => (
   <svg {...Common({ size, ...rest })}>
     <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />

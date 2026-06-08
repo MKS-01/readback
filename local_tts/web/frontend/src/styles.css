@@ -48,35 +48,15 @@ body.theme-ghost {
 /* Ghost theme: matte orb — no rings, no glow; soft atmospheric haze only */
 body.theme-ghost .hud-ring         { display: none; }
 body.theme-ghost .orb              {
-  background: radial-gradient(ellipse 75% 65% at 50% 52%,
-    rgba(32, 32, 32, 0.72) 0%,
-    rgba(18, 18, 18, 0.28) 55%,
-    transparent 78%);
+  background: none;       /* no disc — just the free-floating point cloud + bloom */
   box-shadow: none;
   opacity: 1;
 }
+/* No disc in any phase — just the free-floating point cloud + its bloom. */
 body.theme-ghost .orb.idle         { animation: breathe 4.5s ease-in-out infinite; }
-body.theme-ghost .orb.listening    {
-  background: radial-gradient(ellipse 75% 65% at 50% 52%,
-    rgba(42, 42, 42, 0.78) 0%,
-    rgba(22, 22, 22, 0.30) 55%,
-    transparent 78%);
-  box-shadow: none;
-}
-body.theme-ghost .orb.thinking     {
-  background: radial-gradient(ellipse 75% 65% at 50% 52%,
-    rgba(28, 28, 28, 0.68) 0%,
-    rgba(16, 16, 16, 0.24) 55%,
-    transparent 78%);
-  box-shadow: none;
-}
-body.theme-ghost .orb.speaking     {
-  background: radial-gradient(ellipse 80% 70% at 50% 52%,
-    rgba(48, 48, 48, 0.80) 0%,
-    rgba(24, 24, 24, 0.32) 55%,
-    transparent 78%);
-  box-shadow: none;
-}
+body.theme-ghost .orb.listening    { background: none; box-shadow: none; }
+body.theme-ghost .orb.thinking     { background: none; box-shadow: none; }
+body.theme-ghost .orb.speaking     { background: none; box-shadow: none; }
 body.theme-ghost .hud-corner       { opacity: 0.30; filter: none; }
 
 
@@ -117,7 +97,7 @@ body {
 .hdr {
   display: flex;
   justify-content: center;
-  padding: 32px 24px 0;
+  padding: 46px 24px 0;
   position: relative;
   z-index: 2;
 }
@@ -1063,20 +1043,36 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
 
 /* ── Article reader ─────────────────────────────────────────────────────── */
 .reader-root {
+  --reader-w: 600px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
-.reader-panel {
+
+/* Centers the orb + panel as one tidy column in the space below the header. */
+.reader-center {
+  flex: 1;
   width: 100%;
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 8px 20px 64px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px 48px;
+  gap: 8px;
 }
+.reader-center .orb-wrap { --orb-size: 168px; margin: 0 0 8px; }
+.reader-center .hud-corner { display: none; }
+
+.reader-panel {
+  width: 100%;
+  max-width: var(--reader-w);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* URL input + READ button: one row, button fixed-width so it never reflows. */
 .reader-input-row {
   display: flex;
   gap: 10px;
@@ -1084,60 +1080,105 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
 }
 .reader-url {
   flex: 1;
+  min-width: 0;
+  height: 50px;
   background: var(--bg-pill);
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   color: var(--text);
   font-family: var(--font-display);
   font-size: 14px;
-  padding: 12px 18px;
+  padding: 0 20px;
   outline: none;
 }
 .reader-url:focus { border-color: var(--accent); }
 .reader-url::placeholder { color: var(--text-mute); }
+.reader-url:disabled { opacity: 0.6; }
+/* Circular arrow CTA — compact 'go' affordance beside the URL field. */
 .reader-go {
+  flex: none;
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
   background: var(--accent);
   color: var(--bg);
   border: none;
-  border-radius: var(--radius-pill);
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  padding: 0 22px;
+  border-radius: 50%;
   cursor: pointer;
+  transition: opacity 150ms ease, transform 150ms ease;
 }
-.reader-go:disabled { opacity: 0.4; cursor: default; }
+.reader-go:hover:not(:disabled) { opacity: 0.9; transform: scale(1.05); }
+.reader-go:active:not(:disabled) { transform: scale(0.96); }
+.reader-go:disabled { opacity: 0.3; cursor: default; }
 
+/* Controls: mode segment hugs the left, voice select hugs the right. Equal
+   height, both pills, no floating labels — clean and symmetric. */
 .reader-controls {
   display: flex;
-  gap: 16px;
+  justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 12px;
 }
 .seg {
   display: inline-flex;
+  height: 42px;
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   overflow: hidden;
 }
 .seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 104px;
   background: none;
   border: none;
   color: var(--text-dim);
   font-family: var(--font-display);
   font-size: 12px;
-  padding: 7px 16px;
+  padding: 0 18px;
   cursor: pointer;
+  transition: color 150ms ease;
 }
+.seg-btn:hover:not(.active):not(:disabled) { color: var(--text); }
 .seg-btn.active { background: var(--accent); color: var(--bg); }
-.seg-btn:disabled { opacity: 0.5; cursor: default; }
-.reader-voice { flex: 1; min-width: 200px; }
+.seg-btn:disabled { cursor: default; }
+.seg:has(.seg-btn:disabled) { opacity: 0.5; }
 
+.reader-select {
+  height: 42px;
+  min-width: 200px;
+  max-width: 260px;
+  background: var(--bg-pill);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-display);
+  font-size: 13px;
+  padding: 0 38px 0 18px;
+  cursor: pointer;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+  background-position:
+    right 20px center,
+    right 15px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  transition: border-color 150ms ease;
+}
+.reader-select:focus { border-color: var(--accent); }
+.reader-select:disabled { opacity: 0.45; cursor: default; }
+
+/* Status / progress — sits left-aligned under the controls. */
 .reader-status {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 .reader-status-text {
   color: var(--text-dim);
@@ -1158,44 +1199,217 @@ body.ended .text-input-popover { opacity: 0; pointer-events: none; }
   background: var(--accent);
   transition: width 0.2s ease;
 }
+/* Indeterminate variant — used before per-sentence progress arrives. */
+.reader-bar.indet { position: relative; }
+.reader-bar.indet .reader-bar-fill {
+  position: absolute;
+  width: 30%;
+  transition: none;
+  animation: barslide 1.1s ease-in-out infinite;
+}
+@keyframes barslide {
+  0%   { left: -30%; }
+  100% { left: 100%; }
+}
 .reader-error {
   color: var(--danger);
   font-family: var(--font-display);
   font-size: 13px;
 }
 
+/* Busy / synthesis hero state: the orb above is the focus; here we show only
+   the phase message, a progress bar, and a quiet Cancel. */
+.reader-busy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 4px 0;
+  text-align: center;
+}
+.reader-busy-text {
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+.reader-busy .reader-bar { width: 100%; }
+.reader-cancel {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--text-mute);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 8px 22px;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.reader-cancel:hover { color: var(--text); border-color: var(--text-dim); }
+
+/* Result block — divider, then title / meta / player / transcript / download,
+   all flush to the same column edges as the input above. */
 .reader-result {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 6px;
+  gap: 14px;
+  padding-top: 20px;
   border-top: 1px solid var(--line);
 }
 .reader-title {
   color: var(--text);
   font-family: var(--font-body);
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 600;
+  line-height: 1.3;
 }
 .reader-result-meta {
+  margin-top: -8px;
   color: var(--text-mute);
   font-family: var(--font-display);
   font-size: 11px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
-.reader-audio { width: 100%; margin-top: 4px; }
-.reader-download {
-  align-self: flex-start;
+
+/* ── Custom audio player ────────────────────────────────────────────────── */
+.reader-player {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  height: 60px;
+  background: var(--bg-pill);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 0 22px 0 10px;
+}
+.reader-player-btn {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg);
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+.reader-player-btn:hover { opacity: 0.9; }
+.reader-player-time {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.reader-player-dur { min-width: 34px; text-align: right; }
+.reader-player-track {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--pct, 0%),
+    var(--line) var(--pct, 0%),
+    var(--line) 100%
+  );
+}
+.reader-player-track::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+.reader-player-track::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+/* ── Summary transcript ─────────────────────────────────────────────────── */
+.reader-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.reader-transcript-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.reader-transcript-toggle {
+  background: none;
+  border: none;
   color: var(--text-dim);
   font-family: var(--font-display);
   font-size: 12px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 0;
+  transition: color 150ms ease;
+}
+.reader-transcript-toggle:hover { color: var(--accent); }
+.reader-transcript-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 11px;
+  padding: 6px 13px;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.reader-transcript-copy:hover { color: var(--accent); border-color: var(--accent); }
+.reader-transcript-text {
+  max-height: 320px;
+  overflow-y: auto;
+  user-select: text;
+  white-space: pre-wrap;
+  color: var(--text-dim);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.65;
+  background: var(--bg-pill);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.reader-download {
+  align-self: flex-start;
+  color: var(--text-mute);
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.04em;
   text-decoration: none;
+  transition: color 150ms ease;
 }
 .reader-download:hover { color: var(--accent); }
 
-/* Reader layout refinements: contained orb, clean centered column. */
-.reader-root { padding-top: 28px; }
-.reader-root .orb-wrap { --orb-size: 148px; margin: 16px 0 4px; }
-.reader-root .hud-corner { display: none; }
-.reader-root .seg-btn { min-width: 96px; text-align: center; }
-.reader-root .reader-voice .settings-row { margin: 0; }
+@media (max-width: 600px) {
+  .reader-center { padding: 24px 16px 40px; }
+  .reader-controls { flex-direction: column; align-items: stretch; }
+  .seg { width: 100%; }
+  .seg-btn { flex: 1; min-width: 0; }
+  .reader-select { min-width: 0; max-width: none; width: 100%; }
+}
