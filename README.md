@@ -1,6 +1,7 @@
 # readback
 
-> Paste an article URL, get it read aloud in a natural voice — or a spoken summary of it. Fetch → extract → (optional LLM summary) → on-device neural TTS → listen in the browser or download the audio. Fully local. No cloud, no API keys, nothing leaves your machine.
+📖 **Your private article reader.** Paste a URL and let it fetch, summarize (optional), and narrate — all on-device with offline neural TTS. Your articles never leave your machine; no API keys required.
+
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Apple_Silicon-black?style=flat-square&logo=apple&logoColor=white)
@@ -14,6 +15,9 @@
 1. **Paste a URL.** readback fetches the page and extracts the clean article text (no nav, ads, or boilerplate).
 2. **Pick a mode.** *Full article* reads the text verbatim; *Summary* has a local LLM turn it into a tight spoken explanation first.
 3. **Listen.** The text is synthesized offline with **CSM-1B** (Sesame's neural speech model) and played in a minimalist browser player — or downloaded as a WAV. In Summary mode you can also reveal and copy the spoken text.
+
+![Preview — shows the custom audio player and orbital synthesis state. Toggle Full/Summary mode; note how three.js point cloud orbits while synthesizing N/M chunks](screenshots/screenshot-one.png "readback article reader")
+<!-- Show full article → then toggle to summary with transcript visible, orb animates during synthesis -->
 
 Everything runs on-device on Apple Silicon. The only model that touches the network is whatever you've already pulled into Ollama locally.
 
