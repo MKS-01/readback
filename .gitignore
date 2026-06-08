@@ -38,6 +38,15 @@ config.local.yaml
 # --- Captured audio (sample files, debugging) ---
 *.wav
 *.mp3
+# Exception: committed reference clips that config.yaml voices depend on
+# (the clone-condition voice must travel with the repo to be reproducible).
+!voice/voice_kay_default.wav
+
+# --- Fine-tuning (local training data + adapter weights, large) ---
+finetune/data/
+finetune/runs/
+finetune/dataset.json
+*.safetensors
 
 # --- macOS ---
 .DS_Store

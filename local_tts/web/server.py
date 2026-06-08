@@ -12,9 +12,11 @@ WebSocket; the finished WAV is served from `cfg.reader.output_dir`.
 
 WS protocol (/ws):
   client → {"type":"read", "url": str, "mode": "full"|"summary", "voice"?: str}
+           {"type":"cancel"}   # abort the in-flight read job (stops synthesis)
   server → {"type":"phase",    "value":"loading"|"fetching"|"summarizing"|"synthesizing"}
            {"type":"progress", "done": int, "total": int}
-           {"type":"done", "title","audio_url","duration_sec","word_count","mode"}
+           {"type":"done", "title","audio_url","duration_sec","word_count","mode",
+                           "text": str|None (summary text for transcript; None in full mode)}
            {"type":"error", "message": str}
 """
 from __future__ import annotations
@@ -35,7 +37,8 @@ from local_tts.llm.client import LLMClient
 from local_tts.reader import ExtractError, fetch_article
 from local_tts.reader.speak import synthesize_article, write_wav
 from local_tts.reader.summarize import summarize_article
-from local_tts.tts.synthesizer import SUPPORTED_VOICES, Synthesizer
+from local_tts.tts.csm_engine import voices_for
+from local_tts.tts.synthesizer import Synthesizer
 
 log = logging.getLogger("local_tts.server")
 
@@ -74,12 +77,15 @@ class ReaderModels:
 
 async def _run_read_job(
     ws: WebSocket, models: ReaderModels, cfg: Config, payload: dict,
+    state: Optional[dict] = None,
 ) -> None:
     loop = asyncio.get_running_loop()
-    # `alive` flips false the moment a send fails (client closed the tab). It
-    # both silences the send path and (via should_stop) aborts synthesis so we
-    # don't keep burning GPU on audio nobody will hear.
-    state = {"alive": True}
+    # `alive` flips false the moment a send fails (client closed the tab) OR the
+    # client sends a `cancel`. It both silences the send path and (via
+    # should_stop) aborts synthesis so we don't keep burning GPU on audio nobody
+    # will hear. The caller may pass its own state dict so it can flip `alive`.
+    if state is None:
+        state = {"alive": True}
 
     async def send(msg: dict):
         if not state["alive"]:
@@ -164,6 +170,9 @@ async def _run_read_job(
         "duration_sec": round(len(audio) / synth.sample_rate, 1),
         "word_count": article.word_count,
         "mode": mode,
+        # Spoken text for the client transcript panel — summary only (the full
+        # article is already on the source page, no need to ship it back).
+        "text": text if mode == "summary" else None,
     })
 
 
@@ -206,7 +215,7 @@ def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -
     @app.get("/api/config")
     async def api_config():
         return {
-            "voices_available": [{"id": v, "label": label} for v, label in SUPPORTED_VOICES],
+            "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
             "model": cfg.ollama.model,
             "default_mode": cfg.reader.default_mode,
@@ -218,30 +227,49 @@ def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -
         # Seed the client with current config.
         await websocket.send_json({
             "type": "config",
-            "voices_available": [{"id": v, "label": label} for v, label in SUPPORTED_VOICES],
+            "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
             "model": cfg.ollama.model,
             "default_mode": cfg.reader.default_mode,
         })
-        busy = False
+        # The active read job runs as a background task so the receive loop stays
+        # free to handle `cancel` (and disconnects) mid-synthesis.
+        job_task: Optional[asyncio.Task] = None
+        job_state: Optional[dict] = None
         try:
             while True:
                 payload = await websocket.receive_json()
-                if payload.get("type") != "read":
+                kind = payload.get("type")
+                if kind == "cancel":
+                    if job_state is not None:
+                        job_state["alive"] = False   # aborts synth + silences sends
                     continue
-                if busy:
+                if kind != "read":
+                    continue
+                if job_task is not None and not job_task.done():
                     await websocket.send_json({
                         "type": "error", "message": "Still working on the last one…",
                     })
                     continue
-                busy = True
-                try:
-                    await _run_read_job(websocket, models, cfg, payload)
-                finally:
-                    busy = False
+                job_state = {"alive": True}
+                job_task = asyncio.create_task(
+                    _run_read_job(websocket, models, cfg, payload, job_state)
+                )
+
+                def _log_job_exc(t: asyncio.Task) -> None:
+                    if not t.cancelled() and t.exception() is not None:
+                        log.error("read job failed", exc_info=t.exception())
+
+                job_task.add_done_callback(_log_job_exc)
         except WebSocketDisconnect:
             return
         except Exception:
             log.exception("ws error")
+        finally:
+            # Stop any in-flight synthesis when the socket goes away.
+            if job_state is not None:
+                job_state["alive"] = False
+            if job_task is not None and not job_task.done():
+                job_task.cancel()
 
     return app

@@ -27,6 +27,21 @@ class OllamaConfig(BaseModel):
     system_prompt: str = DEFAULT_PERSONA_PROMPT
 
 
+class CsmVoicePrompt(BaseModel):
+    """A custom reference voice for CSM (clone-condition). CSM conditions every
+    sentence on a reference (audio + its exact transcript); the clip's timbre AND
+    prosody set the output's voice. Add clips under `tts.csm.voices`.
+
+    `wav` is resolved relative to the config file's directory (so `voice/x.wav`
+    is portable). `ref_text` MUST be the clip's exact transcript — a mismatched
+    (audio, text) pair garbles the voice. `speaker` is the CSM speaker slot."""
+    name: str                 # picker id (also the value stored in prefs)
+    label: str                # UI label
+    wav: Path                 # reference clip (mono 24 kHz wav)
+    ref_text: str             # exact transcript of the clip
+    speaker: int = 0          # CSM speaker slot
+
+
 class CsmTTSConfig(BaseModel):
     # CSM-1B (Sesame Conversational Speech Model) via csm-mlx (senstella/csm-mlx,
     # MLX/Metal, 24 kHz) as of v0.7.x. Two voices map to CSM speaker IDs
@@ -53,6 +68,15 @@ class CsmTTSConfig(BaseModel):
     # need more headroom — trims the clip AND its transcript together (a
     # mismatched pair garbles the voice).
     ref_max_sec: Optional[float] = None
+    # Custom clone-condition voices (timbre + tone from a local clip). Each
+    # appears in the voice picker alongside the two built-in reading voices.
+    voices: list[CsmVoicePrompt] = Field(default_factory=list)
+    # Optional LoRA adapter from a `csm-mlx finetune lora` run — a directory with
+    # adapters.safetensors + adapter_config.json (resolved relative to this config
+    # file). When set, the engine loads it over the base weights and follows the
+    # FINETUNING preset: generate with EMPTY context (the fine-tuned voice lives in
+    # the adapter, not a reference clip). None = base model + read-speech prompt.
+    lora_path: Optional[Path] = None
     # Inert under csm-mlx (kept for config back-compat):
     #   model      — checkpoint is fixed (senstella/csm-1b-mlx) in the engine.
     #   watermark  — csm-mlx has no watermarker yet.
@@ -115,4 +139,17 @@ class Config(BaseModel):
         known = cls.model_fields.keys()
         data = {k: v for k, v in data.items() if k in known}
 
-        return cls(**data)
+        cfg = cls(**data)
+        base = path.resolve().parent
+
+        # Resolve clone-voice clip paths + the LoRA adapter dir relative to the
+        # config file's directory (so `voice/x.wav` / `finetune/runs/v1` are
+        # portable). Absolute / ~ paths are left as written.
+        for v in cfg.tts.csm.voices:
+            wav = Path(str(v.wav)).expanduser()
+            v.wav = wav if wav.is_absolute() else (base / wav)
+        if cfg.tts.csm.lora_path is not None:
+            lp = Path(str(cfg.tts.csm.lora_path)).expanduser()
+            cfg.tts.csm.lora_path = lp if lp.is_absolute() else (base / lp)
+
+        return cfg

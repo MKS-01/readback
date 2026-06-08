@@ -13,12 +13,26 @@ tts:
   # the voice stays good and consistent.
   engine: "csm"
   csm:
-    # conversational_a (speaker 0 ★) / conversational_b (speaker 1).
-    speaker: "conversational_a"
+    # Active voice. Built-ins: conversational_a / conversational_b. Clone voices
+    # under `voices:` add their own timbre/tone — "kay" (young female) is default.
+    speaker: "kay"
     # bf16 (clean + fast). Offline, so you can also use "fp32" for max quality.
     precision: "bf16"
-    # Lower = steadier; higher = more varied. (No realtime constraint offline.)
-    temperature: 0.7
+    # Lower = steadier/more composed; higher = livelier. 0.6 reads measured (good
+    # for a lecture feel); the short k.wav ref gets unstable below ~0.55.
+    temperature: 0.6
+    # Clone-condition voices: each clip's timbre + tone is reproduced in the read.
+    # `wav` is relative to this file; `ref_text` MUST be the clip's exact transcript.
+    voices:
+      - name: "kay"
+        label: "Kay ★"
+        wav: "voice/voice_kay_default.wav"
+        speaker: 0
+        ref_text: "Welcome back. Let's pick up where we left off in last week's lecture."
+    # Fine-tuned voice: point at a `csm-mlx finetune lora` run dir (adapters.safetensors
+    # + adapter_config.json). Loaded over the base weights; generation then uses
+    # empty context per the FINETUNING preset. See finetune/README.md.
+    # lora_path: "finetune/runs/v1"
 
 reader:
   # Generated WAVs are written here and served for playback + download.

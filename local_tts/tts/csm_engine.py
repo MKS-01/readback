@@ -36,6 +36,12 @@ SUPPORTED_VOICES: tuple[tuple[str, str], ...] = (
 SUPPORTED_VOICE_NAMES: tuple[str, ...] = tuple(v for v, _ in SUPPORTED_VOICES)
 _VOICE_SPEAKER: dict[str, int] = {"conversational_a": 0, "conversational_b": 1}
 
+
+def voices_for(cfg: CsmTTSConfig) -> tuple[tuple[str, str], ...]:
+    """Full (id, label) voice list: built-in reading voices + custom clone-condition
+    clips from `cfg.voices`. Used by both the engine and the server's voice picker."""
+    return SUPPORTED_VOICES + tuple((v.name, v.label) for v in cfg.voices)
+
 _SAMPLE_RATE = 24000  # CSM/Mimi native rate — matches the WS Float32 contract.
 _HF_REPO = "senstella/csm-1b-mlx"
 _HF_FILE = "ckpt.safetensors"
@@ -114,17 +120,19 @@ class CsmEngine:
 
     @property
     def supported_voices(self) -> tuple[tuple[str, str], ...]:
-        return SUPPORTED_VOICES
+        return voices_for(self.cfg)
 
     def load(self):
         self._run(self._load_impl)
 
     def swap_voice(self, voice: str) -> str:
-        """Switch the active voice (speaker id). Instant — one loaded model, the
-        speaker id is just a per-call arg (no reload)."""
-        if voice not in _VOICE_SPEAKER:
+        """Switch the active voice. Instant — one loaded model; speaker id + the
+        reference clip are per-call args (no reload). Custom voices build their
+        reference Segment lazily on first use (cached thereafter)."""
+        valid = {v for v, _ in voices_for(self.cfg)}
+        if voice not in valid:
             raise ValueError(
-                f"Unsupported voice {voice!r}; pick from {SUPPORTED_VOICE_NAMES}"
+                f"Unsupported voice {voice!r}; pick from {sorted(valid)}"
             )
         self.cfg.speaker = voice
         return voice
@@ -164,7 +172,17 @@ class CsmEngine:
 
     # ---- impls (run ON the MLX executor thread; never re-submit) ----
 
+    def _config_voice(self, voice: str):
+        """The CsmVoicePrompt for `voice`, or None if it's a built-in reading voice."""
+        for v in self.cfg.voices:
+            if v.name == voice:
+                return v
+        return None
+
     def _speaker_id(self) -> int:
+        cv = self._config_voice(self.cfg.speaker)
+        if cv is not None:
+            return cv.speaker
         return _VOICE_SPEAKER.get(self.cfg.speaker, 0)
 
     def _make_sampler(self):
@@ -180,17 +198,32 @@ class CsmEngine:
         cached = self._ref_cache.get(voice)
         if cached is not None:
             return cached
-        prompt = _PROMPTS.get(voice)
-        if prompt is None:
+        # Fine-tuned (LoRA) model: the voice is baked into the adapter, so we
+        # follow the FINETUNING preset and generate with EMPTY context — a
+        # read-speech reference prompt would fight the trained voice.
+        if self.cfg.lora_path is not None:
             self._ref_cache[voice] = []
             return []
         import mlx.core as mx
-        from huggingface_hub import hf_hub_download
         from csm_mlx import Segment
         from csm_mlx.utils import read_audio
 
-        filename, text = prompt
-        wav = hf_hub_download(repo_id=_HF_PROMPT_REPO, filename=filename)
+        # Custom clone-condition voice (local clip) vs built-in reading prompt (HF).
+        cv = self._config_voice(voice)
+        if cv is not None:
+            wav = str(cv.wav)
+            text = cv.ref_text
+            speaker = cv.speaker
+        else:
+            prompt = _PROMPTS.get(voice)
+            if prompt is None:
+                self._ref_cache[voice] = []
+                return []
+            from huggingface_hub import hf_hub_download
+
+            filename, text = prompt
+            speaker = _VOICE_SPEAKER.get(voice, 0)
+            wav = hf_hub_download(repo_id=_HF_PROMPT_REPO, filename=filename)
         audio = read_audio(wav, _SAMPLE_RATE)            # (samples,) mx.array @ 24k
         ref_sec = self.cfg.ref_max_sec or 0.0
         if ref_sec:
@@ -202,7 +235,7 @@ class CsmEngine:
                 keep = max(4, int(len(words) * ref_sec / max(1.0, full_sec)))
                 text = " ".join(words[:keep])
         mx.eval(audio)
-        seg = [Segment(speaker=_VOICE_SPEAKER.get(voice, 0), text=text, audio=audio)]
+        seg = [Segment(speaker=speaker, text=text, audio=audio)]
         self._ref_cache[voice] = seg
         return seg
 
@@ -226,6 +259,12 @@ class CsmEngine:
                 mx.eval(self._model.parameters())
             except Exception:
                 pass   # fall back to loaded precision rather than failing load
+        # Optional LoRA adapter from a csm-mlx finetune run (FINETUNING preset).
+        # Loaded over the base weights; generation then uses empty context.
+        if self.cfg.lora_path is not None:
+            from csm_mlx import load_adapters
+
+            load_adapters(self._model, str(self.cfg.lora_path))
         # Warm the graph (one throwaway synth) AND build the reference cache so
         # the first real sentence is fast and on-voice.
         try:
