@@ -14,17 +14,16 @@ changelog); `pyproject` install fixed (`allow-direct-references`); removed the
 ---
 
 ## 1. Cleanup
-- [ ] **Remove dead `tools/` module** (`clock`, `web_search`) — unused by the
-      reader. Also strip the tool-calling plumbing from `llm/client.py`
-      (`_stream_tokens_with_tools`, `stream_response`, `ToolRegistry` import, the
-      `tools` ctor arg). Keep only `oneshot()`.
-- [ ] **Legacy static fallback** in `web/static/` (`index.html`, `app.js`,
-      `styles.css`, `recorder.worklet.js`) — old vanilla-JS voice UI; the React
-      `dist/` is the only client now.
-- [ ] **`config.py load()`**: drop the dead Qwen→CSM migration block.
-- [ ] **Vestigial config fields**: inert `CsmTTSConfig` (`speed`, `model`,
-      `watermark`, `context_turns`) and `OllamaConfig.system_prompt` — remove or
-      keep-with-comment.
+- [x] **Removed dead `tools/` module** (`clock`, `web_search`) + the tool-calling
+      / streaming plumbing in `llm/client.py` — `LLMClient` is now just `oneshot()`
+      plus the `<think>` stripper.
+- [x] **Removed the legacy static fallback** in `web/static/` (`index.html`,
+      `app.js`, `styles.css`, `recorder.worklet.js`) — the React `dist/` is the
+      only client; the index route serves it directly.
+- [x] **Dropped the dead Qwen→CSM migration block** in `config.py load()`.
+- [x] **Removed vestigial config fields**: inert `CsmTTSConfig`
+      (`speed`, `model`, `watermark`, `context_turns`) and
+      `OllamaConfig.system_prompt` / `DEFAULT_PERSONA_PROMPT`.
 - [ ] **Generated-WAV rotation**: `~/.readback/reader/` grows unbounded — keep N
       most-recent / age-out.
 

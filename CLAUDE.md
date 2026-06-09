@@ -10,8 +10,9 @@ All on-device on Apple Silicon. No cloud, no API keys.
 entire live cascade — Parakeet STT, Smart-Turn, webrtcvad, mic capture, echo
 gate, wake-word, personas, tools, Obsidian export — was removed. If you see those
 referenced anywhere, it's stale: the current package is just
-`llm/ reader/ tools/ tts/ web/`, and the reader server wires none of the
-tools/persona/obsidian machinery.
+`llm/ reader/ tts/ web/`, and the reader server wires none of the
+tools/persona/obsidian machinery (the `tools/` module and the streaming/
+tool-calling LLM plumbing were removed in the v0.8.0 cleanup).
 
 **See [ARCHITECTURE.md](ARCHITECTURE.md)** for the system-level view (pipeline,
 concurrency model, extension points). This file holds implementation notes,
@@ -57,7 +58,7 @@ readback/
     ├── __main__.py            # `readback` CLI: argparse, --auto-cert/--cert/--key, uvicorn boot
     ├── config.py              # Pydantic config: OllamaConfig / CsmTTSConfig (+ CsmVoicePrompt)
     │                          # / ReaderConfig; load() resolves clone wav + lora paths
-    ├── llm/client.py          # LLMClient: oneshot() for summary; streaming/tools vestigial
+    ├── llm/client.py          # LLMClient.oneshot() for summary + the <think> stripper
     ├── reader/
     │   ├── extract.py         # fetch_article: trafilatura + UA fallback; TTS-prep scrub
     │   ├── summarize.py       # summarize_article: LLM oneshot → spoken explanation
@@ -66,10 +67,9 @@ readback/
     │   ├── csm_engine.py      # CsmEngine (csm-mlx); single-thread MLX executor; _ref_for
     │   │                      # (built-in prompt / clone clip / empty-for-LoRA); voices_for
     │   └── synthesizer.py     # Synthesizer facade over CsmEngine
-    ├── tools/                 # VESTIGIAL (clock, web_search) — not wired into the reader
     └── web/
         ├── server.py          # FastAPI app, /ws, read-job task + cancel, /audio serving
-        ├── static/            # legacy vanilla-JS fallback + Vite dist/ output
+        ├── static/dist/       # Vite build output (the only client)
         └── frontend/          # React app (vite build target = ../static/dist)
             └── src/
                 ├── App.tsx, main.tsx
@@ -95,6 +95,8 @@ readback/
   source page).
 - Models (`Synthesizer` + `LLMClient`) load lazily on first read via
   `ReaderModels.ensure_loaded` (downloads the CSM checkpoint the first time).
+- The index route serves `web/static/dist/index.html`; build the frontend before
+  running (`npm run build`). There is no legacy fallback bundle anymore.
 
 ### Reader pipeline (`reader/`)
 
@@ -160,13 +162,10 @@ readback/
 
 ### Config (`config.py`)
 
-- `OllamaConfig{model, host, system_prompt}` — `system_prompt`
-  (`DEFAULT_PERSONA_PROMPT`) is **vestigial** (summary uses its own prompt via
-  `oneshot`; nothing reads `system_prompt` in the reader path).
+- `OllamaConfig{model, host}` — summary uses its own prompt via `oneshot`.
 - `CsmTTSConfig{precision, speaker, temperature, top_k, max_audio_length_ms,
-  ref_max_sec, voices, lora_path, …}`. `speed`, `model`, `watermark`,
-  `context_turns` are **inert** (kept for back-compat; csm-mlx has no equivalents
-  / the checkpoint is fixed in the engine).
+  ref_max_sec, voices, lora_path}`. The checkpoint (`senstella/csm-1b-mlx`) is
+  fixed in the engine.
 - `ReaderConfig{output_dir, default_mode, gap_sec, summary_max_chars}`.
 - `Config.load()` resolves clone `wav` paths and `lora_path` relative to the
   config file's directory.
@@ -175,9 +174,9 @@ readback/
 
 - The reader uses only **`oneshot(system, user)`** — one non-streaming Ollama
   `chat`, `think=False`, `temperature=0.4`, `<think>` stripped.
-- `_ThinkStripper` removes `<think>…</think>` across chunk boundaries.
-- `stream_response` / `_stream_tokens_with_tools` / the `tools` arg are
-  **vestigial** voice-assistant code — unused by the reader.
+- `_ThinkStripper` removes `<think>…</think>` across chunk boundaries. The
+  streaming/tool-calling methods and the `tools/` module were removed in the
+  v0.8.0 cleanup.
 
 ### Frontend (`web/frontend/`)
 
@@ -209,15 +208,14 @@ readback/
 - **`<think>` leaks only on qwen3.** qwen3 ignores `think=False` and emits
   untagged reasoning; the default `nemotron-3-nano:4b` is clean.
 
-## Known dead/vestigial code (cleanup candidates — see TODO.md)
+## Remaining cleanup candidates (see TODO.md)
 
-- `readback/tools/` (`clock`, `web_search`) + the tool-calling plumbing in
-  `llm/client.py` — unused by the reader.
-- `readback/web/static/` legacy vanilla-JS bundle (`index.html`, `app.js`, …) —
-  superseded by the React `dist/`.
-- Inert `CsmTTSConfig` fields (`speed`, `model`, `watermark`, `context_turns`) and
-  the vestigial `OllamaConfig.system_prompt`.
 - Generated WAVs in `~/.readback/reader/` grow unbounded (no rotation yet).
+
+The v0.8.0 cleanup removed the dead `tools/` module, the streaming/tool-calling
+LLM plumbing, the legacy vanilla-JS static bundle, the inert `CsmTTSConfig`
+fields (`speed`/`model`/`watermark`/`context_turns`), `OllamaConfig.system_prompt`,
+and the Qwen→CSM config migration.
 
 ## Install & verification
 

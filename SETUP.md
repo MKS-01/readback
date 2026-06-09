@@ -38,7 +38,7 @@ cd ../../..
 ```
 
 Re-run `npm run build` after editing anything under `readback/web/frontend/src/`.
-(If you skip this, the server falls back to a legacy static bundle.)
+The server serves this build directly — if you skip the build, the page won't load.
 
 ## 4. Run
 

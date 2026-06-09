@@ -202,10 +202,7 @@ def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -
 
     @app.get("/")
     async def index():
-        dist_index = DIST_DIR / "index.html"
-        if dist_index.exists():
-            return FileResponse(str(dist_index))
-        return FileResponse(str(STATIC_DIR / "index.html"))
+        return FileResponse(str(DIST_DIR / "index.html"))
 
     if cert_path is not None:
         @app.get("/cert.pem")

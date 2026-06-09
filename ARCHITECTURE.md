@@ -85,14 +85,13 @@ while a read job runs because all heavy work is pushed off it:
 
 Only **Summary mode** uses the LLM, via `LLMClient.oneshot()` — a single
 non-streaming Ollama `chat` (`think=False`, low temperature) with `<think>`
-stripping for GGUF builds that emit inline tags. The streaming/tool-calling
-methods (`stream_response`, `_stream_tokens_with_tools`) are vestigial from the
-voice-assistant era and unused by the reader.
+stripping for GGUF builds that emit inline tags. Full mode skips the LLM
+entirely.
 
 ## 6. Web layer (`readback/web/`)
 
-- **Server** (`server.py`) — FastAPI; serves the Vite `dist/` build (falls back to
-  the legacy `static/` bundle if not built), the generated audio, and `/ws`.
+- **Server** (`server.py`) — FastAPI; serves the Vite `dist/` build (under
+  `web/static/dist/`), the generated audio, and `/ws`.
 - **WS protocol** —
   - client → `read {url, mode, voice?}`, `cancel`
   - server → `phase {value}`, `progress {done, total}`,

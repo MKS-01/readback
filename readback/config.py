@@ -5,26 +5,11 @@ import yaml
 from pydantic import BaseModel, Field
 
 
-DEFAULT_PERSONA_PROMPT = (
-    "You are a sharp, tech-savvy voice assistant with an easygoing, friendly streak. "
-    "You know your way around software, hardware, gadgets, and the wider tech world, "
-    "and you explain things in plain language, reaching for a quick everyday analogy "
-    "when a concept is tricky. Be warm and conversational with a light touch of dry "
-    "humor, never robotic or fawning. Get to the point first, then add a little useful "
-    "context if it helps. When something is uncertain or outside what you know, say so "
-    "honestly instead of bluffing, and ask a quick clarifying question if the request "
-    "is ambiguous. Since this is read aloud, speak naturally in complete sentences and "
-    "avoid bullet points, markdown, or special characters. Keep responses to about "
-    "three or four sentences unless asked for more depth."
-)
-
-
 class OllamaConfig(BaseModel):
+    # Used only by Summary mode (turns the article into a spoken explanation via
+    # LLMClient.oneshot, which carries its own system prompt).
     model: str = "nemotron-3-nano:4b"
     host: str = "http://localhost:11434"
-    # The single assistant system prompt (the persona system was removed in
-    # v0.7.x). Edit this to change the assistant's voice/behavior.
-    system_prompt: str = DEFAULT_PERSONA_PROMPT
 
 
 class CsmVoicePrompt(BaseModel):
@@ -53,7 +38,6 @@ class CsmTTSConfig(BaseModel):
     # ~1.4); "fp16" = slightly faster, narrower range.
     precision: Literal["bf16", "fp16", "fp32"] = "bf16"
     speaker: str = "conversational_a"    # active voice (→ CSM speaker id)
-    speed: float = 1.0                   # inert: CSM has no speed arg (UI compat)
     # Sampler. Lower temperature = steadier/more consistent voice (no reference
     # clip to pin timbre, so this is the main consistency knob).
     temperature: float = 0.7
@@ -77,13 +61,6 @@ class CsmTTSConfig(BaseModel):
     # FINETUNING preset: generate with EMPTY context (the fine-tuned voice lives in
     # the adapter, not a reference clip). None = base model + read-speech prompt.
     lora_path: Optional[Path] = None
-    # Inert under csm-mlx (kept for config back-compat):
-    #   model      — checkpoint is fixed (senstella/csm-1b-mlx) in the engine.
-    #   watermark  — csm-mlx has no watermarker yet.
-    #   context_turns — rolling multi-turn context is a follow-up.
-    model: str = "mlx-community/csm-1b"
-    watermark: bool = True
-    context_turns: int = 0
 
 
 class TTSConfig(BaseModel):
@@ -95,8 +72,8 @@ class TTSConfig(BaseModel):
 
     @property
     def active(self) -> CsmTTSConfig:
-        """The active engine's sub-config (exposes .speaker / .speed). Lets the
-        server stay engine-agnostic instead of reaching into a named block."""
+        """The active engine's sub-config. Lets the server stay engine-agnostic
+        instead of reaching into a named block."""
         return self.csm
 
 
@@ -124,18 +101,8 @@ class Config(BaseModel):
         with open(path, "r") as f:
             data = yaml.safe_load(f) or {}
 
-        # Legacy migration: older config.yaml used the Qwen3-TTS engine
-        # (tts.engine: qwen + a tts.qwen: block). CSM-1B is now the sole engine,
-        # so rewrite the block to the CSM schema before validation (the Literal
-        # would otherwise reject engine: "qwen").
-        tts_data = data.get("tts")
-        if isinstance(tts_data, dict) and (
-            tts_data.get("engine") == "qwen" or "qwen" in tts_data
-        ):
-            data["tts"] = {"engine": "csm", "csm": {}}
-
-        # Drop unknown top-level keys so old config.yaml files with removed
-        # sections (audio, persona, …) don't cause validation errors.
+        # Drop unknown top-level keys so older config.yaml files with removed
+        # sections don't cause validation errors.
         known = cls.model_fields.keys()
         data = {k: v for k, v in data.items() if k in known}
 

@@ -91,7 +91,7 @@ def main():
     ssl_grp = parser.add_mutually_exclusive_group()
     ssl_grp.add_argument(
         "--auto-cert", action="store_true",
-        help="Auto-generate a self-signed TLS cert for cross-device mic access",
+        help="Auto-generate a self-signed TLS cert for cross-device (LAN) access",
     )
     ssl_grp.add_argument("--cert", metavar="FILE", type=Path, help="TLS certificate (PEM)")
     parser.add_argument("--key", metavar="FILE", type=Path, help="TLS private key (PEM) — required with --cert")
