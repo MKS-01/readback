@@ -20,7 +20,12 @@
 </p>
 
 <p align="center">
-  <img src="screenshots/screenshot-one.png" alt="readback — the custom audio player and orbital synthesis state" width="820">
+  <img src="media/screenshot-one.png" alt="readback — the custom audio player and orbital synthesis state" width="820">
+</p>
+
+<p align="center">
+  🎬 <a href="media/demo.mp4">Watch the demo</a> &nbsp;·&nbsp;
+  🔊 <a href="media/sample-read.wav">Hear a sample read</a> (CSM-1B, "kay" voice)
 </p>
 
 ---
