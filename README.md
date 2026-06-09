@@ -24,8 +24,9 @@
 </p>
 
 <p align="center">
-  🎬 <a href="media/demo.mp4">Watch the demo</a> &nbsp;·&nbsp;
-  🔊 <a href="media/sample-read.wav">Hear a sample read</a> — "kay", a custom-tuned clone voice on CSM-1B
+  <strong>🎬 <a href="media/demo.mp4">Watch the demo</a></strong> &nbsp;·&nbsp;
+  <strong>🔊 <a href="media/sample-read.wav">Hear a sample read</a></strong><br>
+  <sub>Sample voice: <strong>kay</strong> — a custom-tuned clone voice on CSM-1B</sub>
 </p>
 
 ---
