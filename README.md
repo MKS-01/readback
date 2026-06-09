@@ -25,8 +25,7 @@
 
 <p align="center">
   🎬 <a href="media/demo.mp4">Watch the demo</a> &nbsp;·&nbsp;
-  🔊 <a href="media/sample-read.wav">Hear a sample read</a> — "kay", a custom-tuned clone voice on CSM-1B<br>
-  <sub>Both play right in the browser — no download needed.</sub>
+  🔊 <a href="media/sample-read.wav">Hear a sample read</a> — "kay", a custom-tuned clone voice on CSM-1B
 </p>
 
 ---
