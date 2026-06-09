@@ -30,7 +30,7 @@ gotchas, and exact knobs.
 
 - **Extraction**: `trafilatura` (URL → clean article text) + a browser-UA urllib
   fallback for sites that 403 the default agent.
-- **LLM**: Ollama, default **`nemotron-3-nano:4b`** (`think=False` + `<think>`
+- **LLM**: Ollama, default **`gemma4:26b`** (`think=False` + `<think>`
   stripping). Used **only by Summary mode** (`LLMClient.oneshot`).
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +
@@ -51,7 +51,8 @@ readback/
 ├── ARCHITECTURE.md            # system-level view
 ├── finetune/                  # LoRA fine-tune pipeline (README + transcribe.py + data/)
 ├── voice/                     # reference clips for clone voices; *.wav gitignored
-│                              # (exception: committed voice_kay_default.wav)
+│                              # (exceptions: committed voice_kay_default.wav +
+│                              # voice_kay_long.wav, the active kay reference)
 ├── scripts/make_clone_voice.sh  # ffmpeg re-encode ANY audio → mono/24k/16-bit wav
 │
 └── readback/
@@ -151,8 +152,10 @@ readback/
 - **Clone-condition** (`tts.csm.voices`, `CsmVoicePrompt`): a local clip's timbre +
   tone are reproduced. Fields: `name`, `label`, `wav` (resolved relative to
   `config.yaml`), `ref_text` (the clip's **exact** transcript), `speaker`. The
-  bundled config ships a sample `kay` voice (`voice/voice_kay_default.wav`, the
-  one committed-past-gitignore reference clip).
+  bundled config ships a sample `kay` voice. Its active reference is
+  `voice/voice_kay_long.wav` — an 11 s clip CSM-bootstrapped (2026-06-10) from
+  the original 3.2 s `voice_kay_default.wav` to fix short-ref instability; both
+  are committed past the gitignore.
 - **The reusable procedure lives in `.claude/skills/csm-voice`** — clone, tune
   delivery, or LoRA fine-tune. Read it before any voice work.
 - **LoRA fine-tune** pipeline in `finetune/` (`README.md`): `transcribe.py` →
@@ -206,7 +209,8 @@ readback/
   clip, or a too-short reference at low temperature. Fix the transcript / use a
   5–8 s clip / raise temperature toward 0.6–0.8.
 - **`<think>` leaks only on qwen3.** qwen3 ignores `think=False` and emits
-  untagged reasoning; the default `nemotron-3-nano:4b` is clean.
+  untagged reasoning; the default `gemma4:26b` (and the lighter
+  `nemotron-3-nano:4b` fallback) are clean.
 
 ## Remaining cleanup candidates (see TODO.md)
 

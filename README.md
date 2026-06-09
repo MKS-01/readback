@@ -20,7 +20,12 @@
 </p>
 
 <p align="center">
-  <img src="screenshots/screenshot-one.png" alt="readback — the custom audio player and orbital synthesis state" width="820">
+  <img src="media/screenshot-one.png" alt="readback — the custom audio player and orbital synthesis state" width="820">
+</p>
+
+<p align="center">
+  <strong>🔊 <a href="media/sample-read.wav">Hear a sample read</a></strong><br>
+  <sub>Sample voice: <strong>kay</strong> — a custom-tuned clone voice on CSM-1B</sub>
 </p>
 
 ---
@@ -45,7 +50,7 @@ You need **macOS on Apple Silicon**, **Python 3.10–3.12**, **Node 18+**, and
 ```bash
 # 1. Ollama for Summary mode (skip if you only want Full mode)
 ollama serve &                          # or launch the desktop app
-ollama pull nemotron-3-nano:4b          # default; any chat model works
+ollama pull gemma4:26b                  # default; any chat model works
 
 # 2. Install
 git clone git@github.com:MKS-01/readback.git && cd readback
@@ -88,8 +93,8 @@ naturally. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system view.
 | Layer | Technology |
 |---|---|
 | **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback) |
-| **Summary (optional)** | [Ollama](https://ollama.ai/) — default `nemotron-3-nano:4b`; any pulled chat model works |
-| **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, bf16 |
+| **Summary (optional)** | [Ollama](https://ollama.ai/) — default `gemma4:26b`; any pulled chat model works |
+| **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, fp32 |
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV |
 | **Frontend** | React 18 + TypeScript + Vite + zustand — three.js orb, custom audio player, dark "Ghost" theme |
@@ -132,10 +137,10 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 
 | Key | What | Default |
 |---|---|---|
-| `ollama.model` | Ollama model for Summary mode | `nemotron-3-nano:4b` |
+| `ollama.model` | Ollama model for Summary mode | `gemma4:26b` |
 | `ollama.host` | Ollama endpoint | `http://localhost:11434` |
 | `tts.csm.speaker` | Active voice (`conversational_a`/`_b` or a clone `name`) | `kay` |
-| `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `bf16` |
+| `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `fp32` |
 | `tts.csm.temperature` | Delivery: lower = composed, higher = livelier | `0.6` |
 | `tts.csm.voices` | Clone voices (`name`, `label`, `wav`, `ref_text`, `speaker`) | sample `kay` |
 | `tts.csm.lora_path` | LoRA adapter dir from a `csm-mlx finetune` run | `null` |
@@ -144,7 +149,7 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `reader.gap_sec` | Silence inserted between synthesized chunks | `0.18` |
 | `reader.summary_max_chars` | Cap article text fed to the LLM in Summary mode | `16000` |
 
-CLI overrides: `readback --model qwen3`, `--host`, `--port`, `--config`.
+CLI overrides: `readback --model gemma4:e4b`, `--host`, `--port`, `--config`.
 
 **LAN access (phone/tablet):** `readback --host 0.0.0.0 --auto-cert` serves over
 HTTPS; the startup banner prints the network URL, cert fingerprint, and a
