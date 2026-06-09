@@ -4,7 +4,7 @@
 
 ollama:
   # Used only by "summary" mode (turns the article into a spoken explanation).
-  model: "nemotron-3-nano:4b"
+  model: "gemma4:26b"
   host: "http://localhost:11434"
 
 tts:
@@ -16,8 +16,8 @@ tts:
     # Active voice. Built-ins: conversational_a / conversational_b. Clone voices
     # under `voices:` add their own timbre/tone — "kay" (young female) is default.
     speaker: "kay"
-    # bf16 (clean + fast). Offline, so you can also use "fp32" for max quality.
-    precision: "bf16"
+    # fp32 = max quality (offline, RTF ~1.4 is fine); "bf16" is the fast option.
+    precision: "fp32"
     # Lower = steadier/more composed; higher = livelier. 0.6 reads measured (good
     # for a lecture feel); the short k.wav ref gets unstable below ~0.55.
     temperature: 0.6
@@ -26,9 +26,11 @@ tts:
     voices:
       - name: "kay"
         label: "Kay ★"
-        wav: "voice/voice_kay_default.wav"
+        # 11 s bootstrapped ref (CSM self-generated from the original 3.2 s clip);
+        # longer refs condition far more reliably than the short original.
+        wav: "voice/voice_kay_long.wav"
         speaker: 0
-        ref_text: "Welcome back. Let's pick up where we left off in last week's lecture."
+        ref_text: "Welcome back, everyone. Today we're going to look at how large language models actually process text, and why that matters for the tools you use every day. Let's start with a simple example before we get into the details."
     # Fine-tuned voice: point at a `csm-mlx finetune lora` run dir (adapters.safetensors
     # + adapter_config.json). Loaded over the base weights; generation then uses
     # empty context per the FINETUNING preset. See finetune/README.md.

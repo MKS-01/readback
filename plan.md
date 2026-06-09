@@ -8,7 +8,14 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ## 2026-06-10 — Tune CSM-1B by config (simple path; no model swap)
 
-**Status: proposed**
+**Status: done (Step 1; Steps 2–3 deferred)** — applied 2026-06-10:
+`precision: fp32`; kay ref upgraded to an 11 s CSM-bootstrapped clip
+(`voice/voice_kay_long.wav`, transcript whisper-verified); summary LLM switched
+to `gemma4:26b` (cleaner, structured spoken summaries; nemotron-3-nano was the
+fallback). End-to-end sample verified: steady pacing, no instability; only
+residual nit is occasional proper-noun articulation ("Fable" ≈ "Table"), which
+is LoRA territory. **Step 2 (LoRA) deferred** — revisit only if articulation
+bothers in real use; anything more now is overengineering.
 
 ### Context
 
