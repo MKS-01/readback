@@ -25,7 +25,8 @@
 
 <p align="center">
   🎬 <a href="media/demo.mp4">Watch the demo</a> &nbsp;·&nbsp;
-  🔊 <a href="media/sample-read.wav">Hear a sample read</a> (CSM-1B, "kay" voice)
+  🔊 <a href="media/sample-read.wav">Hear a sample read</a> (CSM-1B, "kay" voice)<br>
+  <sub>Both play right in the browser — no download needed.</sub>
 </p>
 
 ---
