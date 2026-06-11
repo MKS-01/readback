@@ -17,11 +17,28 @@
   <img src="https://img.shields.io/badge/React_18-Vite-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React 18">
   <img src="https://img.shields.io/badge/FastAPI-WebSocket-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-22c55e?style=flat-square" alt="MIT License">
+  <img src="https://img.shields.io/badge/Built_with-Claude_Code-D97757?style=flat-square&logo=claude&logoColor=white" alt="Built with Claude Code">
 </p>
 
 <p align="center">
-  <img src="media/screenshot-one.png" alt="readback — the custom audio player and orbital synthesis state" width="820">
+  <img src="media/cli-player.png" alt="readback CLI — terminal player with the word-synced transcript highlight" width="820">
 </p>
+
+<p align="center">
+  <sub>The terminal client mid-read: seekable player, live word-by-word transcript sync.</sub>
+</p>
+
+<details align="center">
+  <summary><strong>🖥 More screens — CLI home & the web app</strong></summary>
+  <p align="center">
+    <img src="media/cli-home.png" alt="readback CLI — home screen" width="820"><br>
+    <sub>CLI home — paste a URL, slash commands, persisted prefs.</sub>
+  </p>
+  <p align="center">
+    <img src="media/screenshot-one.png" alt="readback web app — the custom audio player and orbital synthesis state" width="820"><br>
+    <sub>The browser UI — three.js orb, custom player, same Ghost theme.</sub>
+  </p>
+</details>
 
 <p align="center">
   <strong>🔊 <a href="media/sample-read.wav">Hear a sample read</a></strong><br>
@@ -70,6 +87,31 @@ are fast. See [SETUP.md](SETUP.md) for verification, flags, and troubleshooting.
 
 ---
 
+## Terminal CLI
+
+Prefer to stay in the terminal? There's a CLI client (Bun + Ink) that talks to
+the same server — paste a URL, watch the progress, and the audio plays right
+there via `afplay`.
+
+<p align="center">
+  <img src="media/cli-home.png" alt="readback CLI — home screen" width="820">
+</p>
+
+```bash
+cd cli && ./install.sh          # builds a standalone binary → ~/.local/bin/readback-cli
+readback-cli                    # from anywhere; auto-starts the server
+```
+
+One-command install (needs [Bun](https://bun.sh/), this mode only); it
+auto-starts the `readback` server if one isn't already running and shuts it
+down on exit. Slash commands (`/voice`, `/mode`, `/help`, `/quit`) and a real
+terminal player: space = pause, **←/→ = seek ±5 s**, t = transcript in Summary
+mode — with the spoken summary **highlighting word by word in sync with the
+voice**. Same Ghost look, plus an Xcode-blue accent. macOS only.
+Details: [`cli/README.md`](cli/README.md).
+
+---
+
 ## How it works
 
 ```
@@ -98,6 +140,7 @@ naturally. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system view.
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV |
 | **Frontend** | React 18 + TypeScript + Vite + zustand — three.js orb, custom audio player, dark "Ghost" theme |
+| **Terminal CLI (optional)** | Bun + TypeScript + [Ink](https://github.com/vadimdemedes/ink) — second client of the same WebSocket, `afplay` playback |
 
 ---
 

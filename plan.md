@@ -6,6 +6,67 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-11 — CLI mode — Bun + Ink terminal client
+
+**Status: in progress** — implemented on branch `cli-mode`; docs + version bump
+(0.9.0) landed; manual verification underway.
+
+**2026-06-12 additions** (same branch, post-review with user): half-block
+wordmark banner (`Header.tsx`, READ white / BACK Xcode-blue `#4da3ff`, chosen
+over icon-art variants); blue accents (caret, version, progress fills,
+slash-command hints); **seek ←/→ ±5 s** via WAV PCM slicing to a temp file
+(afplay can't seek); **word-synced transcript highlight** (char-proportional
+timing estimate; self-wrapped lines because ink `wrap="wrap"` breaks colored
+spans); resize repaint via `prependListener` clear (alt-screen tried, glitchy
+in Warp, reverted); `install.sh` one-command standalone binary →
+`~/.local/bin/readback-cli` (repo root baked via `--define`). Docs updated
+(cli/README, root README CLI section, CLAUDE.md) with screenshot placeholders
+at `media/cli-{home,busy,player}.png` — paths pending from user.
+
+### Context
+
+A terminal client for readers who live in the shell — a **second client of the
+existing FastAPI `/ws` protocol, zero Python changes**. Ink UI (React for
+CLIs), themed to the web app's Ghost palette (#f0f0f0 primary, #808080 dim,
+#ff5d5d errors/cancel only). Runtime: **Bun + TypeScript**.
+
+### Decisions
+
+- **Auto-spawn the server.** On start, health-check `GET /api/config`; if down,
+  spawn `readback` (prefers `.venv/bin/readback`, cwd = repo root so
+  `config.yaml` resolves), wait ≤60 s; on exit kill it only if we spawned it —
+  SIGTERM then SIGKILL after 1.5 s (uvicorn's graceful shutdown can hang on the
+  open websocket). `--no-spawn` opts out; `--host`/`--port` target a remote.
+- **`afplay` player** (macOS-only): SIGSTOP/SIGCONT pause/resume (always
+  SIGCONT before SIGTERM), no seeking, wall-clock elapsed; keys: space, t
+  (transcript, Summary mode), q/esc. Local WAV from `~/.readback/reader/` when
+  present, else download from `/audio`.
+- **Interactive-only session**: bordered URL input + slash commands (`/voice`,
+  `/mode`, `/help`, `/quit`); prefs persist to `~/.readback/cli.json`; esc
+  cancels a running read. No one-shot/batch flags.
+- **Ink screen model**: `useReducer` switches one mounted screen
+  (input | busy | player) so keys only land on the active screen; `ws.ts` /
+  `player.ts` are module singletons outside the React tree (web frontend
+  pattern).
+
+### Files
+
+`cli/`: `package.json` (readback-cli 0.9.0), `tsconfig.json`, `README.md`,
+`src/{index.tsx, app.tsx, theme.ts, server.ts, ws.ts, player.ts, prefs.ts,
+components/{UrlInput,StatusLine,BusyView,PlayerView}.tsx}`. Docs: README /
+CLAUDE / ARCHITECTURE / cli/README; version → 0.9.0 in the three Python-side
+anchors + cli/package.json.
+
+### Verification
+
+`bun run start` with no server → auto-spawn + read + afplay playback; q exits
+and the spawned server dies. With a server already running → connects, doesn't
+kill it on exit. Cancel mid-synthesis (esc), Summary transcript toggle, prefs
+survive a restart, `--no-spawn` fails fast when no server. Known caveats:
+CLI SIGKILL orphans a spawned server; pause flushes ~0.5 s of buffer.
+
+---
+
 ## 2026-06-10 — Tune CSM-1B by config (simple path; no model swap)
 
 **Status: done (Step 1; Steps 2–3 deferred)** — applied 2026-06-10:

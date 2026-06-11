@@ -40,16 +40,27 @@ gotchas, and exact knobs.
   custom audio player; dark "Ghost" theme. Built into
   `readback/web/static/dist/`; the server serves dist when present, else the
   legacy `static/index.html` bundle.
+- **Terminal CLI**: Bun + TypeScript + Ink (React for CLIs) in `cli/` — a second
+  client of the same `/ws` protocol; `afplay` playback,
+  macOS-only. Zero Python changes.
 
 ## Project Structure
 
 ```
 readback/
-├── pyproject.toml             # v0.8.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
+├── pyproject.toml             # v0.9.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks
 ├── README.md                  # user-facing
 ├── ARCHITECTURE.md            # system-level view
 ├── finetune/                  # LoRA fine-tune pipeline (README + transcribe.py + data/)
+├── cli/                       # terminal client (Bun + Ink); second /ws client
+│   ├── package.json           # readback-cli 0.9.0; ink + ink-text-input
+│   ├── install.sh             # one-command build: bun compile → ~/.local/bin/readback-cli
+│   └── src/                   # index.tsx (boot + resize repaint), app.tsx (screen
+│                              # switch), theme.ts (Ghost + BLUE accent),
+│                              # server.ts (spawn), ws.ts, player.ts (afplay + seek),
+│                              # prefs.ts, components/{Header,UrlInput,StatusLine,
+│                              # BusyView,PlayerView}.tsx
 ├── voice/                     # reference clips for clone voices; *.wav gitignored
 │                              # (exceptions: committed voice_kay_default.wav +
 │                              # voice_kay_long.wav, the active kay reference)
@@ -196,6 +207,55 @@ readback/
 - Single dark **Ghost** theme. Prefs key `localStorage["readback.prefs.v12"]`
   (theme, voice, mode).
 
+### CLI (`cli/`)
+
+- **A second `/ws` client** — Bun + Ink, same protocol as the web frontend, zero
+  Python changes. `ws.ts` and `player.ts` are module singletons outside the
+  React tree (same pattern as the frontend's `lib/ws.ts`). Flags: `--host`
+  (127.0.0.1), `--port` (8000), `--no-spawn`.
+- **Auto-spawn lifecycle** (`server.ts`): health-check `GET /api/config`; if no
+  server, spawn `readback` (prefers `.venv/bin/readback`, cwd = repo root so
+  `config.yaml` resolves), wait up to 60 s; on exit kill it **only if we spawned
+  it** — SIGTERM, then **SIGKILL after 1.5 s** because uvicorn's graceful
+  shutdown can hang on the open websocket. A SIGKILL of the CLI itself orphans
+  the spawned server.
+- **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
+  (`input` | `busy` | `player`), so key handlers only land on the active screen.
+  Slash commands: `/voice`, `/mode`, `/help`, `/quit`; esc cancels a read.
+- **Playback = `afplay`** (macOS-only): pause/resume via **SIGSTOP/SIGCONT**;
+  always SIGCONT before SIGTERM (a SIGSTOPped process can't handle SIGTERM).
+  Caveats: pause flushes ~0.5 s of buffer, elapsed time is wall-clock-tracked.
+  Plays the local WAV in `~/.readback/reader/` when present, else downloads
+  from `/audio`.
+- **Seek (←/→ ±5 s)** despite afplay having no transport: `player.ts` parses
+  the WAV's RIFF chunks, slices the PCM data at the target byte offset into
+  `$TMPDIR/readback-seek-<pid>.wav`, and relaunches afplay there. Rapid
+  presses debounce (180 ms) into one jump; a generation counter invalidates
+  superseded exits. Seeking from paused/finished resumes playback.
+- **Synced transcript** (`PlayerView`): Summary-mode transcript highlights
+  word by word in blue. No word timestamps exist — each word gets duration
+  proportional to its char count. ⚠ The component wraps text **itself** (one
+  `<Text>` per line): ink's `wrap="wrap"` drops ANSI state when a color
+  boundary crosses a line break.
+- **Resize repaint** (`index.tsx`): a `prependListener("resize")` runs before
+  ink's own resize handler — `ink.clear()` + screen wipe so ink repaints on a
+  blank slate. Without it, re-wrapped old frames make ink erase the wrong
+  number of lines and stale banners stack up. (Alt-screen was tried and is
+  glitchier in Warp; don't reintroduce it.)
+- **Standalone binary** (`install.sh`): `bun build --compile` →
+  `~/.local/bin/readback-cli`. The repo root is baked in via
+  `--define process.env.READBACK_ROOT` because `import.meta.dir` is virtual
+  inside a compiled binary (`server.ts` falls back to it in dev).
+  `react-devtools-core` is a bundled devDependency — ink imports it behind a
+  runtime `DEV` check the bundler can't eliminate. The binary is named
+  `readback-cli` (not `readback`) so the server-lookup fallback
+  `Bun.which("readback")` can't spawn the CLI itself.
+- **Prefs** (voice/mode) persist to `~/.readback/cli.json`. Theme mirrors the
+  web Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel)
+  plus a CLI-only Xcode-blue accent (#4da3ff: wordmark "BACK", version, caret,
+  progress fills, transcript highlight). Banner = half-block wordmark in
+  `Header.tsx`; tagline + hints render on the input screen only.
+
 ## Things that look like bugs but aren't
 
 - **First synth is slow.** One-time CSM graph warm-up + ~6 GB checkpoint download
@@ -228,15 +288,21 @@ python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e .                          # csm-mlx is a git dep (allow-direct-references)
 cd readback/web/frontend && npm install && npm run build && cd ../../..
 readback                                  # http://127.0.0.1:8000   (or: python -m readback)
+cd cli && bun install && bun run start    # terminal CLI from source (auto-spawns the server)
+cd cli && ./install.sh                    # or: standalone binary → ~/.local/bin/readback-cli
 ```
 
 Smoke test: paste an article URL → Full mode → player appears, audio plays,
-download works. Summary mode → transcript toggle shows the spoken summary. Voice
+download works. Summary mode → transcript toggle shows the spoken summary. CLI:
+`bun run start` with no server running → it spawns one, a pasted URL reads and
+plays via afplay, q exits and the spawned server dies. Voice
 work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v0.8.0** — offline article reader; CSM-1B via csm-mlx; clone-condition
-voices + LoRA fine-tune scaffold; renamed `local-tts` → `readback`. Set in
-`pyproject.toml`, `readback/__init__.py`, `web/frontend/package.json`. Bump all
-three when releasing.
+Current: **v0.9.0** — adds the terminal CLI (`cli/`, Bun + Ink) as a second
+client of `/ws`. (v0.8.0: offline article reader pivot; CSM-1B via csm-mlx;
+clone-condition voices + LoRA fine-tune scaffold; renamed `local-tts` →
+`readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
+`web/frontend/package.json`, and `cli/package.json`. Bump all four when
+releasing.

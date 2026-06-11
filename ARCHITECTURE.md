@@ -1,4 +1,4 @@
-# Architecture — readback (v0.8.0)
+# Architecture — readback (v0.9.0)
 
 How the pieces fit together and why. System-level companion to
 [CLAUDE.md](CLAUDE.md) (implementation notes, gotchas, exact knobs) and
@@ -11,7 +11,9 @@ A fully **on-device** article reader served as a web app. You paste a URL; the
 server fetches and extracts the article, optionally summarizes it with a local
 LLM, synthesizes the whole thing offline with CSM-1B, and hands back an audio
 file the browser plays and lets you download. One process, one CLI (`readback`),
-one WebSocket.
+one WebSocket. Two clients speak that WebSocket: the browser frontend and an
+optional terminal client (`cli/`, Bun + Ink, macOS) that plays the result via
+`afplay`.
 
 ```
 URL ─▶ fetch + extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ browser
@@ -104,6 +106,12 @@ entirely.
   arrow CTA, the Full/Summary segment + voice `<select>`, the hero-orb busy state
   (phase message + progress + Cancel), the custom `AudioPlayer`, and the summary
   transcript toggle. Single dark "Ghost" theme.
+- **Terminal client** (`cli/`, repo root) — Bun + TypeScript + Ink; a second
+  consumer of the exact same WS protocol (no server changes). It health-checks
+  `/api/config`, auto-spawns `readback` when no server is running (and kills it
+  on exit only if it spawned it), mirrors the Ghost palette, and plays the
+  finished WAV through `afplay`. Same singleton-outside-the-React-tree pattern
+  for its WS client and player.
 
 ## 7. CLI & TLS (`readback/__main__.py`)
 
