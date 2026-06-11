@@ -6,6 +6,67 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-11 — CLI mode — Bun + Ink terminal client
+
+**Status: in progress** — implemented on branch `cli-mode`; docs + version bump
+(0.9.0) landed; manual verification underway.
+
+**2026-06-12 additions** (same branch, post-review with user): half-block
+wordmark banner (`Header.tsx`, READ white / BACK Xcode-blue `#4da3ff`, chosen
+over icon-art variants); blue accents (caret, version, progress fills,
+slash-command hints); **seek ←/→ ±5 s** via WAV PCM slicing to a temp file
+(afplay can't seek); **word-synced transcript highlight** (char-proportional
+timing estimate; self-wrapped lines because ink `wrap="wrap"` breaks colored
+spans); resize repaint via `prependListener` clear (alt-screen tried, glitchy
+in Warp, reverted); `install.sh` one-command standalone binary →
+`~/.local/bin/readback-cli` (repo root baked via `--define`). Docs updated
+(cli/README, root README CLI section, CLAUDE.md) with screenshot placeholders
+at `media/cli-{home,busy,player}.png` — paths pending from user.
+
+### Context
+
+A terminal client for readers who live in the shell — a **second client of the
+existing FastAPI `/ws` protocol, zero Python changes**. Ink UI (React for
+CLIs), themed to the web app's Ghost palette (#f0f0f0 primary, #808080 dim,
+#ff5d5d errors/cancel only). Runtime: **Bun + TypeScript**.
+
+### Decisions
+
+- **Auto-spawn the server.** On start, health-check `GET /api/config`; if down,
+  spawn `readback` (prefers `.venv/bin/readback`, cwd = repo root so
+  `config.yaml` resolves), wait ≤60 s; on exit kill it only if we spawned it —
+  SIGTERM then SIGKILL after 1.5 s (uvicorn's graceful shutdown can hang on the
+  open websocket). `--no-spawn` opts out; `--host`/`--port` target a remote.
+- **`afplay` player** (macOS-only): SIGSTOP/SIGCONT pause/resume (always
+  SIGCONT before SIGTERM), no seeking, wall-clock elapsed; keys: space, t
+  (transcript, Summary mode), q/esc. Local WAV from `~/.readback/reader/` when
+  present, else download from `/audio`.
+- **Interactive-only session**: bordered URL input + slash commands (`/voice`,
+  `/mode`, `/help`, `/quit`); prefs persist to `~/.readback/cli.json`; esc
+  cancels a running read. No one-shot/batch flags.
+- **Ink screen model**: `useReducer` switches one mounted screen
+  (input | busy | player) so keys only land on the active screen; `ws.ts` /
+  `player.ts` are module singletons outside the React tree (web frontend
+  pattern).
+
+### Files
+
+`cli/`: `package.json` (readback-cli 0.9.0), `tsconfig.json`, `README.md`,
+`src/{index.tsx, app.tsx, theme.ts, server.ts, ws.ts, player.ts, prefs.ts,
+components/{UrlInput,StatusLine,BusyView,PlayerView}.tsx}`. Docs: README /
+CLAUDE / ARCHITECTURE / cli/README; version → 0.9.0 in the three Python-side
+anchors + cli/package.json.
+
+### Verification
+
+`bun run start` with no server → auto-spawn + read + afplay playback; q exits
+and the spawned server dies. With a server already running → connects, doesn't
+kill it on exit. Cancel mid-synthesis (esc), Summary transcript toggle, prefs
+survive a restart, `--no-spawn` fails fast when no server. Known caveats:
+CLI SIGKILL orphans a spawned server; pause flushes ~0.5 s of buffer.
+
+---
+
 ## 2026-06-10 — Tune CSM-1B by config (simple path; no model swap)
 
 **Status: done (Step 1; Steps 2–3 deferred)** — applied 2026-06-10:
@@ -19,16 +80,17 @@ bothers in real use; anything more now is overengineering.
 
 ### Context
 
-Stay on CSM-1B (user decision — engine swap too expensive; Qwen-TTS/Kokoro
-already tried and unwanted). csm-mlx runs the **same weights** as the official
-`SesameAILabs/csm`, and every lever that matters is **already plumbed into
-`config.yaml`** — so the plan is staged: config-only first, LoRA fine-tune only
-if that's not enough. **No app-code changes anywhere.**
+Stay on CSM-1B (user decision — an engine swap was judged too expensive, and
+earlier engine experiments had already been abandoned). csm-mlx runs the
+**same weights** as the official release, and every lever that matters is
+**already plumbed into `config.yaml`** — so the plan is staged: config-only
+first, LoRA fine-tune only if that's not enough. **No app-code changes
+anywhere.**
 
-Why this works: the open 1B is a *base* model; Sesame's own demo voices
-(Maya/Miles) are fine-tuned variants conditioned on good reference audio.
-Better reference + right precision/temperature is the official recipe's first
-half; the LoRA is the second.
+Why this works: the open 1B is a *base* model; the polished demo voices are
+fine-tuned variants conditioned on good reference audio. Better reference +
+right precision/temperature is the first half of that recipe; the LoRA is the
+second.
 
 ### Step 1 — Config-only tuning (~1 hour, no code)
 
@@ -91,169 +153,13 @@ it's the best this hardware does without the 8B-class cost already ruled out.
 
 ---
 
-## 2026-06-10 — Match MisoTTS-8B-class accuracy (engine upgrade + bench)
+## 2026-06-10 — TTS engine upgrade + accuracy bench (researched, dropped)
 
-**Status: superseded (same day)** — direction changed to staying on CSM-1B
-(engine swap judged too expensive; Qwen-TTS/Kokoro already tried and unwanted).
-See the entry above. Kept for the MLX model research below.
-
-### Context
-
-readback currently reads articles with **CSM-1B** (csm-mlx, bf16, RTF ~0.8 on M5).
-The goal is output quality/accuracy comparable to **MisoTTS-8B** (misolabs.ai,
-released Jun 3 2026), with everything staying local on the M5 Pro (18 CPU / 20
-GPU cores, 48 GB unified, 1 TB).
-
-**The pivotal finding: MisoTTS-8B IS the CSM architecture scaled up.** Per Miso's
-blog + repo, it's a Llama-3.2-style ~7.7B backbone + ~300M depth decoder over the
-**Mimi codec** (32 RVQ codebooks) — the exact design of the CSM-1B readback runs
-today, 8× bigger. Modified-MIT license, English-only, voice cloning via reference
-`Segment`s (same concept as our `CsmVoicePrompt`). Reference impl is CUDA-only
-(24 GB VRAM bf16), **but `mlx-audio` ≥0.4.4 supports CSM/MisoTTS natively** and
-mlx-community ships ready quants — so the target model itself is runnable on this
-Mac. The codebase already anticipates this: `Synthesizer`'s docstring promises "a
-future engine (e.g. a MisoTTS-8B MLX port) is a factory change, not a server
-rewrite", and `TTSConfig.engine` is a one-value enum waiting for a second engine.
-
-Sample analysis (`/Users/mks/Desktop/sample`): the 2 WAVs are readback outputs
-(24 kHz mono, 2:46 + 1:29); the 3-min screen recording is the quality reference.
-Silence scan found **zero pauses ≥0.35 s** — `_tidy_silence` already fixed pacing,
-so the remaining gap is **model-level naturalness + word accuracy**, i.e. a model
-upgrade, not more post-processing.
-
-### Verified facts (HF API + PyPI, 2026-06-10)
-
-| Item | Fact |
-|---|---|
-| `MisoLabs/MisoTTS` (original) | 32.75 GB fp32 safetensors (~8.2B params), tags: sesame/mimi/llama |
-| `mlx-community/MisoLabs-MisoTTS-8bit` / `-bf16` | MLX conversions exist (≈9 GB / ≈16.4 GB) |
-| `mlx-community/MOSS-TTS-8B-8bit` | 10.48 GB, Apache-2.0, runs via mlx-audio today; card claims **1.84% EN WER**, zero-shot cloning, up to 1 h continuous synthesis |
-| `mlx-community/Kokoro-82M-bf16` | ~0.3 GB, 54 preset voices, mlx-audio's flagship-fast model |
-| `mlx-audio` 0.4.4 (Jun 6 2026) | requires **mlx≥0.31.1, mlx-lm≥0.31.1, transformers≥5.5**; one `generate()` API across all of the above incl. cloning models |
-| Project venv today | mlx 0.26.5 / mlx-lm 0.26.4 / csm-mlx 0.2.3 (git dep) → **mlx upgrade required**; bonus: mlx ≥0.30 uses the M5 GPU neural accelerators (faster prefill — helps the ~10 s ref-clip prefill and an 8B backbone) |
-| Memory budget | worst case: 8B-8bit engine ~10 GB + Ollama nemotron-4B (separate proc ~3 GB) + mlx-whisper bench ~1.5 GB ≪ 48 GB. Even Miso bf16 (16.4 GB) is viable |
-
-### Recommended models (the menu)
-
-1. **MisoTTS-8B** — `mlx-community/MisoLabs-MisoTTS-8bit` (9 GB; `-bf16` at 16.4 GB
-   for max quality). The literal target sound. Same CSM family → our `kay` clone
-   clip + ref-text machinery maps 1:1. English-only, modified-MIT. Risk: the MLX
-   path is days old. Expected RTF ~1–3× (spike measures).
-2. **MOSS-TTS-8B** — `mlx-community/MOSS-TTS-8B-8bit` (10.5 GB). The safe 8B:
-   Apache-2.0, published 1.84% EN WER (the "accuracy" metric, better than most
-   commercial TTS), zero-shot cloning, 20+ languages, 1-hour single-pass mode
-   (future: whole-article-in-one-call, no chunk seams).
-3. **Kokoro-82M** — `mlx-community/Kokoro-82M-bf16` (0.3 GB). The speed/stability
-   floor: near-instant (RTF ≪0.2), bulletproof pronunciation, 54 preset voices.
-   No cloning (kay won't exist here). Ideal "fast mode" + bench sanity anchor.
-
-(Considered, not recommended: VibeVoice-1.5B — long-form king but research-only
-license and patchy MLX support; Chatterbox — conversational, short-utterance
-focus. Both reachable later through the same adapter if wanted.)
-
-**CSM-1B stays** as the 4th engine (default until the bench says otherwise).
-
-### Implementation
-
-#### Phase 0 — Spike: prove the models run (before any refactor)
-1. Snapshot `pip freeze > /tmp/readback-freeze.txt` (rollback path). Check disk free.
-2. In the project venv: `pip install mlx-audio` (pulls mlx/mlx-lm 0.31.x,
-   transformers 5.x). **Smoke-test CsmEngine still works** under the new mlx
-   (`Synthesizer(Config.load().tts).synthesize("…")`).
-3. CLI smoke each candidate, timing wall-clock vs audio seconds (RTF):
-   `python -m mlx_audio.tts.generate --model <id> --text "<200-word passage>"`
-   for MisoLabs-MisoTTS-8bit, MOSS-TTS-8B-8bit, Kokoro-82M-bf16.
-4. Verify cloning args on Miso/MOSS (ref audio + ref text → reuse
-   `voice/voice_kay_default.wav`).
-5. Gate: a model that won't run or is unusably slow (RTF > ~4 even at 8-bit) is
-   dropped; optionally self-convert 4/6-bit via `python -m mlx_audio.convert`.
-
-#### Phase 1 — Accuracy bench harness (`scripts/bench_tts.py`)
-The objective definition of "match accuracy": WER measured by local ASR.
-- Add `bench` extra in `pyproject.toml`: `mlx-whisper`, `jiwer`.
-- Script: fixed test passage (~600 words: numbers, names, acronyms, quotes) →
-  reuse `chunk_text` + `_tidy_silence` + gap-join from `readback/reader/speak.py`
-  → write `bench_out/<engine>.wav` → transcribe with mlx-whisper
-  (`mlx-community/whisper-large-v3-turbo`) → jiwer WER/CER (punctuation/case
-  normalized) → print a markdown table: **engine | WER | CER | RTF | peak RAM**.
-- `--transcribe-only` mode to baseline the two Desktop sample WAVs (current CSM
-  output) for the before/after story.
-- Output WAVs double as the listening A/B kit vs the screen-recording reference.
-
-#### Phase 2 — Engine layer: `MlxAudioEngine` (one adapter, three models)
-- `readback/tts/mlx_audio_engine.py`: same proven shape as `CsmEngine`
-  (`csm_engine.py`): single-thread `ThreadPoolExecutor` owning ALL mlx work
-  (MLX thread-binding rule), lazy `_load_impl` (mlx_audio `load_model`),
-  `synthesize` → numpy float32 mono @ engine sample rate (24 kHz for all three),
-  voice handling:
-  - preset voices (Kokoro voice ids) from config,
-  - clone voices reusing the existing `CsmVoicePrompt` shape (`wav` + `ref_text`)
-    mapped to mlx-audio's ref-audio args (Miso/MOSS).
-  - `synthesize_stream`: trivial fallback (yield the one batch result) — the
-    reader only uses batch.
-- `readback/config.py`: `TTSConfig.engine: Literal["csm","mlx_audio"]`; new
-  `MlxAudioConfig{model, speaker, temperature?, voices: list[CsmVoicePrompt]}`;
-  `TTSConfig.active` dispatches on engine (server contract `active.speaker`
-  unchanged); `Config.load()` resolves `mlx_audio.voices[].wav` like csm's.
-- `readback/tts/synthesizer.py`: the promised factory — pick engine class from
-  `cfg.engine`.
-- Voice list without loading models: add `voices_for_config(tts_cfg)` (dispatching
-  helper next to the engines) and use it in `web/server.py` `/api/config` + the
-  WS config seed (today they call `voices_for(cfg.tts.csm)` directly —
-  `server.py:215,227`).
-- `reader/speak.py`: `chunk_text(text, max_chars=280)` param; `synthesize_article`
-  passes `getattr(synth, "max_chunk_chars", 280)` so engines can widen later
-  (MOSS long-context). Keep `_tidy_silence` for every engine.
-
-#### Phase 3 — Config presets, docs, version
-- `config.yaml`: commented presets — switch engine by uncommenting:
-  `engine: "mlx_audio"` + `mlx_audio.model:` one of the three ids (+ kay clone
-  entry under it for Miso/MOSS). Engine choice = config + restart (one resident
-  model; no multi-engine RAM stacking).
-- `pyproject.toml`: add `mlx-audio>=0.4.4` (main dep), `bench` extra; csm-mlx git
-  dep stays (runtime CSM + the LoRA finetune pipeline).
-- README + CLAUDE.md + ARCHITECTURE.md: engine matrix (size / license / cloning /
-  measured RTF + WER from the bench), model-download sizes, note that Miso's
-  torch repo watermarks output (SilentCipher) but the MLX path may not — keep the
-  consent note for cloning.
-- Version bump → **v0.9.0** in `pyproject.toml`, `readback/__init__.py`,
-  `web/frontend/package.json` (no frontend code changes needed — the picker is
-  fed by the server's voice list).
-
-#### Phase 4 — Tune + pick the default
-- Run the full bench; if the 8B winner's RTF is painful, bench its 4-bit/6-bit
-  self-conversion (WER re-checked — quantization can hurt prosody).
-- CSM cheap wins while benching (no code): `precision: fp32` (RTF ~1.4),
-  temperature 0.6, optionally a longer 5–8 s kay ref clip (csm-voice skill).
-- Deliverable: bench table + `bench_out/*.wav` to listen, then set the winner as
-  the shipped `config.yaml` default.
-
-### Files
-- **New**: `readback/tts/mlx_audio_engine.py`, `scripts/bench_tts.py`
-- **Edit**: `readback/config.py`, `readback/tts/synthesizer.py`,
-  `readback/web/server.py` (2 call sites), `readback/reader/speak.py` (chunk
-  param), `config.yaml`, `pyproject.toml`, README/CLAUDE/ARCHITECTURE,
-  `readback/__init__.py`, `web/frontend/package.json` (version only)
-
-### Verification
-1. Phase-0 spike outputs audible WAVs for all surviving models; CSM still works
-   post-upgrade.
-2. `scripts/bench_tts.py` table on M5 Pro: target **WER ≤ ~2–3%** for the chosen
-   default (vs baseline transcription of the current sample WAVs), RTF recorded.
-3. End-to-end smoke per engine (config swap + restart): paste an article URL →
-   Full mode → player + download work; **cancel mid-synthesis works** (the
-   `should_stop` per-chunk abort is engine-agnostic in `synthesize_article`).
-4. Summary mode unaffected (Ollama path untouched).
-5. Listening A/B: bench WAVs vs the Desktop screen-recording reference.
-
-### Risks & fallbacks
-- **mlx 0.26→0.31 may break csm-mlx 0.2.3** → update csm-mlx from git main; worst
-  case run CSM through mlx-audio too (it supports CSM) and keep csm-mlx only for
-  the finetune pipeline.
-- **mlx-audio's MisoTTS path is ~4 days old** → MOSS-TTS-8B is the proven-port
-  fallback; same adapter, zero extra code.
-- **8B RTF disappoints** → 4-bit convert, or ship Kokoro as fast default with the
-  8B as the "quality" preset; offline-reader UX (progress bar + cancel) already
-  absorbs slow synthesis.
-- **Dep solver conflicts** (transformers 5.x) → restore from the freeze snapshot;
-  retry in a fresh venv to isolate.
+**Status: superseded (same day)** — explored swapping the TTS engine for a
+larger model behind a new adapter, with a WER/RTF bench to pick the default.
+Direction changed the same day to staying on CSM-1B and tuning it (see the
+entry above): an engine swap was judged too expensive for the gain, and the
+sample analysis showed the remaining gap was model-level naturalness — pacing
+was already fixed by `_tidy_silence` (zero pauses ≥ 0.35 s in the outputs).
+The detailed research notes (candidate models, bench harness design, adapter
+sketch) were removed from this file once the decision landed.

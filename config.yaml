@@ -1,6 +1,6 @@
-# readback — offline article reader (v0.8.0).
+# readback — offline article reader (v1.0.0).
 # Paste a URL → fetch + extract the article → (optional LLM summary) → CSM-1B TTS
-# → audio you play in-browser or download. All on-device.
+# → audio you play in-browser, in the terminal CLI, or download. All on-device.
 
 ollama:
   # Used only by "summary" mode (turns the article into a spoken explanation).
