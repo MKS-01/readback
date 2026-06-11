@@ -48,13 +48,13 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v0.9.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
+├── pyproject.toml             # v1.0.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks
 ├── README.md                  # user-facing
 ├── ARCHITECTURE.md            # system-level view
 ├── finetune/                  # LoRA fine-tune pipeline (README + transcribe.py + data/)
 ├── cli/                       # terminal client (Bun + Ink); second /ws client
-│   ├── package.json           # readback-cli 0.9.0; ink + ink-text-input
+│   ├── package.json           # readback-cli 1.0.0; ink + ink-text-input
 │   ├── install.sh             # one-command build: bun compile → ~/.local/bin/readback-cli
 │   └── src/                   # index.tsx (boot + resize repaint), app.tsx (screen
 │                              # switch), theme.ts (Ghost + BLUE accent),
@@ -300,9 +300,10 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v0.9.0** — adds the terminal CLI (`cli/`, Bun + Ink) as a second
-client of `/ws`. (v0.8.0: offline article reader pivot; CSM-1B via csm-mlx;
-clone-condition voices + LoRA fine-tune scaffold; renamed `local-tts` →
-`readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
+Current: **v1.0.0** — first stable release: the terminal CLI (`cli/`, Bun +
+Ink) lands as a second client of `/ws`, docs restructured around the
+two-client architecture. (v0.8.0: offline article reader pivot; CSM-1B via
+csm-mlx; clone-condition voices + LoRA fine-tune scaffold; renamed
+`local-tts` → `readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
 `web/frontend/package.json`, and `cli/package.json`. Bump all four when
 releasing.

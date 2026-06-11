@@ -1,9 +1,9 @@
 # readback CLI
 
 A terminal client for readback — Bun + TypeScript + [Ink](https://github.com/vadimdemedes/ink).
-It speaks the same `/ws` protocol as the web app (zero Python changes): paste a
-URL, watch the phases, and the finished WAV plays right in your terminal via
-`afplay`. macOS only. *Built with [Claude Code](https://claude.com/claude-code).*
+It speaks the same `/ws` protocol as the web app: paste a URL, watch the
+phases, and the finished WAV plays right in your terminal via `afplay`.
+macOS only. *Built with [Claude Code](https://claude.com/claude-code).*
 
 <p align="center">
   <img src="../media/cli-home.png" alt="readback CLI — home screen" width="820">
@@ -60,8 +60,6 @@ but only if it spawned it.
 Paste an article URL and hit enter. The progress screen streams the server's
 phases (fetching → summarizing → synthesizing) with a per-chunk progress bar;
 esc cancels a running read.
-
-<!-- SCREENSHOT placeholder: busy screen (spinner + phase + progress bar) → ../media/cli-busy.png -->
 
 ### Slash commands
 

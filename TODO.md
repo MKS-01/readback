@@ -1,8 +1,12 @@
 # TODO — readback (offline article reader)
 
-Status: **v0.8.0 functional end-to-end** (URL → extract → optional LLM summary →
-CSM TTS offline → in-browser player + download). Renamed `local-tts` → `readback`.
-Branch: `tuning-v1`.
+Status: **v1.0.0 functional end-to-end** (URL → extract → optional LLM summary →
+CSM TTS offline → web or terminal player + download). Two clients of one local
+server: the browser UI and the terminal CLI (`cli/`).
+Branch: `cli-mode`.
+
+The public roadmap lives in [README.md → Roadmap](README.md#roadmap); this file
+tracks the smaller internal items.
 
 Done recently: project rename; reader UI (custom player, Full/Summary toggle,
 summary transcript + copy, centered layout, circular CTA, hero-orb synthesis state
