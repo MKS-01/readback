@@ -8,7 +8,7 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ## 2026-06-12 — Restructure Python package: pipeline/ + server/
 
-**Status: proposed** — branch `depreciate/web` (runs after web deletion is done).
+**Status: done** — branch `depreciate/web` (runs after web deletion is done).
 Rename `reader/` → `pipeline/` and `web/` → `server/` for accurate, durable naming.
 Zero behavior change; import fixes only.
 
