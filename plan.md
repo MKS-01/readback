@@ -61,7 +61,7 @@ accumulating a larger rename later. `llm/` and `tts/` are already well-named.
 
 ## 2026-06-12 — Delete web frontend; CLI-only project
 
-**Status: proposed** — branch `depreciate/web`.
+**Status: done** — branch `depreciate/web`.
 Remove the React/Vite browser UI and all its scaffolding; slim the server to a
 pure CLI-backend (WS + `/audio` + `/api/*`). No protocol changes, no CLI changes.
 

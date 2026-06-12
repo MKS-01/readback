@@ -4,11 +4,11 @@ Pivot (v0.8.0): the real-time voice-assistant cascade (STT / VAD / Smart-Turn /
 mic / echo gate) is gone. The server now does one job — turn a URL into audio:
 
     URL → fetch + extract article → (optional LLM summary) → CSM TTS (offline)
-        → write WAV → serve it for in-browser playback + download
+        → write WAV → serve it to the CLI player
 
-Synthesis is offline, so there is no real-time constraint (the whole reason for
-the pivot): we synthesize the entire piece, then play. Progress streams over a
-WebSocket; the finished WAV is served from `cfg.reader.output_dir`.
+Synthesis is offline, so there is no real-time constraint: we synthesize the
+entire piece, then play. Progress streams over a WebSocket; the finished WAV is
+served from `cfg.reader.output_dir`.
 
 WS protocol (/ws):
   client → {"type":"read", "url": str, "mode": "full"|"summary", "voice"?: str,
@@ -26,11 +26,9 @@ import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from readback.config import Config
@@ -43,9 +41,6 @@ from readback.tts.csm_engine import voices_for
 from readback.tts.synthesizer import Synthesizer
 
 log = logging.getLogger("readback.server")
-
-STATIC_DIR = Path(__file__).parent / "static"
-DIST_DIR = STATIC_DIR / "dist"
 
 
 class ReaderModels:
@@ -186,7 +181,7 @@ async def _run_read_job(
     })
 
 
-def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -> FastAPI:
+def create_app(cfg: Optional[Config] = None) -> FastAPI:
     cfg = cfg or Config.load()
     models = ReaderModels(cfg)
     out_dir = cfg.reader.output_dir.expanduser()
@@ -198,26 +193,8 @@ def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -
 
     app = FastAPI(lifespan=lifespan)
 
-    @app.middleware("http")
-    async def _no_cache_static(request, call_next):
-        resp = await call_next(request)
-        path = request.url.path
-        if path == "/" or path.startswith("/static/"):
-            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        return resp
-
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     # Generated article audio (playback + download).
     app.mount("/audio", StaticFiles(directory=str(out_dir)), name="audio")
-
-    @app.get("/")
-    async def index():
-        return FileResponse(str(DIST_DIR / "index.html"))
-
-    if cert_path is not None:
-        @app.get("/cert.pem")
-        async def cert():
-            return FileResponse(str(cert_path), media_type="application/x-pem-file")
 
     @app.get("/api/config")
     async def api_config():

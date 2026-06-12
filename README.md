@@ -3,7 +3,7 @@
 <p align="center">
   <strong>Make reading interesting again.</strong><br>
   Paste a URL — get a clean, natural-voice reading of the whole article,<br>
-  right in your terminal (or the browser). Runs entirely on your Mac.<br>
+  right in your terminal. Runs entirely on your Mac.<br>
   No cloud. No API keys. Nothing leaves your machine.
 </p>
 
@@ -16,7 +16,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/Bun-Ink_CLI-fbf0df?style=flat-square&logo=bun&logoColor=black" alt="Bun + Ink">
-  <img src="https://img.shields.io/badge/React_18-Vite-61DAFB?style=flat-square&logo=react&logoColor=white" alt="React 18">
   <img src="https://img.shields.io/badge/FastAPI-WebSocket-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-22c55e?style=flat-square" alt="MIT License">
   <img src="https://img.shields.io/badge/Built_with-Claude_Code-D97757?style=flat-square&logo=claude&logoColor=white" alt="Built with Claude Code">
@@ -24,7 +23,6 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
-  <a href="#or-in-the-browser">Browser</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#voices">Voices</a> ·
   <a href="#configuration">Config</a> ·
@@ -35,14 +33,6 @@
   <img src="media/cli-player.png" alt="readback CLI — terminal player with the word-synced transcript highlight" width="820"><br>
   <sub>The terminal client mid-read: seekable player, live word-by-word transcript sync.</sub>
 </p>
-
-<details align="center">
-  <summary><strong>🖥 More screens — the web app</strong></summary>
-  <p align="center">
-    <img src="media/screenshot-one.png" alt="readback web app — the custom audio player and orbital synthesis state" width="820"><br>
-    <sub>The browser UI — three.js orb, custom player, same Ghost theme.</sub>
-  </p>
-</details>
 
 <p align="center">
   <strong>🔊 <a href="media/sample-read.wav">Hear a sample read</a></strong><br>
@@ -66,9 +56,8 @@ there too. Either way: made to make reading interesting again.
 
 ## Quick start
 
-readback is **terminal-first** — the CLI is where it began and where it feels
-best. The web UI is the same server with a browser front-end, so pick whichever
-surface you like; the steps below get you the terminal client.
+readback is **terminal-first** — paste a URL, watch it synthesize, and audio
+plays in your shell. The steps below get you running in under 5 minutes.
 
 You need **macOS on Apple Silicon**, **Python 3.10–3.12**, [Bun](https://bun.sh/),
 and [Ollama](https://ollama.ai/) (only for Summary mode). Developed on an **M5 Pro
@@ -118,52 +107,33 @@ are fast. See [SETUP.md](SETUP.md) for verification, flags, and troubleshooting.
 
 ---
 
-## ...or in the browser
-
-Rather click than type? The web UI is the same server with a React front-end —
-the orb, the custom player, and a download button. Build it once, then run the
-server directly:
-
-```bash
-# one-time; rerun after editing readback/web/frontend/
-cd readback/web/frontend && npm install && npm run build && cd ../../..
-
-readback                                # open http://127.0.0.1:8000
-```
-
-Needs **Node 18+** for the build step. Everything else — the pipeline, the
-voices, the audio — is identical to the terminal client.
-
----
-
 ## How it works
 
-One local server, two clients. Everything below the WebSocket line is a single
-Python process on your Mac; both UIs are thin clients of the same `/ws`
-protocol — same phases, same progress stream, same finished WAV.
+The terminal CLI talks to a local Python server over WebSocket — the same
+pipeline whether you're reading a news piece or a 10,000-word essay.
 
 ```
-   ┌─────────────────────┐        ┌─────────────────────┐
-   │      Web mode       │        │      CLI mode       │
-   │  React + three.js   │        │      Bun + Ink      │
-   │  in-browser player  │        │   afplay  player    │
-   └──────────┬──────────┘        └──────────┬──────────┘
-              │                              │ auto-spawns the
-              │       WebSocket  /ws         │ server if needed
-              └──────────────┬───────────────┘
-                             ▼
-              ┌──────────────────────────────┐
-              │   readback server (FastAPI)  │
-              │                              │
-              │  fetch ▸ extract ▸ [summary] │
-              │   ▸ chunk ▸ TTS ▸ WAV        │
-              └──────┬────────────────┬──────┘
-                     ▼                ▼
-            ┌─────────────────┐ ┌─────────────────┐
-            │  Ollama (local) │ │ CSM-1B on MLX / │
-            │  Summary mode   │ │ Metal — offline │
-            │  only           │ │ voice synthesis │
-            └─────────────────┘ └─────────────────┘
+              ┌─────────────────────┐
+              │      CLI mode       │
+              │      Bun + Ink      │
+              │   afplay  player    │
+              └──────────┬──────────┘
+                         │ auto-spawns the
+                         │ server if needed
+                         │  WebSocket  /ws
+                         ▼
+          ┌──────────────────────────────┐
+          │   readback server (FastAPI)  │
+          │                              │
+          │  fetch ▸ extract ▸ [summary] │
+          │   ▸ chunk ▸ TTS ▸ WAV        │
+          └──────┬────────────────┬──────┘
+                 ▼                ▼
+        ┌─────────────────┐ ┌─────────────────┐
+        │  Ollama (local) │ │ CSM-1B on MLX / │
+        │  Summary mode   │ │ Metal — offline │
+        │  only           │ │ voice synthesis │
+        └─────────────────┘ └─────────────────┘
 ```
 
 The read pipeline, left to right:
@@ -191,7 +161,6 @@ system view.
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV |
 | **CLI client** | Bun + TypeScript + [Ink](https://github.com/vadimdemedes/ink) — terminal UI, `afplay` playback |
-| **Web client** | React 18 + TypeScript + Vite + zustand — three.js orb, custom audio player, dark "Ghost" theme |
 
 ---
 
@@ -245,16 +214,13 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 
 Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
-**LAN access (phone/tablet):** `readback --host 0.0.0.0 --auto-cert` serves over
-HTTPS; the startup banner prints the network URL, cert fingerprint, and a
-`/cert.pem` link to trust once per device.
+**LAN access:** `readback --host 0.0.0.0` exposes the server on your local network; the startup banner prints the network URL.
 
 ---
 
 ## Roadmap
 
 - [x] **Model switch (CLI)** — `/model` picks the summary LLM at runtime, with a RAM-fit check (v1.1.0)
-- [ ] **Model switch (web)** — the same picker in the browser UI
 - [ ] **More voice options** — grow the voice menu beyond the two built-ins + `kay` (incl. A/B-ing the built-in read-speech references and exposing more of them)
 - [ ] **Voice tuning from the CLI** — clone a new voice (clip → transcript → register) from `readback-cli` instead of editing `config.yaml`
 - [ ] **Faster synthesis** — reduce conversion time; ultimately bounded by your Mac's GPU / unified memory, so tune the controllable knobs (precision, chunking, warm-up)

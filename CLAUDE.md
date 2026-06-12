@@ -1,8 +1,8 @@
 # readback — Project Context
 
-An **offline article reader** with a browser UI. Paste a URL → fetch + extract the
+An **offline article reader**, terminal-first. Paste a URL → fetch + extract the
 article → optionally summarize it with a local LLM → synthesize the whole thing
-with **CSM-1B** (Sesame, via `csm-mlx`) → play it in-browser or download the WAV.
+with **CSM-1B** (Sesame, via `csm-mlx`) → play it in the terminal via `afplay`.
 All on-device on Apple Silicon. No cloud, no API keys.
 
 **History:** this began as a real-time voice assistant (`local-tts`) and was
@@ -10,7 +10,7 @@ All on-device on Apple Silicon. No cloud, no API keys.
 entire live cascade — Parakeet STT, Smart-Turn, webrtcvad, mic capture, echo
 gate, wake-word, personas, tools, Obsidian export — was removed. If you see those
 referenced anywhere, it's stale: the current package is just
-`llm/ reader/ tts/ web/`, and the reader server wires none of the
+`llm/ reader/ tts/ web/` (web/ = server only, no frontend), and the reader server wires none of the
 tools/persona/obsidian machinery (the `tools/` module and the streaming/
 tool-calling LLM plumbing were removed in the v0.8.0 cleanup).
 
@@ -35,13 +35,10 @@ gotchas, and exact knobs.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +
   clone-condition voices + optional LoRA fine-tuning. English-best.
-- **Server**: FastAPI + WebSocket, single `/ws` endpoint.
-- **Frontend**: React 18 + TypeScript + Vite + zustand; three.js point-cloud orb;
-  custom audio player; dark "Ghost" theme. Built into
-  `readback/web/static/dist/` — the only web client (no legacy fallback);
-  build it before running the server.
-- **Terminal CLI**: Bun + TypeScript + Ink (React for CLIs) in `cli/` — a second
-  client of the same `/ws` protocol; `afplay` playback, macOS-only.
+- **Server**: FastAPI + WebSocket, single `/ws` endpoint. No browser UI — the
+  server is a pure backend for the CLI client.
+- **Terminal CLI**: Bun + TypeScript + Ink (React for CLIs) in `cli/` — the sole
+  client of the `/ws` protocol; `afplay` playback, macOS-only.
 
 ## Project Structure
 
@@ -107,8 +104,7 @@ readback/
   source page).
 - Models (`Synthesizer` + `LLMClient`) load lazily on first read via
   `ReaderModels.ensure_loaded` (downloads the CSM checkpoint the first time).
-- The index route serves `web/static/dist/index.html`; build the frontend before
-  running (`npm run build`). There is no legacy fallback bundle anymore.
+- No browser UI — `GET /` returns 404. The server is a pure WS/API backend.
 
 ### Reader pipeline (`reader/`)
 
@@ -295,8 +291,7 @@ and the Qwen→CSM config migration.
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e .                          # csm-mlx is a git dep (allow-direct-references)
-cd readback/web/frontend && npm install && npm run build && cd ../../..
-readback                                  # http://127.0.0.1:8000   (or: python -m readback)
+readback                                  # starts the server (or: python -m readback)
 cd cli && bun install && bun run start    # terminal CLI from source (auto-spawns the server)
 cd cli && ./install.sh                    # or: standalone binary → ~/.local/bin/readback-cli
 ```
