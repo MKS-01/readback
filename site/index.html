@@ -40,10 +40,10 @@
     <p class="dim small">A real Summary-mode read — local LLM + CSM-1B, in <span class="bright">kay</span>, a custom-tuned clone voice.</p>
     <div class="player" id="player">
       <button class="play" id="play-btn" aria-label="Play sample">▶</button>
-      <div class="bar" id="bar" role="progressbar" aria-label="Playback position"><div class="fill" id="fill"></div></div>
+      <div class="wave" id="wave" role="progressbar" aria-label="Playback position"></div>
       <span class="time" id="time">0:00</span>
     </div>
-    <audio id="audio" src="media/sample-read.wav" preload="none"></audio>
+    <audio id="audio" src="media/sample-read.wav" preload="metadata"></audio>
   </section>
 
   <!-- ── screenshots (auto-crossfade) ───────────────────── -->
@@ -78,7 +78,8 @@
       <li>
         <h3><span class="accent">▮</span> Full or Summary mode</h3>
         <p>Hear the article verbatim, or let a local LLM (Ollama) rewrite it as a
-        spoken explanation first. Switch models from the CLI with a RAM-fit check.</p>
+        spoken explanation first — <span class="bright">any model on your machine
+        works</span>; <code>/model</code> lists them with a RAM-fit check.</p>
       </li>
       <li>
         <h3><span class="accent">▮</span> A real terminal player</h3>
@@ -120,7 +121,7 @@
     <h2><span class="dim">##</span> Quick start</h2>
     <p class="dim small">macOS on Apple Silicon · Python 3.10–3.12 · Bun · Ollama (Summary mode only)</p>
     <pre class="code"><code><span class="dim"># 1. Ollama for Summary mode (skip for Full mode)</span>
-ollama pull gemma4:26b
+ollama pull gemma4:26b   <span class="dim"># any chat model works — we ran gemma &amp; qwen</span>
 
 <span class="dim"># 2. Install the server</span>
 git clone https://github.com/MKS-01/readback.git &amp;&amp; cd readback
@@ -153,16 +154,17 @@ readback-cli</code></pre>
     <p class="dim">Made to make reading interesting again.</p>
   </section>
 
-  <!-- ── stack ──────────────────────────────────────────── -->
+  <!-- ── architecture ───────────────────────────────────── -->
   <section class="reveal stack">
-    <h2><span class="dim">##</span> Stack</h2>
+    <h2><span class="dim">##</span> Architecture</h2>
+    <p class="dim small">The concepts that shape it — small on purpose: one server, one socket, one pipeline.</p>
     <ul class="stack-list">
-      <li><span class="stack-k">Extraction</span><span><a href="https://trafilatura.readthedocs.io/">trafilatura</a> — URL → clean article text</span></li>
-      <li><span class="stack-k">Summary</span><span><a href="https://ollama.ai/">Ollama</a> — local LLM, <span class="bright">gemma4:26b</span> default <span class="dim">(Summary mode only)</span></span></li>
-      <li><span class="stack-k">Voice</span><span><a href="https://huggingface.co/senstella/csm-1b-mlx">CSM-1B</a> (Sesame) via <a href="https://github.com/senstella/csm-mlx">csm-mlx</a> — MLX / Metal, 24 kHz</span></li>
-      <li><span class="stack-k">Server</span><span><a href="https://fastapi.tiangolo.com/">FastAPI</a> + WebSocket — streams progress, serves the WAV</span></li>
-      <li><span class="stack-k">Client</span><span>Bun + TypeScript + <a href="https://github.com/vadimdemedes/ink">Ink</a> — the terminal UI</span></li>
-      <li><span class="stack-k">Playback</span><span><span class="bright">afplay</span> — pause, seek, word-synced transcript <span class="dim">(macOS)</span></span></li>
+      <li><span class="stack-k">Client / server</span><span>The CLI (<a href="https://github.com/vadimdemedes/ink">Bun + Ink</a>) is a pure WebSocket client — it auto-spawns the FastAPI server, supervises it, and adds zero server code.</span></li>
+      <li><span class="stack-k">One pipeline</span><span>fetch <span class="accent">▸</span> extract (<a href="https://trafilatura.readthedocs.io/">trafilatura</a>) <span class="accent">▸</span> [summary] <span class="accent">▸</span> chunk <span class="accent">▸</span> synth <span class="accent">▸</span> WAV — progress streams per chunk over <span class="bright">/ws</span>.</span></li>
+      <li><span class="stack-k">One GPU thread</span><span>MLX binds its Metal stream to a single thread, so read jobs queue naturally and a cancel actually stops the synthesis mid-job.</span></li>
+      <li><span class="stack-k">Voice = a clip</span><span><a href="https://huggingface.co/senstella/csm-1b-mlx">CSM-1B</a> conditions on a short reference clip + its transcript — swap the clip, swap the voice; LoRA fine-tune for more fidelity.</span></li>
+      <li><span class="stack-k">Bring your LLM</span><span>Summary mode runs on whatever <a href="https://ollama.ai/">Ollama</a> models you have installed — we ran <span class="bright">gemma</span> &amp; <span class="bright">qwen</span>; <span class="bright">/model</span> lists yours with a RAM-fit verdict.</span></li>
+      <li><span class="stack-k">Offline by design</span><span>Weights download once, then nothing leaves the machine — synthesis on Metal, playback via <span class="bright">afplay</span>, the WAV saved locally.</span></li>
     </ul>
   </section>
 
@@ -170,36 +172,52 @@ readback-cli</code></pre>
   <footer>
     <p>
       <a href="https://github.com/MKS-01/readback">GitHub</a> ·
-      <a href="https://github.com/MKS-01/readback/issues">Issues</a> ·
       <a href="https://github.com/MKS-01/readback/blob/main/LICENSE">MIT License</a>
     </p>
     <p class="dim small">Open source · built on Apple Silicon · MLX / Metal</p>
-    <p class="prompt-line small"><span class="dim">~ $</span> <span class="dim">_</span></p>
+    <p class="prompt-line small"><span class="dim">~ $</span><span class="caret"></span></p>
   </footer>
 
 </main>
 
 <script>
-  // Custom controls so the sample player looks like the CLI's, not the browser's.
+  // Waveform player: deterministic pseudo-random bars; played portion lights
+  // up in accent and dances while audio is running.
   const audio = document.getElementById("audio");
+  const player = document.getElementById("player");
   const btn = document.getElementById("play-btn");
-  const bar = document.getElementById("bar");
-  const fill = document.getElementById("fill");
+  const wave = document.getElementById("wave");
   const time = document.getElementById("time");
+
+  const N = 52;
+  const bars = Array.from({ length: N }, (_, i) => {
+    const b = document.createElement("i");
+    const h = 22 + 70 * Math.abs(Math.sin(i * 7.31) * 0.6 + Math.sin(i * 1.7) * 0.4);
+    b.style.setProperty("--h", `${Math.min(h, 95)}%`);
+    b.style.animationDelay = `${(i % 7) * 0.11}s`;
+    wave.appendChild(b);
+    return b;
+  });
 
   const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
+  function paint() {
+    const frac = audio.duration ? audio.currentTime / audio.duration : 0;
+    const lit = Math.floor(frac * N);
+    bars.forEach((b, i) => b.classList.toggle("on", i < lit));
+    time.textContent = audio.duration
+      ? `${fmt(audio.currentTime)} / ${fmt(audio.duration)}` : fmt(audio.currentTime);
+  }
+
   btn.addEventListener("click", () => audio.paused ? audio.play() : audio.pause());
-  audio.addEventListener("play", () => { btn.textContent = "❚❚"; });
-  audio.addEventListener("pause", () => { btn.textContent = "▶"; });
-  audio.addEventListener("ended", () => { btn.textContent = "▶"; fill.style.width = "0%"; });
-  audio.addEventListener("timeupdate", () => {
-    if (audio.duration) fill.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
-    time.textContent = fmt(audio.currentTime);
-  });
-  bar.addEventListener("click", e => {
+  audio.addEventListener("play", () => { btn.textContent = "❚❚"; player.classList.add("playing"); });
+  audio.addEventListener("pause", () => { btn.textContent = "▶"; player.classList.remove("playing"); });
+  audio.addEventListener("ended", () => { audio.currentTime = 0; });
+  audio.addEventListener("timeupdate", paint);
+  audio.addEventListener("loadedmetadata", paint);
+  wave.addEventListener("click", e => {
     if (!audio.duration) return;
-    const r = bar.getBoundingClientRect();
+    const r = wave.getBoundingClientRect();
     audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
     audio.play();
   });
