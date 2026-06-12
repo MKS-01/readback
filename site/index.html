@@ -82,23 +82,28 @@
   <!-- ── how it works ───────────────────────────────────── -->
   <section class="how">
     <h2><span class="dim">##</span> How it works</h2>
-    <pre class="diagram" aria-label="Architecture: the CLI talks to a local FastAPI server over WebSocket; the server fetches, extracts, optionally summarizes via Ollama, then synthesizes with CSM-1B on MLX/Metal">
-        ┌─────────────────────┐
-        │       CLI           │
-        │     Bun + Ink       │
-        └──────────┬──────────┘
-                   │ WebSocket /ws
-                   ▼
-    ┌──────────────────────────────┐
-    │   readback server (FastAPI)  │
-    │  fetch ▸ extract ▸ [summary] │
-    │   ▸ chunk ▸ TTS ▸ WAV        │
-    └──────┬────────────────┬──────┘
-           ▼                ▼
-  ┌─────────────────┐ ┌─────────────────┐
-  │  Ollama (local) │ │ CSM-1B on MLX / │
-  │  Summary mode   │ │ Metal — offline │
-  └─────────────────┘ └─────────────────┘</pre>
+    <div class="flow" aria-label="Architecture: the CLI talks to a local FastAPI server over WebSocket; the server fetches, extracts, optionally summarizes via Ollama, then synthesizes with CSM-1B on MLX/Metal">
+      <div class="node">
+        <strong>CLI</strong>
+        <span class="dim">Bun + Ink · afplay</span>
+      </div>
+      <div class="link"><span class="link-label dim">WebSocket /ws</span></div>
+      <div class="node node-wide">
+        <strong>readback server <span class="dim">(FastAPI)</span></strong>
+        <span class="dim">fetch <span class="accent">▸</span> extract <span class="accent">▸</span> [summary] <span class="accent">▸</span> chunk <span class="accent">▸</span> TTS <span class="accent">▸</span> WAV</span>
+      </div>
+      <div class="link link-split"><span></span><span></span></div>
+      <div class="flow-pair">
+        <div class="node">
+          <strong>Ollama <span class="dim">(local)</span></strong>
+          <span class="dim">Summary mode only</span>
+        </div>
+        <div class="node">
+          <strong>CSM-1B <span class="dim">on MLX / Metal</span></strong>
+          <span class="dim">offline voice synthesis</span>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ── quick start ────────────────────────────────────── -->
@@ -129,7 +134,7 @@ readback-cli</code></pre>
       <a href="https://github.com/MKS-01/readback/issues">Issues</a> ·
       <a href="https://github.com/MKS-01/readback/blob/main/LICENSE">MIT License</a>
     </p>
-    <p class="dim small">Open source · built on Apple Silicon · MLX / Metal · ideas and PRs welcome</p>
+    <p class="dim small">Open source · built on Apple Silicon · MLX / Metal</p>
     <p class="prompt-line small"><span class="dim">~ $</span> <span class="dim">_</span></p>
   </footer>
 

@@ -222,9 +222,97 @@ pre {
   line-height: 1.55;
 }
 
-.diagram { color: var(--dim); }
-
 .code { color: var(--text); }
+
+/* ── flow chart (HTML boxes — box-drawing chars break in webfonts) ── */
+
+.flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 13px;
+  text-align: center;
+}
+
+.node {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 12px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+}
+
+.node strong { font-weight: 600; }
+
+.node-wide { min-width: min(440px, 100%); }
+
+/* connector: a vertical accent line with an arrowhead */
+.link {
+  position: relative;
+  height: 44px;
+  width: 1px;
+  background: var(--accent);
+  margin: 0 auto;
+}
+
+.link::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top: 6px solid var(--accent);
+}
+
+.link-label {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+/* split connector: two parallel drops feeding the bottom pair */
+.link-split {
+  background: none;
+  width: min(440px, 80%);
+  height: 36px;
+}
+
+.link-split::after { content: none; }
+
+.link-split > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--accent);
+}
+
+.link-split > span::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top: 6px solid var(--accent);
+}
+
+.link-split > span:first-child { left: 25%; }
+.link-split > span:last-child  { right: 25%; }
+
+.flow-pair {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  width: 100%;
+}
+
+.flow-pair .node { flex: 1; min-width: 0; }
 
 .quick > .small:last-child { margin-top: 14px; color: var(--dim); }
 
