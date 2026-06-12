@@ -8,8 +8,14 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ## 2026-06-13 — Landing page on GitHub Pages
 
-**Status: in progress** — branch `landing-page`. Static one-page site + the repo's
-first GitHub Action; zero changes to `src/`.
+**Status: done** — branch `landing-page`, PR #11 merged 2026-06-13. Static
+one-page site + the repo's first GitHub Action; zero changes to `src/`.
+Shipped: `site/index.html` + `style.css` (Ghost-palette terminal page with an
+inline sample-read player), `.github/workflows/pages.yml` (copies media from
+`docs/media/` into the artifact), Pages enabled with the Actions source.
+Verified: workflow run green, `https://mks-01.github.io/readback/` live —
+page + css + all media return 200, headless-Chrome render matches local, no
+viewport overflow.
 
 ### Context
 
