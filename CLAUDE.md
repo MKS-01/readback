@@ -282,10 +282,11 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v1.1.0** — CLI model switch: `/model` lists local Ollama models
-with a RAM-fit verdict (green/yellow/red) + summary recommendation via the new
-`GET /api/models`, and switches the summary LLM per-read (new `model` field on
-the `read` WS message; `readback/llm/models.py`). (v1.0.0: terminal CLI lands
-as a second `/ws` client. v0.8.0: offline article reader pivot; CSM-1B via
-csm-mlx; renamed `local-tts` → `readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
-and `cli/package.json`. Bump both when releasing.
+Current: **v2.0.0** — CLI-only pivot: web frontend removed, package restructured
+(`reader/` → `pipeline/`, `web/` → `server/`), `cryptography` dep dropped,
+TLS flags removed. Breaking change: browser UI gone, `--auto-cert`/`--cert`/`--key`
+removed, `readback.reader.*` / `readback.web.*` imports gone.
+(v1.1.0: CLI model switch `/model` with RAM-fit verdicts. v1.0.0: terminal CLI
+as a `/ws` client. v0.8.0: offline article reader pivot; CSM-1B via csm-mlx;
+renamed `local-tts` → `readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
+and `cli/package.json`. Bump all three when releasing.
