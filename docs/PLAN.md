@@ -6,6 +6,76 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-13 — Landing page on GitHub Pages
+
+**Status: in progress** — branch `landing-page`. Static one-page site + the repo's
+first GitHub Action; zero changes to `src/`.
+
+### Context
+
+readback is open source but has no web presence beyond the GitHub README. A
+minimalist landing page gives the project a linkable home — and since the
+product *makes audio*, the page can do what the README can't: play the sample
+read inline. Constraint: the v2.0.0 pivot deliberately removed the web
+frontend, so the site must live outside `src/` as pure static marketing, not a
+client. Hosting: GitHub Pages (free), deployed by GitHub Actions per the
+user's ask.
+
+### Design
+
+1. **`site/` at the repo root** — standalone static site: `index.html` +
+   `style.css`, hand-written, no framework, no build step. Never imports or
+   serves anything from `src/`.
+2. **Look: the product's own aesthetic.** Dark terminal page using the CLI's
+   Ghost palette — `#f0f0f0` primary / `#808080` dim / `#4da3ff` accent
+   (`theme.ts` is the source of truth) — monospace type, the wordmark PNG as
+   the hero. The page should read like the CLI screenshots beside it.
+3. **Sections** (single scroll, in order): hero (wordmark, tagline "Make
+   reading interesting again", one-line pitch, `git clone` CTA + GitHub
+   button) → inline **audio player** with `sample-read.wav` → screenshot
+   (`cli-player.png`) → features grid (100% offline / CSM-1B voice + cloning /
+   Summary mode via local LLM / real terminal player with seek + synced
+   transcript) → how-it-works pipeline (the README's ASCII diagram in a
+   `<pre>`) → quick start (the README's 4-step code block) → open-source
+   footer (MIT, GitHub, issues, "Built on Apple Silicon · MLX").
+4. **Media is not duplicated in git.** `site/` holds only html/css; the deploy
+   workflow copies `docs/media/{wordmark.png, cli-player.png, cli-home.png,
+   sample-read.wav}` into the artifact's `media/` before upload. The page
+   references `media/…` relatively.
+5. **Workflow `.github/workflows/pages.yml`** — on push to `main` (paths:
+   `site/**`, `docs/media/**`, the workflow itself) + `workflow_dispatch`:
+   checkout → assemble `_site` (site/ + media copy) →
+   `actions/upload-pages-artifact` → `actions/deploy-pages`. Standard
+   `pages: write` / `id-token: write` permissions, `github-pages` environment.
+6. **Pages source = GitHub Actions** — one-time repo setting via
+   `gh api repos/MKS-01/readback/pages -X POST -f build_type=workflow`.
+   Site URL: `https://mks-01.github.io/readback/`.
+
+### Files
+
+- `site/index.html` (new): the one-page site.
+- `site/style.css` (new): Ghost-palette styling.
+- `.github/workflows/pages.yml` (new): assemble + deploy to Pages.
+- `docs/PLAN.md` (modified): this entry.
+- `README.md` (modified): link the live site under the badge row.
+
+### Out of scope
+
+- No JS framework, no build tooling, no analytics, no custom domain.
+- No docs site / multi-page — README and `docs/` stay the documentation home.
+- No re-introduction of any web client; the page is static marketing only.
+- No CI beyond the Pages deploy (tests/lint workflows are a separate decision).
+
+### Verification
+
+1. `open site/index.html` locally (with media copied in) — renders correctly,
+   audio plays, links resolve.
+2. Merge to `main` → the `pages.yml` run goes green end-to-end.
+3. `https://mks-01.github.io/readback/` loads: wordmark crisp, sample WAV
+   plays inline, screenshots load, GitHub links work.
+4. Lighthouse-level sanity: page is responsive at phone width; no console
+   errors; total weight dominated only by the media files.
+
 ## 2026-06-12 — Folder restructure: src/ layout + docs/
 
 **Status: done** — branch `depreciate/web` (continues PR #10, same post-web

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>readback — offline article reader for your terminal</title>
+  <meta name="description" content="Paste a URL, get a clean natural-voice reading of the whole article, right in your terminal. 100% on-device on Apple Silicon. No cloud, no API keys.">
+  <meta property="og:title" content="readback — offline article reader for your terminal">
+  <meta property="og:description" content="Paste a URL, get a natural-voice reading of any article. Local LLM + CSM-1B neural TTS, all on-device. Open source, MIT.">
+  <meta property="og:image" content="https://mks-01.github.io/readback/media/cli-player.png">
+  <meta property="og:url" content="https://mks-01.github.io/readback/">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Martian+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<main class="term">
+
+  <!-- ── hero ───────────────────────────────────────────── -->
+  <header class="hero">
+    <p class="prompt-line"><span class="dim">~ $</span> readback-cli<span class="caret"></span></p>
+    <img class="wordmark" src="media/wordmark.png" alt="readback" width="487">
+    <p class="tagline">Make reading interesting again.</p>
+    <p class="pitch">
+      Paste a URL — get a clean, natural-voice reading of the whole article,
+      right in your terminal. Runs entirely on your Mac.
+      <span class="bright">No cloud. No API keys. Nothing leaves your machine.</span>
+    </p>
+    <div class="cta">
+      <a class="btn btn-accent" href="https://github.com/MKS-01/readback">GitHub ↗</a>
+      <a class="btn" href="#quick-start">Quick start</a>
+    </div>
+  </header>
+
+  <!-- ── sample read: the CLI player, on the web ────────── -->
+  <section class="sample" aria-label="Hear a sample read">
+    <h2><span class="dim">##</span> Hear it</h2>
+    <p class="dim small">A real Summary-mode read — local LLM + CSM-1B, in <span class="bright">kay</span>, a custom-tuned clone voice.</p>
+    <div class="player" id="player">
+      <button class="play" id="play-btn" aria-label="Play sample">▶</button>
+      <div class="bar" id="bar" role="progressbar" aria-label="Playback position"><div class="fill" id="fill"></div></div>
+      <span class="time" id="time">0:00</span>
+    </div>
+    <audio id="audio" src="media/sample-read.wav" preload="none"></audio>
+  </section>
+
+  <!-- ── screenshot ─────────────────────────────────────── -->
+  <section class="shot">
+    <img src="media/cli-player.png" alt="readback CLI mid-read: seekable terminal player with live word-by-word transcript highlighting" loading="lazy">
+    <p class="dim small center">Mid-read: seekable player, word-by-word transcript sync.</p>
+  </section>
+
+  <!-- ── features ───────────────────────────────────────── -->
+  <section class="features">
+    <h2><span class="dim">##</span> Features</h2>
+    <ul class="feat-grid">
+      <li>
+        <h3><span class="accent">▮</span> 100% offline</h3>
+        <p>Extraction, summarization, and speech all run on-device — MLX on Apple
+        Silicon. No accounts, nothing phoning home.</p>
+      </li>
+      <li>
+        <h3><span class="accent">▮</span> A voice worth listening to</h3>
+        <p>CSM-1B neural TTS (Sesame). Two built-in reading voices, <span class="bright">clone
+        any voice from a short clip</span>, or LoRA fine-tune for more fidelity.</p>
+      </li>
+      <li>
+        <h3><span class="accent">▮</span> Full or Summary mode</h3>
+        <p>Hear the article verbatim, or let a local LLM (Ollama) rewrite it as a
+        spoken explanation first. Switch models from the CLI with a RAM-fit check.</p>
+      </li>
+      <li>
+        <h3><span class="accent">▮</span> A real terminal player</h3>
+        <p>Pause, seek ±5 s, and a transcript that <span class="bright">highlights word by
+        word</span> in sync with the voice — all in Ink, all in your shell.</p>
+      </li>
+    </ul>
+  </section>
+
+  <!-- ── how it works ───────────────────────────────────── -->
+  <section class="how">
+    <h2><span class="dim">##</span> How it works</h2>
+    <pre class="diagram" aria-label="Architecture: the CLI talks to a local FastAPI server over WebSocket; the server fetches, extracts, optionally summarizes via Ollama, then synthesizes with CSM-1B on MLX/Metal">
+        ┌─────────────────────┐
+        │       CLI           │
+        │     Bun + Ink       │
+        └──────────┬──────────┘
+                   │ WebSocket /ws
+                   ▼
+    ┌──────────────────────────────┐
+    │   readback server (FastAPI)  │
+    │  fetch ▸ extract ▸ [summary] │
+    │   ▸ chunk ▸ TTS ▸ WAV        │
+    └──────┬────────────────┬──────┘
+           ▼                ▼
+  ┌─────────────────┐ ┌─────────────────┐
+  │  Ollama (local) │ │ CSM-1B on MLX / │
+  │  Summary mode   │ │ Metal — offline │
+  └─────────────────┘ └─────────────────┘</pre>
+  </section>
+
+  <!-- ── quick start ────────────────────────────────────── -->
+  <section class="quick" id="quick-start">
+    <h2><span class="dim">##</span> Quick start</h2>
+    <p class="dim small">macOS on Apple Silicon · Python 3.10–3.12 · Bun · Ollama (Summary mode only)</p>
+    <pre class="code"><code><span class="dim"># 1. Ollama for Summary mode (skip for Full mode)</span>
+ollama pull gemma4:26b
+
+<span class="dim"># 2. Install the server</span>
+git clone https://github.com/MKS-01/readback.git &amp;&amp; cd readback
+python3.11 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -e .
+
+<span class="dim"># 3. Build the terminal client → ~/.local/bin</span>
+cd src/cli &amp;&amp; ./install.sh &amp;&amp; cd ..
+
+<span class="dim"># 4. Read something</span>
+readback-cli</code></pre>
+    <p class="small">Paste a URL, watch it synthesize, audio plays in your shell.
+    Full docs in the <a href="https://github.com/MKS-01/readback#quick-start">README</a>.</p>
+  </section>
+
+  <!-- ── footer ─────────────────────────────────────────── -->
+  <footer>
+    <p>
+      <a href="https://github.com/MKS-01/readback">GitHub</a> ·
+      <a href="https://github.com/MKS-01/readback/issues">Issues</a> ·
+      <a href="https://github.com/MKS-01/readback/blob/main/LICENSE">MIT License</a>
+    </p>
+    <p class="dim small">Open source · built on Apple Silicon · MLX / Metal · ideas and PRs welcome</p>
+    <p class="prompt-line small"><span class="dim">~ $</span> <span class="dim">_</span></p>
+  </footer>
+
+</main>
+
+<script>
+  // Custom controls so the sample player looks like the CLI's, not the browser's.
+  const audio = document.getElementById("audio");
+  const btn = document.getElementById("play-btn");
+  const bar = document.getElementById("bar");
+  const fill = document.getElementById("fill");
+  const time = document.getElementById("time");
+
+  const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+  btn.addEventListener("click", () => audio.paused ? audio.play() : audio.pause());
+  audio.addEventListener("play", () => { btn.textContent = "❚❚"; });
+  audio.addEventListener("pause", () => { btn.textContent = "▶"; });
+  audio.addEventListener("ended", () => { btn.textContent = "▶"; fill.style.width = "0%"; });
+  audio.addEventListener("timeupdate", () => {
+    if (audio.duration) fill.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+    time.textContent = fmt(audio.currentTime);
+  });
+  bar.addEventListener("click", e => {
+    if (!audio.duration) return;
+    const r = bar.getBoundingClientRect();
+    audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
+    audio.play();
+  });
+</script>
+
+</body>
+</html>
