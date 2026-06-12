@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "readback"
-version = "1.1.0"
+version = "2.0.0"
 description = "Local offline article reader: URL → article → audio, via CSM-1B TTS + Ollama on Apple Silicon"
 requires-python = ">=3.10,<3.13"
 authors = [{ name = "mks" }]
@@ -26,7 +26,6 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.9",
-    "cryptography>=41.0",            # self-signed TLS for LAN access
 ]
 
 [project.scripts]
@@ -37,4 +36,4 @@ readback = "readback.__main__:main"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["readback"]
+packages = ["src/readback"]
