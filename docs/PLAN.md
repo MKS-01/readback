@@ -18,12 +18,19 @@ page + css + all media return 200, headless-Chrome render matches local, no
 viewport overflow.
 Follow-ups (same day): ASCII flow chart rebuilt as HTML/CSS boxes (box-drawing
 glyphs aren't in the IBM Plex Mono webfont — fallback glyph widths shattered
-it); footer "PRs welcome" line dropped; motion pass (scroll-reveal sections,
-animated flow connectors, breathing feature markers, `prefers-reduced-motion`
-respected); a brief `site/blog/` (3 notes pages) was added then removed the
-same day — direction settled on a strict one-pager, with "The story" (how it
-was built, the voice-assistant pivot) and "Stack" sections folded into the
-page instead; workflow copies all of `site/` into the artifact.
+it); motion pass (scroll-reveal sections, animated flow connectors, breathing
+feature markers, `prefers-reduced-motion` respected); a brief `site/blog/`
+(3 notes pages) was added then removed the same day — direction settled on a
+strict one-pager with "The story" (the voice-assistant pivot) folded in;
+"Stack" then reworked into a six-concept "Architecture" section (gemma kept
+as the example, "any chat model works — we ran gemma & qwen"); all 3 CLI
+screenshots in a slow auto-crossfade (6 s, clickable dots, holds on hover);
+sample player upgraded to a 52-bar waveform (picked from 4 rendered variants —
+click-to-seek, played bars sway while audio runs); blinking block caret
+swapped for an underscore cursor (it read as a broken glyph next to the `$`);
+footer trimmed to GitHub + MIT. Workflow copies all of `site/` + 4 media
+files into the artifact. Repo About now points at the Pages URL and carries
+16 topics (tts/mlx/apple-silicon/ollama/…).
 
 ### Context
 

@@ -49,10 +49,14 @@ readback/
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── .github/workflows/
 │   └── pages.yml              # deploys site/ to GitHub Pages on push to main;
-│                              # copies docs/media/ assets into the artifact
-├── site/                      # static landing page (mks-01.github.io/readback)
-│                              # index.html + style.css only — NOT a web client;
-│                              # site/media/ is gitignored (preview copy of docs/media)
+│                              # copies wordmark + 3 CLI screenshots + sample WAV
+│                              # from docs/media/ into the artifact
+├── site/                      # static landing page (mks-01.github.io/readback —
+│                              # also the repo's About link). index.html +
+│                              # style.css only, vanilla JS inline (waveform
+│                              # player, screenshot crossfade, scroll reveal) —
+│                              # NOT a web client; site/media/ is gitignored
+│                              # (local preview copy of docs/media)
 ├── docs/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide
