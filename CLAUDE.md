@@ -196,8 +196,8 @@ readback/
 
 - **The `/ws` client** — Bun + Ink, same protocol as the server, zero
   Python changes. `ws.ts` and `player.ts` are module singletons outside the
-  React tree (same pattern as the frontend's `lib/ws.ts`). Flags: `--host`
-  (127.0.0.1), `--port` (8000), `--no-spawn`.
+  React tree (so re-renders never tear down the socket/player). Flags:
+  `--host` (127.0.0.1), `--port` (8000), `--no-spawn`.
 - **Auto-spawn lifecycle** (`server.ts`): health-check `GET /api/config`; if no
   server, spawn `readback` (prefers `.venv/bin/readback`, cwd = repo root so
   `config.yaml` resolves), wait up to 60 s; on exit kill it **only if we spawned
@@ -237,8 +237,9 @@ readback/
   runtime `DEV` check the bundler can't eliminate. The binary is named
   `readback-cli` (not `readback`) so the server-lookup fallback
   `Bun.which("readback")` can't spawn the CLI itself.
-- **Prefs** (voice/mode/model) persist to `~/.readback/cli.json`. Theme mirrors
-  the web Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel)
+- **Prefs** (voice/mode/model) persist to `~/.readback/cli.json`. Theme = the
+  Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel —
+  inherited from the deleted web UI)
   plus CLI-only fit colors (#5dd17a green / #e6c35a yellow, `/model` list only)
   and an Xcode-blue accent (#4da3ff: wordmark "BACK", version, caret,
   progress fills, transcript highlight). Banner = half-block wordmark in
@@ -289,9 +290,13 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 Current: **v2.0.0** — CLI-only pivot: web frontend removed, package restructured
 (`reader/` → `pipeline/`, `web/` → `server/`), `cryptography` dep dropped,
-TLS flags removed. Breaking change: browser UI gone, `--auto-cert`/`--cert`/`--key`
-removed, `readback.reader.*` / `readback.web.*` imports gone.
+TLS flags removed, then the folder restructure: `src/` layout (`src/readback`,
+`src/cli`, `src/voice`, `src/finetune`) + docs collected under `docs/`
+(ARCHITECTURE / SETUP / PLAN / media). Breaking change: browser UI gone,
+`--auto-cert`/`--cert`/`--key` removed, `readback.reader.*` / `readback.web.*`
+imports gone.
 (v1.1.0: CLI model switch `/model` with RAM-fit verdicts. v1.0.0: terminal CLI
 as a `/ws` client. v0.8.0: offline article reader pivot; CSM-1B via csm-mlx;
-renamed `local-tts` → `readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
-and `src/cli/package.json`. Bump all three when releasing.
+renamed `local-tts` → `readback`.) Set in `pyproject.toml`,
+`src/readback/__init__.py`, and `src/cli/package.json`. Bump all three when
+releasing.
