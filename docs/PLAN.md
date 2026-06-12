@@ -16,6 +16,13 @@ inline sample-read player), `.github/workflows/pages.yml` (copies media from
 Verified: workflow run green, `https://mks-01.github.io/readback/` live —
 page + css + all media return 200, headless-Chrome render matches local, no
 viewport overflow.
+Follow-ups (same day): ASCII flow chart rebuilt as HTML/CSS boxes (box-drawing
+glyphs aren't in the IBM Plex Mono webfont — fallback glyph widths shattered
+it); footer "PRs welcome" line dropped; `site/blog/` added (3 high-level
+notes: why / how-it-works / voices) with a Notes section on the landing page;
+motion pass (scroll-reveal sections, animated flow connectors, breathing
+feature markers, `prefers-reduced-motion` respected); workflow now copies all
+of `site/` into the artifact.
 
 ### Context
 

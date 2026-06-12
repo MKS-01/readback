@@ -35,7 +35,7 @@
   </header>
 
   <!-- ── sample read: the CLI player, on the web ────────── -->
-  <section class="sample" aria-label="Hear a sample read">
+  <section class="reveal sample" aria-label="Hear a sample read">
     <h2><span class="dim">##</span> Hear it</h2>
     <p class="dim small">A real Summary-mode read — local LLM + CSM-1B, in <span class="bright">kay</span>, a custom-tuned clone voice.</p>
     <div class="player" id="player">
@@ -47,13 +47,13 @@
   </section>
 
   <!-- ── screenshot ─────────────────────────────────────── -->
-  <section class="shot">
+  <section class="reveal shot">
     <img src="media/cli-player.png" alt="readback CLI mid-read: seekable terminal player with live word-by-word transcript highlighting" loading="lazy">
     <p class="dim small center">Mid-read: seekable player, word-by-word transcript sync.</p>
   </section>
 
   <!-- ── features ───────────────────────────────────────── -->
-  <section class="features">
+  <section class="reveal features">
     <h2><span class="dim">##</span> Features</h2>
     <ul class="feat-grid">
       <li>
@@ -80,7 +80,7 @@
   </section>
 
   <!-- ── how it works ───────────────────────────────────── -->
-  <section class="how">
+  <section class="reveal how">
     <h2><span class="dim">##</span> How it works</h2>
     <div class="flow" aria-label="Architecture: the CLI talks to a local FastAPI server over WebSocket; the server fetches, extracts, optionally summarizes via Ollama, then synthesizes with CSM-1B on MLX/Metal">
       <div class="node">
@@ -107,7 +107,7 @@
   </section>
 
   <!-- ── quick start ────────────────────────────────────── -->
-  <section class="quick" id="quick-start">
+  <section class="reveal quick" id="quick-start">
     <h2><span class="dim">##</span> Quick start</h2>
     <p class="dim small">macOS on Apple Silicon · Python 3.10–3.12 · Bun · Ollama (Summary mode only)</p>
     <pre class="code"><code><span class="dim"># 1. Ollama for Summary mode (skip for Full mode)</span>
@@ -125,6 +125,29 @@ cd src/cli &amp;&amp; ./install.sh &amp;&amp; cd ..
 readback-cli</code></pre>
     <p class="small">Paste a URL, watch it synthesize, audio plays in your shell.
     Full docs in the <a href="https://github.com/MKS-01/readback#quick-start">README</a>.</p>
+  </section>
+
+  <!-- ── notes ──────────────────────────────────────────── -->
+  <section class="reveal notes">
+    <h2><span class="dim">##</span> Notes</h2>
+    <p class="dim small">High-level writeups on how readback came to be and how it's put together.</p>
+    <ul class="posts">
+      <li><a href="blog/why-readback.html">
+        <span class="post-date">2026-06</span>
+        <span class="post-title">Why I built readback</span>
+        <span class="post-hook">a decade-old itch</span>
+      </a></li>
+      <li><a href="blog/how-it-works.html">
+        <span class="post-date">2026-06</span>
+        <span class="post-title">How readback works</span>
+        <span class="post-hook">URL → voice, on-device</span>
+      </a></li>
+      <li><a href="blog/voices.html">
+        <span class="post-date">2026-06</span>
+        <span class="post-title">Giving it a voice</span>
+        <span class="post-hook">cloning &amp; tuning CSM-1B</span>
+      </a></li>
+    </ul>
   </section>
 
   <!-- ── footer ─────────────────────────────────────────── -->
@@ -164,6 +187,12 @@ readback-cli</code></pre>
     audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
     audio.play();
   });
+
+  // Scroll reveal: fade sections up as they enter the viewport.
+  const io = new IntersectionObserver(entries => {
+    for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach(el => io.observe(el));
 </script>
 
 </body>

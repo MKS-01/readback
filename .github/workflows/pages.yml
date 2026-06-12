@@ -29,8 +29,9 @@ jobs:
 
       - name: Assemble site
         run: |
+          mkdir -p _site
+          cp -R site/. _site/
           mkdir -p _site/media
-          cp site/index.html site/style.css _site/
           cp docs/media/wordmark.png \
              docs/media/cli-player.png \
              docs/media/sample-read.wav \

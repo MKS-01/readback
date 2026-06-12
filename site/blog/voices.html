@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Giving it a voice — cloning &amp; tuning CSM-1B</title>
+  <meta name="description" content="How readback gets its voice: CSM-1B reference-clip conditioning, what makes a clone work or garble, and the LoRA fine-tune path.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Martian+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<main class="term post">
+  <p class="post-back"><a href="../index.html">← readback</a></p>
+  <h1>Giving it a voice</h1>
+  <p class="meta">June 2026 · notes/03</p>
+
+  <p>The voice is the product. A reader you'll actually listen to for twenty
+  minutes lives or dies on whether the voice sounds like a person or a
+  navigation system. readback uses <strong>CSM-1B</strong>, Sesame's
+  conversational speech model, and the interesting part is <em>how</em> it
+  decides what to sound like.</p>
+
+  <h2><span class="dim">##</span> Voices are reference clips</h2>
+
+  <p>CSM doesn't have a fixed voice. It conditions on a short reference clip —
+  the audio plus its exact transcript — and reproduces that clip's timbre,
+  age, and accent in everything it says next. readback ships two built-in
+  reading voices, but the fun is in the third option: drop a clean 5–8 second
+  clip of any voice into the config, and that's your reader.</p>
+
+  <pre><code>tts:
+  csm:
+    speaker: "kay"
+    temperature: 0.6        <span class="dim"># delivery: lower = composed, higher = livelier</span>
+    voices:
+      - name: "kay"
+        wav: "src/voice/voice_kay_long.wav"
+        ref_text: "Exact transcript of the clip."</code></pre>
+
+  <h2><span class="dim">##</span> What actually matters</h2>
+
+  <ul>
+    <li><strong>The transcript must match the audio, exactly.</strong> A
+    mismatched (audio, text) pair is the number-one cause of a garbled clone —
+    the model learns the wrong mapping for the voice.</li>
+    <li><strong>Clip length buys stability.</strong> Below ~5 seconds of
+    reference, the clone destabilizes at low temperature — it rambles and
+    repeats. The sample voice that ships with readback was bootstrapped from a
+    3-second clip into an 11-second one for exactly this reason.</li>
+    <li><strong>Temperature tunes delivery, not identity.</strong> Lower reads
+    composed and measured; higher reads livelier. Who it sounds like comes
+    from the clip.</li>
+  </ul>
+
+  <h2><span class="dim">##</span> When a clip isn't enough</h2>
+
+  <p>Clone-conditioning gets you remarkably far for one clip and zero
+  training. For higher fidelity there's a LoRA fine-tune pipeline in the
+  repo: transcribe a longer set of clips, convert them to the training format,
+  and train a small adapter that's loaded over the base weights. The pipeline
+  is tuned to run on a consumer Mac (batch size 1, gradient accumulation,
+  checkpointing) — the same machine that does the reading can train its own
+  voice.</p>
+
+  <p>Hear the result on the <a href="../index.html">landing page</a> — the
+  sample read is <strong>kay</strong>, a clone-conditioned voice.</p>
+
+  <footer>
+    <p><a href="../index.html">readback</a> ·
+       <a href="why-readback.html">start over: Why I built readback →</a></p>
+  </footer>
+</main>
+
+</body>
+</html>
