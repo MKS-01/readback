@@ -18,11 +18,12 @@ page + css + all media return 200, headless-Chrome render matches local, no
 viewport overflow.
 Follow-ups (same day): ASCII flow chart rebuilt as HTML/CSS boxes (box-drawing
 glyphs aren't in the IBM Plex Mono webfont — fallback glyph widths shattered
-it); footer "PRs welcome" line dropped; `site/blog/` added (3 high-level
-notes: why / how-it-works / voices) with a Notes section on the landing page;
-motion pass (scroll-reveal sections, animated flow connectors, breathing
-feature markers, `prefers-reduced-motion` respected); workflow now copies all
-of `site/` into the artifact.
+it); footer "PRs welcome" line dropped; motion pass (scroll-reveal sections,
+animated flow connectors, breathing feature markers, `prefers-reduced-motion`
+respected); a brief `site/blog/` (3 notes pages) was added then removed the
+same day — direction settled on a strict one-pager, with "The story" (how it
+was built, the voice-assistant pivot) and "Stack" sections folded into the
+page instead; workflow copies all of `site/` into the artifact.
 
 ### Context
 

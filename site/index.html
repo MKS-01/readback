@@ -127,26 +127,33 @@ readback-cli</code></pre>
     Full docs in the <a href="https://github.com/MKS-01/readback#quick-start">README</a>.</p>
   </section>
 
-  <!-- ── notes ──────────────────────────────────────────── -->
-  <section class="reveal notes">
-    <h2><span class="dim">##</span> Notes</h2>
-    <p class="dim small">High-level writeups on how readback came to be and how it's put together.</p>
-    <ul class="posts">
-      <li><a href="blog/why-readback.html">
-        <span class="post-date">2026-06</span>
-        <span class="post-title">Why I built readback</span>
-        <span class="post-hook">a decade-old itch</span>
-      </a></li>
-      <li><a href="blog/how-it-works.html">
-        <span class="post-date">2026-06</span>
-        <span class="post-title">How readback works</span>
-        <span class="post-hook">URL → voice, on-device</span>
-      </a></li>
-      <li><a href="blog/voices.html">
-        <span class="post-date">2026-06</span>
-        <span class="post-title">Giving it a voice</span>
-        <span class="post-hook">cloning &amp; tuning CSM-1B</span>
-      </a></li>
+  <!-- ── the story ──────────────────────────────────────── -->
+  <section class="reveal story">
+    <h2><span class="dim">##</span> The story</h2>
+    <p>I read a lot, but there's a whole pile of <em>good writing</em> I never
+    get to — some days I'd just rather listen than read another wall of text.
+    I've been tinkering with voice agents since college (2015), back when it
+    was a speech-to-text → text-to-speech loop held together with duct tape.</p>
+    <p>readback actually <span class="bright">started as a real-time voice
+    assistant</span> — mic capture, wake-words, the whole live cascade.
+    Building that taught me the part I really wanted wasn't the conversation;
+    it was the listening. So I cut everything else, and the assistant became
+    a reader: a local LLM for summaries, a neural voice (CSM-1B) for the
+    reading, all on-device, nothing phoning home. It lives in the terminal,
+    where it always felt most at home.</p>
+    <p class="dim">Made to make reading interesting again.</p>
+  </section>
+
+  <!-- ── stack ──────────────────────────────────────────── -->
+  <section class="reveal stack">
+    <h2><span class="dim">##</span> Stack</h2>
+    <ul class="stack-list">
+      <li><span class="stack-k">Extraction</span><span><a href="https://trafilatura.readthedocs.io/">trafilatura</a> — URL → clean article text</span></li>
+      <li><span class="stack-k">Summary</span><span><a href="https://ollama.ai/">Ollama</a> — local LLM, <span class="bright">gemma4:26b</span> default <span class="dim">(Summary mode only)</span></span></li>
+      <li><span class="stack-k">Voice</span><span><a href="https://huggingface.co/senstella/csm-1b-mlx">CSM-1B</a> (Sesame) via <a href="https://github.com/senstella/csm-mlx">csm-mlx</a> — MLX / Metal, 24 kHz</span></li>
+      <li><span class="stack-k">Server</span><span><a href="https://fastapi.tiangolo.com/">FastAPI</a> + WebSocket — streams progress, serves the WAV</span></li>
+      <li><span class="stack-k">Client</span><span>Bun + TypeScript + <a href="https://github.com/vadimdemedes/ink">Ink</a> — the terminal UI</span></li>
+      <li><span class="stack-k">Playback</span><span><span class="bright">afplay</span> — pause, seek, word-synced transcript <span class="dim">(macOS)</span></span></li>
     </ul>
   </section>
 

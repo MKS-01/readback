@@ -329,75 +329,36 @@ footer .prompt-line {
   margin: 26px 0 0;
 }
 
-/* ── notes (blog) list ────────────────────────────────── */
+/* ── the story ────────────────────────────────────────── */
 
-.posts { list-style: none; }
-
-.posts li {
-  border: 1px solid var(--line);
-  border-bottom: none;
+.story {
+  border-left: 2px solid var(--accent);
+  padding-left: 24px;
 }
 
-.posts li:last-child { border-bottom: 1px solid var(--line); }
+.story p { margin-top: 14px; }
+.story h2 { margin-bottom: 2px; }
 
-.posts a {
+/* ── stack ────────────────────────────────────────────── */
+
+.stack-list { list-style: none; border-top: 1px solid var(--line); }
+
+.stack-list li {
   display: flex;
-  align-items: baseline;
-  gap: 18px;
-  padding: 16px 20px;
-  color: var(--text);
-  transition: background 0.15s;
+  gap: 20px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
 }
 
-.posts a:hover { background: var(--panel); text-decoration: none; }
-.posts a:hover .post-title { color: var(--accent); }
-
-.post-date { color: var(--dim); font-size: 13px; flex-shrink: 0; }
-.post-title { transition: color 0.15s; }
-.post-hook { color: var(--dim); font-size: 13px; margin-left: auto; text-align: right; }
-
-/* ── blog post page ───────────────────────────────────── */
-
-.post { max-width: 640px; }
-
-.post-back { font-size: 13px; }
-
-.post h1 {
-  font-family: "Martian Mono", monospace;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.4;
-  margin: 18px 0 6px;
+.stack-k {
+  color: var(--dim);
+  flex: 0 0 96px;
 }
 
-.post .meta { color: var(--dim); font-size: 13px; margin-bottom: 36px; }
-
-.post h2 { margin-top: 44px; }
-
-.post p { margin-top: 18px; }
-
-.post p + p { margin-top: 14px; }
-
-.post pre { margin-top: 18px; }
-
-.post img {
-  width: 100%;
-  height: auto;
-  border: 1px solid var(--line);
-  margin-top: 18px;
+@media (max-width: 600px) {
+  .stack-list li { flex-direction: column; gap: 2px; }
 }
-
-.post p code, .post li code {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  padding: 1px 5px;
-  font-size: 13px;
-}
-
-.post ul { margin: 14px 0 0 22px; }
-.post li { margin-top: 8px; }
-
-.post footer { margin-top: 64px; }
 
 /* ── motion ───────────────────────────────────────────── */
 
