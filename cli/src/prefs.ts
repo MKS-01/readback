@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 export interface Prefs {
   voice: string | null;
   mode: "full" | "summary" | null;
+  model: string | null;
 }
 
 const PREFS_PATH = join(homedir(), ".readback", "cli.json");
@@ -16,12 +17,13 @@ export function loadPrefs(): Prefs {
       return {
         voice: typeof raw.voice === "string" ? raw.voice : null,
         mode: raw.mode === "full" || raw.mode === "summary" ? raw.mode : null,
+        model: typeof raw.model === "string" ? raw.model : null,
       };
     }
   } catch {
     // corrupt prefs file — fall through to defaults
   }
-  return { voice: null, mode: null };
+  return { voice: null, mode: null, model: null };
 }
 
 export function savePrefs(prefs: Prefs): void {

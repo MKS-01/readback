@@ -90,12 +90,20 @@ non-streaming Ollama `chat` (`think=False`, low temperature) with `<think>`
 stripping for GGUF builds that emit inline tags. Full mode skips the LLM
 entirely.
 
+The model is switchable at runtime: `llm/models.py` lists the locally
+installed Ollama models with a RAM-fit verdict and a summary recommendation
+(served as `GET /api/models`), and a `model` field on the `read` WS message
+swaps `cfg.ollama.model` in place — `oneshot()` reads it per call, so no
+reload. The switch is process-wide and not written back to `config.yaml`.
+
 ## 6. Web layer (`readback/web/`)
 
 - **Server** (`server.py`) — FastAPI; serves the Vite `dist/` build (under
   `web/static/dist/`), the generated audio, and `/ws`.
 - **WS protocol** —
-  - client → `read {url, mode, voice?}`, `cancel`
+  - client → `read {url, mode, voice?, model?}`, `cancel` (`model` swaps the
+    summary LLM for this and later reads; validated against installed Ollama
+    models)
   - server → `phase {value}`, `progress {done, total}`,
     `done {title, audio_url, duration_sec, word_count, mode, text?}`, `error {message}`
   - `done.text` carries the spoken summary (Summary mode only) for the
@@ -107,11 +115,11 @@ entirely.
   (phase message + progress + Cancel), the custom `AudioPlayer`, and the summary
   transcript toggle. Single dark "Ghost" theme.
 - **Terminal client** (`cli/`, repo root) — Bun + TypeScript + Ink; a second
-  consumer of the exact same WS protocol (no server changes). It health-checks
-  `/api/config`, auto-spawns `readback` when no server is running (and kills it
-  on exit only if it spawned it), mirrors the Ghost palette, and plays the
-  finished WAV through `afplay`. Same singleton-outside-the-React-tree pattern
-  for its WS client and player.
+  consumer of the exact same WS protocol. It health-checks `/api/config`,
+  fetches `/api/models` for its `/model` picker, auto-spawns `readback` when no
+  server is running (and kills it on exit only if it spawned it), mirrors the
+  Ghost palette, and plays the finished WAV through `afplay`. Same
+  singleton-outside-the-React-tree pattern for its WS client and player.
 
 ## 7. CLI & TLS (`readback/__main__.py`)
 

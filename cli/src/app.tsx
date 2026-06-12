@@ -14,9 +14,12 @@ import { UrlInput } from "./components/UrlInput";
 import { StatusLine } from "./components/StatusLine";
 import { BusyView } from "./components/BusyView";
 import { PlayerView } from "./components/PlayerView";
+import { ModelList, type ModelsResp } from "./components/ModelList";
 
 const HELP = `/voice            list voices
 /voice <id>       switch voice
+/model            list local Ollama models (RAM fit + suggestion)
+/model <name>     switch summary model
 /mode             show mode
 /mode full        read the whole article
 /mode summary     spoken summary (local LLM)
@@ -28,6 +31,7 @@ interface State {
   screen: "input" | "busy" | "player";
   error: string | null;
   notice: string | null;
+  modelList: ModelsResp | null;
   phase: string;
   progress: { done: number; total: number } | null;
   result: DoneMsg | null;
@@ -36,6 +40,7 @@ interface State {
   showTranscript: boolean;
   voice: string;
   mode: "full" | "summary";
+  model: string;
 }
 
 type Action =
@@ -49,12 +54,22 @@ type Action =
   | { type: "toggleTranscript" }
   | { type: "setVoice"; voice: string }
   | { type: "setMode"; mode: "full" | "summary" }
-  | { type: "notice"; text: string | null };
+  | { type: "setModel"; model: string }
+  | { type: "notice"; text: string | null }
+  | { type: "modelList"; resp: ModelsResp };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "submit":
-      return { ...state, screen: "busy", phase: "connecting", progress: null, error: null, notice: null };
+      return {
+        ...state,
+        screen: "busy",
+        phase: "connecting",
+        progress: null,
+        error: null,
+        notice: null,
+        modelList: null,
+      };
     case "phase":
       return { ...state, phase: action.value };
     case "progress":
@@ -69,7 +84,7 @@ function reducer(state: State, action: Action): State {
         player: { state: "playing", elapsed: 0 },
       };
     case "error":
-      return { ...state, screen: "input", error: action.message, notice: null };
+      return { ...state, screen: "input", error: action.message, notice: null, modelList: null };
     case "back":
       return { ...state, screen: "input", error: null };
     case "player":
@@ -80,8 +95,12 @@ function reducer(state: State, action: Action): State {
       return { ...state, voice: action.voice, error: null };
     case "setMode":
       return { ...state, mode: action.mode, error: null };
+    case "setModel":
+      return { ...state, model: action.model, error: null };
     case "notice":
-      return { ...state, notice: action.text, error: null };
+      return { ...state, notice: action.text, error: null, modelList: null };
+    case "modelList":
+      return { ...state, modelList: action.resp, notice: null, error: null };
   }
 }
 
@@ -113,6 +132,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     screen: "input" as const,
     error: null,
     notice: null,
+    modelList: null,
     phase: "connecting",
     progress: null,
     result: null,
@@ -121,9 +141,11 @@ export function App({ handle, prefs, onQuit }: Props) {
     showTranscript: false,
     voice: prefs.voice && voiceIds.includes(prefs.voice) ? prefs.voice : cfg.voice,
     mode: prefs.mode ?? cfg.default_mode,
+    model: prefs.model ?? cfg.model,
   });
 
   const sockRef = useRef<ReadbackSocket | null>(null);
+  const modelsRef = useRef<ModelsResp | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -167,7 +189,40 @@ export function App({ handle, prefs, onQuit }: Props) {
     exit();
   };
 
-  const persist = (voice: string, mode: "full" | "summary") => savePrefs({ voice, mode });
+  const persist = (voice: string, mode: "full" | "summary", model: string) =>
+    savePrefs({ voice, mode, model });
+
+  const fetchModels = async (): Promise<ModelsResp> => {
+    const res = await fetch(handle.base + "/api/models");
+    if (!res.ok) throw new Error(`model list failed (${res.status})`);
+    const resp = (await res.json()) as ModelsResp;
+    if (resp.error) throw new Error(resp.error);
+    modelsRef.current = resp;
+    return resp;
+  };
+
+  const handleModelCommand = (arg: string | undefined) => {
+    if (!arg) {
+      fetchModels()
+        .then((resp) => dispatch({ type: "modelList", resp }))
+        .catch((err) => dispatch({ type: "error", message: String(err.message ?? err) }));
+      return;
+    }
+    const cached = modelsRef.current
+      ? Promise.resolve(modelsRef.current)
+      : fetchModels();
+    cached
+      .then((resp) => {
+        if (!resp.models.some((m) => m.name === arg)) {
+          dispatch({ type: "error", message: `unknown model "${arg}" — /model to list` });
+          return;
+        }
+        dispatch({ type: "setModel", model: arg });
+        dispatch({ type: "notice", text: `model → ${arg}` });
+        persist(stateRef.current.voice, stateRef.current.mode, arg);
+      })
+      .catch((err) => dispatch({ type: "error", message: String(err.message ?? err) }));
+  };
 
   const handleCommand = (raw: string) => {
     const [cmd, arg] = raw.slice(1).split(/\s+/, 2);
@@ -185,7 +240,7 @@ export function App({ handle, prefs, onQuit }: Props) {
         } else if (arg === "full" || arg === "summary") {
           dispatch({ type: "setMode", mode: arg });
           dispatch({ type: "notice", text: `mode → ${arg}` });
-          persist(state.voice, arg);
+          persist(state.voice, arg, state.model);
         } else {
           dispatch({ type: "error", message: `unknown mode "${arg}" — use full or summary` });
         }
@@ -199,10 +254,13 @@ export function App({ handle, prefs, onQuit }: Props) {
         } else if (voiceIds.includes(arg)) {
           dispatch({ type: "setVoice", voice: arg });
           dispatch({ type: "notice", text: `voice → ${arg}` });
-          persist(arg, state.mode);
+          persist(arg, state.mode, state.model);
         } else {
           dispatch({ type: "error", message: `unknown voice "${arg}" — /voice to list` });
         }
+        break;
+      case "model":
+        handleModelCommand(arg);
         break;
       default:
         dispatch({ type: "error", message: `unknown command /${cmd} — /help` });
@@ -222,7 +280,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     }
     player.stop();
     dispatch({ type: "submit" });
-    sockRef.current?.read(value, state.mode, state.voice);
+    sockRef.current?.read(value, state.mode, state.voice, state.model);
   };
 
   const voiceLabel =
@@ -235,6 +293,7 @@ export function App({ handle, prefs, onQuit }: Props) {
       <Box marginTop={1} flexDirection="column">
         {state.screen === "input" && (
           <>
+            {state.modelList && <ModelList resp={state.modelList} active={state.model} />}
             {state.notice && (
               <Box paddingX={1} marginBottom={1}>
                 <Text color={DIM}>{state.notice}</Text>
@@ -248,7 +307,7 @@ export function App({ handle, prefs, onQuit }: Props) {
             <UrlInput onSubmit={handleSubmit} />
             <Box marginTop={1}>
               <StatusLine
-                model={cfg.model}
+                model={state.model}
                 origin={handle.origin}
                 voiceLabel={voiceLabel}
                 mode={state.mode}

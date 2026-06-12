@@ -1,4 +1,4 @@
-# readback — offline article reader (v1.0.0).
+# readback — offline article reader (v1.1.0).
 # Paste a URL → fetch + extract the article → (optional LLM summary) → CSM-1B TTS
 # → audio you play in-browser, in the terminal CLI, or download. All on-device.
 
@@ -19,7 +19,7 @@ tts:
     # fp32 = max quality (offline, RTF ~1.4 is fine); "bf16" is the fast option.
     precision: "fp32"
     # Lower = steadier/more composed; higher = livelier. 0.6 reads measured (good
-    # for a lecture feel); the short k.wav ref gets unstable below ~0.55.
+    # for a lecture feel); short (<5 s) reference clips get unstable below ~0.55.
     temperature: 0.6
     # Clone-condition voices: each clip's timbre + tone is reproduced in the read.
     # `wav` is relative to this file; `ref_text` MUST be the clip's exact transcript.

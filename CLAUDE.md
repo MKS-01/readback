@@ -38,11 +38,10 @@ gotchas, and exact knobs.
 - **Server**: FastAPI + WebSocket, single `/ws` endpoint.
 - **Frontend**: React 18 + TypeScript + Vite + zustand; three.js point-cloud orb;
   custom audio player; dark "Ghost" theme. Built into
-  `readback/web/static/dist/`; the server serves dist when present, else the
-  legacy `static/index.html` bundle.
+  `readback/web/static/dist/` — the only web client (no legacy fallback);
+  build it before running the server.
 - **Terminal CLI**: Bun + TypeScript + Ink (React for CLIs) in `cli/` — a second
-  client of the same `/ws` protocol; `afplay` playback,
-  macOS-only. Zero Python changes.
+  client of the same `/ws` protocol; `afplay` playback, macOS-only.
 
 ## Project Structure
 
@@ -60,17 +59,18 @@ readback/
 │                              # switch), theme.ts (Ghost + BLUE accent),
 │                              # server.ts (spawn), ws.ts, player.ts (afplay + seek),
 │                              # prefs.ts, components/{Header,UrlInput,StatusLine,
-│                              # BusyView,PlayerView}.tsx
+│                              # BusyView,PlayerView,ModelList}.tsx
 ├── voice/                     # reference clips for clone voices; *.wav gitignored
 │                              # (exceptions: committed voice_kay_default.wav +
 │                              # voice_kay_long.wav, the active kay reference)
-├── scripts/make_clone_voice.sh  # ffmpeg re-encode ANY audio → mono/24k/16-bit wav
 │
 └── readback/
     ├── __main__.py            # `readback` CLI: argparse, --auto-cert/--cert/--key, uvicorn boot
     ├── config.py              # Pydantic config: OllamaConfig / CsmTTSConfig (+ CsmVoicePrompt)
     │                          # / ReaderConfig; load() resolves clone wav + lora paths
-    ├── llm/client.py          # LLMClient.oneshot() for summary + the <think> stripper
+    ├── llm/
+    │   ├── client.py          # LLMClient.oneshot() for summary + the <think> stripper
+    │   └── models.py          # Ollama model listing + RAM-fit verdict (GET /api/models)
     ├── reader/
     │   ├── extract.py         # fetch_article: trafilatura + UA fallback; TTS-prep scrub
     │   ├── summarize.py       # summarize_article: LLM oneshot → spoken explanation
@@ -191,6 +191,12 @@ readback/
 - `_ThinkStripper` removes `<think>…</think>` across chunk boundaries. The
   streaming/tool-calling methods and the `tools/` module were removed in the
   v0.8.0 cleanup.
+- `llm/models.py` (`GET /api/models` + the `read` message's `model` field):
+  lists installed Ollama models with a RAM-fit verdict (need ≈ size×1.2+1 GiB;
+  good ≤50% / tight ≤75% of total RAM via `sysctl hw.memsize`) and recommends
+  the largest good-fit chat model. A per-read `model` mutates
+  `cfg.ollama.model` in place (process-wide, like `swap_voice`; **not** written
+  back to `config.yaml`) — `oneshot()` picks it up per call, no reload.
 
 ### Frontend (`web/frontend/`)
 
@@ -221,7 +227,9 @@ readback/
   the spawned server.
 - **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
   (`input` | `busy` | `player`), so key handlers only land on the active screen.
-  Slash commands: `/voice`, `/mode`, `/help`, `/quit`; esc cancels a read.
+  Slash commands: `/voice`, `/mode`, `/model` (lists local Ollama models via
+  `GET /api/models` with a RAM-fit verdict + summary recommendation, switches
+  the summary LLM per-read), `/help`, `/quit`; esc cancels a read.
 - **Playback = `afplay`** (macOS-only): pause/resume via **SIGSTOP/SIGCONT**;
   always SIGCONT before SIGTERM (a SIGSTOPped process can't handle SIGTERM).
   Caveats: pause flushes ~0.5 s of buffer, elapsed time is wall-clock-tracked.
@@ -250,9 +258,10 @@ readback/
   runtime `DEV` check the bundler can't eliminate. The binary is named
   `readback-cli` (not `readback`) so the server-lookup fallback
   `Bun.which("readback")` can't spawn the CLI itself.
-- **Prefs** (voice/mode) persist to `~/.readback/cli.json`. Theme mirrors the
-  web Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel)
-  plus a CLI-only Xcode-blue accent (#4da3ff: wordmark "BACK", version, caret,
+- **Prefs** (voice/mode/model) persist to `~/.readback/cli.json`. Theme mirrors
+  the web Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel)
+  plus CLI-only fit colors (#5dd17a green / #e6c35a yellow, `/model` list only)
+  and an Xcode-blue accent (#4da3ff: wordmark "BACK", version, caret,
   progress fills, transcript highlight). Banner = half-block wordmark in
   `Header.tsx`; tagline + hints render on the input screen only.
 
@@ -272,7 +281,7 @@ readback/
   untagged reasoning; the default `gemma4:26b` (and the lighter
   `nemotron-3-nano:4b` fallback) are clean.
 
-## Remaining cleanup candidates (see TODO.md)
+## Remaining cleanup candidates (tracked in README.md → Roadmap)
 
 - Generated WAVs in `~/.readback/reader/` grow unbounded (no rotation yet).
 
@@ -300,10 +309,11 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v1.0.0** — first stable release: the terminal CLI (`cli/`, Bun +
-Ink) lands as a second client of `/ws`, docs restructured around the
-two-client architecture. (v0.8.0: offline article reader pivot; CSM-1B via
-csm-mlx; clone-condition voices + LoRA fine-tune scaffold; renamed
-`local-tts` → `readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
+Current: **v1.1.0** — CLI model switch: `/model` lists local Ollama models
+with a RAM-fit verdict (green/yellow/red) + summary recommendation via the new
+`GET /api/models`, and switches the summary LLM per-read (new `model` field on
+the `read` WS message; `readback/llm/models.py`). (v1.0.0: terminal CLI lands
+as a second `/ws` client. v0.8.0: offline article reader pivot; CSM-1B via
+csm-mlx; renamed `local-tts` → `readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
 `web/frontend/package.json`, and `cli/package.json`. Bump all four when
 releasing.

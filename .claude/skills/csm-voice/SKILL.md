@@ -24,8 +24,10 @@ skill whenever the user wants to change *who* the reader sounds like.
 
 ## A. Clone-condition a voice from a clip (default path)
 
-1. Put the clip in `voice/` (mono 24 kHz wav; `scripts/make_clone_voice.sh`
-   re-encodes anything). `voice/*.wav` is gitignored.
+1. Put the clip in `voice/` as mono 24 kHz 16-bit wav — re-encode anything with
+   `ffmpeg -i <in> -ac 1 -ar 24000 -sample_fmt s16 voice/<name>.wav`
+   (renaming an .m4a to .wav does NOT work; the bytes stay AAC).
+   `voice/*.wav` is gitignored.
 2. Get the **exact transcript** (CSM conditions on the audio+text pair; a
    mismatch garbles the voice). ASR was removed from the app, so transcribe
    one-off with mlx-whisper, then **uninstall it** (not a project dep):
@@ -44,9 +46,9 @@ skill whenever the user wants to change *who* the reader sounds like.
        voices:
          - name: "kay"
            label: "Kay ★"
-           wav: "voice/k.wav"   # relative to config.yaml
+           wav: "voice/voice_kay_long.wav"   # relative to config.yaml
            speaker: 0
-           ref_text: "Hi there, I'm Kay, your personal voice assistant. How can I help you today?"
+           ref_text: "Exact transcript of the clip — MUST match the audio."
    ```
    This is plumbed end-to-end: `CsmVoicePrompt` (`config.py`) →
    `voices_for` / `_config_voice` / `_ref_for` (`csm_engine.py`) →

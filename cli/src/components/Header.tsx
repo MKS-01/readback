@@ -38,7 +38,8 @@ export function Header({ intro }: Props) {
           <Box marginTop={1}>
             <Text color={DIM}>
               paste a URL · <Text color={BLUE}>/voice</Text> ·{" "}
-              <Text color={BLUE}>/mode</Text> · <Text color={BLUE}>/help</Text>
+              <Text color={BLUE}>/model</Text> · <Text color={BLUE}>/mode</Text> ·{" "}
+              <Text color={BLUE}>/help</Text>
             </Text>
           </Box>
         </Box>
