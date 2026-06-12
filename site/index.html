@@ -46,10 +46,19 @@
     <audio id="audio" src="media/sample-read.wav" preload="none"></audio>
   </section>
 
-  <!-- ── screenshot ─────────────────────────────────────── -->
-  <section class="reveal shot">
-    <img src="media/cli-player.png" alt="readback CLI mid-read: seekable terminal player with live word-by-word transcript highlighting" loading="lazy">
-    <p class="dim small center">Mid-read: seekable player, word-by-word transcript sync.</p>
+  <!-- ── screenshots (auto-crossfade) ───────────────────── -->
+  <section class="reveal shot" id="shots">
+    <div class="slides">
+      <img class="slide on" src="media/cli-player.png" alt="readback CLI mid-read: seekable terminal player with live word-by-word transcript highlighting" data-caption="Mid-read: seekable player, word-by-word transcript sync.">
+      <img class="slide" src="media/cli-home.png" alt="readback CLI home screen: paste a URL, slash commands for voice, mode, and model" loading="lazy" data-caption="Home: paste a URL — /voice, /mode, /model do the rest.">
+      <img class="slide" src="media/cli-model.png" alt="readback CLI /model list: local Ollama models with RAM-fit verdicts and a recommendation" loading="lazy" data-caption="/model — every local Ollama model, sized against your RAM.">
+    </div>
+    <p class="dim small center" id="shot-caption">Mid-read: seekable player, word-by-word transcript sync.</p>
+    <div class="dots" role="tablist" aria-label="Screenshots">
+      <button class="dot on" aria-label="Screenshot 1"></button>
+      <button class="dot" aria-label="Screenshot 2"></button>
+      <button class="dot" aria-label="Screenshot 3"></button>
+    </div>
   </section>
 
   <!-- ── features ───────────────────────────────────────── -->
@@ -194,6 +203,30 @@ readback-cli</code></pre>
     audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
     audio.play();
   });
+
+  // Screenshot crossfade: slow auto-rotate, click a dot to jump, hover to hold.
+  const slides = [...document.querySelectorAll(".slide")];
+  const dots = [...document.querySelectorAll(".dot")];
+  const caption = document.getElementById("shot-caption");
+  const shots = document.getElementById("shots");
+  let cur = 0, timer = null;
+
+  function show(i) {
+    cur = i;
+    slides.forEach((s, n) => s.classList.toggle("on", n === i));
+    dots.forEach((d, n) => d.classList.toggle("on", n === i));
+    caption.textContent = slides[i].dataset.caption;
+  }
+
+  function start() {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    timer = setInterval(() => show((cur + 1) % slides.length), 6000);
+  }
+
+  dots.forEach((d, i) => d.addEventListener("click", () => { show(i); clearInterval(timer); start(); }));
+  shots.addEventListener("mouseenter", () => clearInterval(timer));
+  shots.addEventListener("mouseleave", start);
+  start();
 
   // Scroll reveal: fade sections up as they enter the viewport.
   const io = new IntersectionObserver(entries => {
