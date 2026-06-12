@@ -47,6 +47,12 @@ readback/
 ├── pyproject.toml             # v2.0.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
 ├── README.md                  # user-facing (GitHub landing; stays at root)
+├── .github/workflows/
+│   └── pages.yml              # deploys site/ to GitHub Pages on push to main;
+│                              # copies docs/media/ assets into the artifact
+├── site/                      # static landing page (mks-01.github.io/readback)
+│                              # index.html + style.css only — NOT a web client;
+│                              # site/media/ is gitignored (preview copy of docs/media)
 ├── docs/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide
