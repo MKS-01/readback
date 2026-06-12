@@ -26,6 +26,7 @@
   <a href="#how-it-works">How it works</a> ·
   <a href="#voices">Voices</a> ·
   <a href="#configuration">Config</a> ·
+  <a href="#documentation">Docs</a> ·
   <a href="#roadmap">Roadmap</a>
 </p>
 
@@ -48,9 +49,8 @@ days I'd just rather listen than read another wall of text, so I built readback
 to do exactly that. I've been tinkering with voice agents since college (2015), back when it
 was a basic speech-to-text → text-to-speech loop held together with duct tape;
 readback is that same itch leveled up — a local LLM and a neural voice (CSM-1B),
-all on-device, no accounts, nothing phoning home. It started life in the
-terminal, so that's where it feels most at home, but the browser UI is right
-there too. Either way: made to make reading interesting again.
+all on-device, no accounts, nothing phoning home. It lives in the terminal,
+where it always felt most at home. Made to make reading interesting again.
 
 ---
 
@@ -218,6 +218,20 @@ Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
 ---
 
+## Documentation
+
+Everything beyond this README lives in [`docs/`](docs/):
+
+| Doc | What's inside |
+|---|---|
+| [`docs/SETUP.md`](docs/SETUP.md) | End-to-end setup, flags, verification, troubleshooting |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System view — pipeline, concurrency model, WS protocol, extension points |
+| [`docs/PLAN.md`](docs/PLAN.md) | Planning history — every feature/refactor plan with status, newest first |
+| [`src/cli/README.md`](src/cli/README.md) | Terminal client — keys, slash commands, player internals |
+| [`src/finetune/README.md`](src/finetune/README.md) | LoRA voice fine-tune pipeline (data prep → training → config) |
+
+---
+
 ## Roadmap
 
 - [x] **Model switch (CLI)** — `/model` picks the summary LLM at runtime, with a RAM-fit check (v1.1.0)
@@ -236,7 +250,6 @@ Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
 - [ ] Extracted-article preview (title + word count + est. listen time) before synthesizing — both clients currently show only the phase until `done`
 - [ ] Progress: % + estimated time remaining (both clients already show a per-chunk bar; the CLI shows done/total)
-- [ ] Wire the orb to playback via an AnalyserNode on the `<audio>` element (web; currently phase-driven only)
 - [ ] Download filename = sanitized article title (the WAV is served/saved as a uuid)
 - [ ] History of recent reads, backed by the saved WAVs
 - [ ] Nicer error states (paywalled / JS-only / fetch-blocked pages)

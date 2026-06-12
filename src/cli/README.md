@@ -1,7 +1,7 @@
 # readback CLI
 
 A terminal client for readback — Bun + TypeScript + [Ink](https://github.com/vadimdemedes/ink).
-It speaks the same `/ws` protocol as the web app: paste a URL, watch the
+It is the sole client of the readback server's `/ws` protocol: paste a URL, watch the
 phases, and the finished WAV plays right in your terminal via `afplay`.
 macOS only. *Built with [Claude Code](https://claude.com/claude-code).*
 
@@ -9,7 +9,7 @@ macOS only. *Built with [Claude Code](https://claude.com/claude-code).*
   <img src="../../docs/media/cli-home.png" alt="readback CLI — home screen" width="820">
 </p>
 
-The look: a two-tone block wordmark (`READ` white / `BACK` blue), the web app's
+The look: a two-tone block wordmark (`READ` white / `BACK` blue), a
 dark Ghost palette plus an Xcode-blue accent, and three screens — URL input,
 progress, player — switched in place.
 
