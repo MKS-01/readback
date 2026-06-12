@@ -25,7 +25,7 @@ def main():
 
     import uvicorn
     from readback.config import Config
-    from readback.web.server import create_app
+    from readback.server.server import create_app
 
     cfg = Config.load(args.config_path)
     if args.model:

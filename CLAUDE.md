@@ -10,7 +10,7 @@ All on-device on Apple Silicon. No cloud, no API keys.
 entire live cascade — Parakeet STT, Smart-Turn, webrtcvad, mic capture, echo
 gate, wake-word, personas, tools, Obsidian export — was removed. If you see those
 referenced anywhere, it's stale: the current package is just
-`llm/ reader/ tts/ web/` (web/ = server only, no frontend), and the reader server wires none of the
+`llm/ pipeline/ tts/ server/`, and the server wires none of the
 tools/persona/obsidian machinery (the `tools/` module and the streaming/
 tool-calling LLM plumbing were removed in the v0.8.0 cleanup).
 
@@ -68,7 +68,7 @@ readback/
     ├── llm/
     │   ├── client.py          # LLMClient.oneshot() for summary + the <think> stripper
     │   └── models.py          # Ollama model listing + RAM-fit verdict (GET /api/models)
-    ├── reader/
+    ├── pipeline/
     │   ├── extract.py         # fetch_article: trafilatura + UA fallback; TTS-prep scrub
     │   ├── summarize.py       # summarize_article: LLM oneshot → spoken explanation
     │   └── speak.py           # chunk_text + synthesize_article + _tidy_silence + write_wav
@@ -76,20 +76,13 @@ readback/
     │   ├── csm_engine.py      # CsmEngine (csm-mlx); single-thread MLX executor; _ref_for
     │   │                      # (built-in prompt / clone clip / empty-for-LoRA); voices_for
     │   └── synthesizer.py     # Synthesizer facade over CsmEngine
-    └── web/
-        ├── server.py          # FastAPI app, /ws, read-job task + cancel, /audio serving
-        ├── static/dist/       # Vite build output (the only client)
-        └── frontend/          # React app (vite build target = ../static/dist)
-            └── src/
-                ├── App.tsx, main.tsx
-                ├── components/  # AudioPlayer, OrbContainer, Picker, icons
-                ├── lib/         # ws.ts, brain.ts (three.js), prefs.ts
-                └── state/       # zustand store
+    └── server/
+        └── server.py          # FastAPI app, /ws, read-job task + cancel, /audio serving
 ```
 
 ## Critical Implementation Notes
 
-### Server pipeline (`web/server.py`)
+### Server pipeline (`server/server.py`)
 
 - **Read jobs run as background tasks.** The `/ws` loop launches `_run_read_job`
   via `asyncio.create_task` and keeps receiving, so a `cancel` is handled
@@ -106,7 +99,7 @@ readback/
   `ReaderModels.ensure_loaded` (downloads the CSM checkpoint the first time).
 - No browser UI — `GET /` returns 404. The server is a pure WS/API backend.
 
-### Reader pipeline (`reader/`)
+### Pipeline (`pipeline/`)
 
 - **Extract** (`extract.py`): trafilatura first, browser-UA urllib fallback on
   empty/403. `_clean_for_tts` strips `https?://…`, `[12]` citation markers, and
@@ -194,24 +187,9 @@ readback/
   `cfg.ollama.model` in place (process-wide, like `swap_voice`; **not** written
   back to `config.yaml`) — `oneshot()` picks it up per call, no reload.
 
-### Frontend (`web/frontend/`)
-
-- Single `App.tsx` orchestrator. The three.js orb (`brain.ts`) and WS client
-  (`ws.ts`) are singletons **outside** the React tree pushing into the zustand
-  store, so re-renders never tear down the socket.
-- **Custom `AudioPlayer`** — hidden `<audio>` drives a themed UI (circular
-  play/pause, seek `<input range>`, tabular times); play/pause flips the orb phase.
-- **Busy state** — while a read runs, input/controls collapse and a hero-orb view
-  shows the phase message + progress bar (indeterminate until per-chunk progress
-  arrives) + **Cancel**.
-- **Summary transcript** — `Show transcript` toggle + `Copy` (from `done.text`),
-  Summary mode only.
-- Single dark **Ghost** theme. Prefs key `localStorage["readback.prefs.v12"]`
-  (theme, voice, mode).
-
 ### CLI (`cli/`)
 
-- **A second `/ws` client** — Bun + Ink, same protocol as the web frontend, zero
+- **The `/ws` client** — Bun + Ink, same protocol as the server, zero
   Python changes. `ws.ts` and `player.ts` are module singletons outside the
   React tree (same pattern as the frontend's `lib/ws.ts`). Flags: `--host`
   (127.0.0.1), `--port` (8000), `--no-spawn`.
@@ -310,5 +288,4 @@ with a RAM-fit verdict (green/yellow/red) + summary recommendation via the new
 the `read` WS message; `readback/llm/models.py`). (v1.0.0: terminal CLI lands
 as a second `/ws` client. v0.8.0: offline article reader pivot; CSM-1B via
 csm-mlx; renamed `local-tts` → `readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
-`web/frontend/package.json`, and `cli/package.json`. Bump all four when
-releasing.
+and `cli/package.json`. Bump both when releasing.

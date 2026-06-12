@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import logging
 
-from readback.reader.extract import Article
+from readback.pipeline.extract import Article
 
-log = logging.getLogger("readback.reader")
+log = logging.getLogger("readback.pipeline")
 
 _SUMMARY_SYSTEM = (
     "You turn written articles into a clear spoken explanation for a listener. "

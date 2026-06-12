@@ -10,7 +10,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-log = logging.getLogger("readback.reader")
+log = logging.getLogger("readback.pipeline")
 
 
 class ExtractError(Exception):

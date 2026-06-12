@@ -34,9 +34,9 @@ from fastapi.staticfiles import StaticFiles
 from readback.config import Config
 from readback.llm.client import LLMClient
 from readback.llm.models import installed_model_names, list_models
-from readback.reader import ExtractError, fetch_article
-from readback.reader.speak import synthesize_article, write_wav
-from readback.reader.summarize import summarize_article
+from readback.pipeline import ExtractError, fetch_article
+from readback.pipeline.speak import synthesize_article, write_wav
+from readback.pipeline.summarize import summarize_article
 from readback.tts.csm_engine import voices_for
 from readback.tts.synthesizer import Synthesizer
 

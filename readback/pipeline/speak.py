@@ -11,7 +11,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
-log = logging.getLogger("readback.reader")
+log = logging.getLogger("readback.pipeline")
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 # Cap chars per TTS call so a single generate() stays well under CSM's token
