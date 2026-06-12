@@ -56,3 +56,6 @@ src/finetune/dataset.json
 
 # --- Vendored ---
 vendor/csm/
+
+# --- Landing page (media is copied in by the Pages workflow / locally for preview) ---
+site/media/
