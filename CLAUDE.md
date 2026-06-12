@@ -51,7 +51,9 @@ readback/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide
 │   ├── PLAN.md                # planning history (newest entry on top)
-│   └── media/                 # README screenshots + sample WAV
+│   └── media/                 # README screenshots + sample WAV + wordmark.png
+│                              # (brand banner; regen: make_wordmark.py — keep in
+│                              # sync with the CLI banner in Header.tsx)
 │
 └── src/
     ├── finetune/              # LoRA fine-tune pipeline (README + transcribe.py + data/)

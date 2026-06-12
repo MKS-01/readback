@@ -1,4 +1,6 @@
-<h1 align="center">📖 readback</h1>
+<p align="center">
+  <img src="docs/media/wordmark.png" alt="readback" width="487">
+</p>
 
 <p align="center">
   <strong>Make reading interesting again.</strong><br>
