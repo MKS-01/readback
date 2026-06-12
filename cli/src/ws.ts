@@ -63,8 +63,14 @@ export class ReadbackSocket {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
   }
 
-  read(url: string, mode: "full" | "summary", voice: string | null): void {
-    this.send({ type: "read", url, mode, ...(voice ? { voice } : {}) });
+  read(url: string, mode: "full" | "summary", voice: string | null, model: string | null): void {
+    this.send({
+      type: "read",
+      url,
+      mode,
+      ...(voice ? { voice } : {}),
+      ...(model ? { model } : {}),
+    });
   }
 
   cancel(): void {

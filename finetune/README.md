@@ -15,7 +15,8 @@ that's trivial to keep, swap, or revert.
 
 One subfolder per **conversation**; one `speakerN` per voice. Each clip needs a
 matching `.txt` transcript with the same name. Clips: mono, 24 kHz WAV preferred
-(`scripts/make_clone_voice.sh` re-encodes anything). Keep speaker IDs consistent
+(re-encode anything: `ffmpeg -i <in> -ac 1 -ar 24000 -sample_fmt s16 <out>.wav`).
+Keep speaker IDs consistent
 across folders — here **speaker0 = casual, speaker1 = therapist**.
 
 ```

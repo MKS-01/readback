@@ -66,11 +66,21 @@ esc cancels a running read.
 | Command | What |
 |---|---|
 | `/voice [id]` | Show / set the voice (persisted) |
+| `/model [name]` | List local Ollama models / set the summary LLM (persisted) |
 | `/mode [full\|summary]` | Show / set the read mode (persisted) |
 | `/help` | List commands |
 | `/quit` | Exit |
 
-Prefs (voice/mode) persist to `~/.readback/cli.json`.
+`/model` shows every model installed in Ollama with its size and a RAM-fit
+verdict for this Mac (green fits · yellow tight · red too big), recommends the
+best fit for summaries, and marks the active one with ★. The model is used by
+Summary mode only and switches on the next read — no server restart.
+
+<p align="center">
+  <img src="../media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts" width="820">
+</p>
+
+Prefs (voice/mode/model) persist to `~/.readback/cli.json`.
 
 ### Player
 

@@ -11,7 +11,8 @@ the pivot): we synthesize the entire piece, then play. Progress streams over a
 WebSocket; the finished WAV is served from `cfg.reader.output_dir`.
 
 WS protocol (/ws):
-  client → {"type":"read", "url": str, "mode": "full"|"summary", "voice"?: str}
+  client → {"type":"read", "url": str, "mode": "full"|"summary", "voice"?: str,
+            "model"?: str}   # model: swap the summary LLM (validated vs Ollama)
            {"type":"cancel"}   # abort the in-flight read job (stops synthesis)
   server → {"type":"phase",    "value":"loading"|"fetching"|"summarizing"|"synthesizing"}
            {"type":"progress", "done": int, "total": int}
@@ -34,6 +35,7 @@ from fastapi.staticfiles import StaticFiles
 
 from readback.config import Config
 from readback.llm.client import LLMClient
+from readback.llm.models import installed_model_names, list_models
 from readback.reader import ExtractError, fetch_article
 from readback.reader.speak import synthesize_article, write_wav
 from readback.reader.summarize import summarize_article
@@ -122,6 +124,14 @@ async def _run_read_job(
         return
 
     # 2) Optional LLM summary/explainer.
+    model = (payload.get("model") or "").strip()
+    if model and model != cfg.ollama.model:
+        installed = await asyncio.to_thread(installed_model_names, cfg.ollama)
+        if model in installed:
+            cfg.ollama.model = model   # oneshot() reads cfg.model per call
+            log.info("summary model → %s", model)
+        else:
+            log.warning("ignoring unknown model %r", model)
     if mode == "summary":
         await send({"type": "phase", "value": "summarizing"})
         text = await asyncio.to_thread(
@@ -217,6 +227,10 @@ def create_app(cfg: Optional[Config] = None, cert_path: Optional[Path] = None) -
             "model": cfg.ollama.model,
             "default_mode": cfg.reader.default_mode,
         }
+
+    @app.get("/api/models")
+    async def api_models():
+        return await asyncio.to_thread(list_models, cfg.ollama)
 
     @app.websocket("/ws")
     async def ws_endpoint(websocket: WebSocket):

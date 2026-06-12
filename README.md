@@ -46,7 +46,7 @@
 
 <p align="center">
   <strong>🔊 <a href="media/sample-read.wav">Hear a sample read</a></strong><br>
-  <sub>Sample voice: <strong>kay</strong> — a custom-tuned clone voice on CSM-1B</sub>
+  <sub>A real Summary-mode read (local LLM + CSM-1B) in <strong>kay</strong> — a custom-tuned clone voice</sub>
 </p>
 
 ---
@@ -103,8 +103,14 @@ The CLI auto-starts the `readback` server if one isn't already running, and
 shuts it down on exit if it started it. A real terminal player: space = pause,
 **←/→ = seek ±5 s**, t = transcript in Summary mode — with the spoken summary
 **highlighting word by word in sync with the voice**. Slash commands `/voice`,
-`/mode`, `/help`, `/quit`. Same Ghost look, plus an Xcode-blue accent. macOS
+`/model` (pick the summary LLM from your local Ollama models, with a RAM-fit
+check), `/mode`, `/help`, `/quit`. Same Ghost look, plus an Xcode-blue accent. macOS
 only. Details: [`cli/README.md`](cli/README.md).
+
+<p align="center">
+  <img src="media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts and a recommendation" width="820"><br>
+  <sub><code>/model</code> — every local Ollama model, sized up against your Mac's RAM before you commit.</sub>
+</p>
 
 On the **first read**, the CSM-1B weights (~6 GB) download from Hugging Face (no
 login) and the MLX graph warms up — so the first synthesis is slow; later runs
@@ -205,7 +211,7 @@ the clip's timbre, age, and accent are what you hear.
       voices:
         - name: "kay"
           label: "Kay ★"
-          wav: "voice/k.wav"                          # relative to config.yaml
+          wav: "voice/voice_kay_long.wav"             # relative to config.yaml
           speaker: 0
           ref_text: "Exact transcript of the clip."   # MUST match the audio
   ```
@@ -247,10 +253,34 @@ HTTPS; the startup banner prints the network URL, cert fingerprint, and a
 
 ## Roadmap
 
-- [ ] **Model switch** — change the summary LLM from the clients at runtime (no config edit + restart)
-- [ ] **More voice options** — grow the voice menu beyond the two built-ins + `kay`
+- [x] **Model switch (CLI)** — `/model` picks the summary LLM at runtime, with a RAM-fit check (v1.1.0)
+- [ ] **Model switch (web)** — the same picker in the browser UI
+- [ ] **More voice options** — grow the voice menu beyond the two built-ins + `kay` (incl. A/B-ing the built-in read-speech references and exposing more of them)
 - [ ] **Voice tuning from the CLI** — clone a new voice (clip → transcript → register) from `readback-cli` instead of editing `config.yaml`
 - [ ] **Faster synthesis** — reduce conversion time; ultimately bounded by your Mac's GPU / unified memory, so tune the controllable knobs (precision, chunking, warm-up)
+
+**Audio quality**
+
+- [ ] Loudness-normalize the final WAV to a consistent target (e.g. −1 dBFS) — levels currently vary with voice and chunk
+- [ ] Degenerate-chunk guard — a chunk that synthesizes to all-silence is silently dropped (`_tidy_silence` returns empty → content loss); detect + retry once
+- [x] Temperature / chunk-size tuning — shipped 2026-06-10: `temperature 0.6`, `fp32`, 280-char sentence-aware chunks; the next quality jump is the LoRA fine-tune (deferred, see `finetune/`)
+- [ ] Light crossfade at chunk joins to remove residual seams (chunks are joined with a flat 0.18 s gap)
+
+**UI**
+
+- [ ] Extracted-article preview (title + word count + est. listen time) before synthesizing — both clients currently show only the phase until `done`
+- [ ] Progress: % + estimated time remaining (both clients already show a per-chunk bar; the CLI shows done/total)
+- [ ] Wire the orb to playback via an AnalyserNode on the `<audio>` element (web; currently phase-driven only)
+- [ ] Download filename = sanitized article title (the WAV is served/saved as a uuid)
+- [ ] History of recent reads, backed by the saved WAVs
+- [ ] Nicer error states (paywalled / JS-only / fetch-blocked pages)
+
+**Housekeeping & nice-to-have**
+
+- [ ] Generated-WAV rotation — `~/.readback/reader/` grows unbounded; keep N most-recent / age-out
+- [ ] Cache by (url, mode, voice) so re-reading is instant
+- [ ] Chunked summarization for very long articles (Summary mode truncates to `summary_max_chars`)
+- [ ] Paste raw text (not just a URL) as an input source
 
 Ideas and PRs welcome — open an issue.
 
