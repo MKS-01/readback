@@ -11,9 +11,9 @@ afterwards.
   pull a chat model:
   ```bash
   ollama serve &                     # or launch the desktop app
-  ollama pull nemotron-3-nano:4b     # default; any chat model works
+  ollama pull gemma4:26b             # default; any chat model works
   ```
-- [Node.js](https://nodejs.org/) 18+ (to build the React frontend).
+- [Bun](https://bun.sh) 1.0+ (to build/run the terminal CLI).
 
 No Hugging Face login is required — the CSM weights come from the ungated
 `senstella/csm-1b-mlx` re-host.
@@ -28,24 +28,21 @@ python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e .          # csm-mlx is a git dependency, pulled automatically
 ```
 
-## 3. Build the frontend (one-time)
+## 3. Install the CLI (one-time)
 
 ```bash
-cd readback/web/frontend
-npm install
-npm run build            # writes ../static/dist
-cd ../../..
+cd src/cli && ./install.sh && cd ../..   # → ~/.local/bin/readback-cli
 ```
 
-Re-run `npm run build` after editing anything under `readback/web/frontend/src/`.
-The server serves this build directly — if you skip the build, the page won't load.
+Or run it from source without installing: `cd src/cli && bun install && bun run start`.
+Re-run `./install.sh` after pulling changes (the standalone binary is compiled).
 
 ## 4. Run
 
 ```bash
-readback                 # http://127.0.0.1:8000
-# or, without installing the console script:
-python -m readback
+readback-cli             # auto-spawns the Python server if none is running
+# or start the server alone:
+readback                 # http://127.0.0.1:8000 (WS/API backend only, no UI)
 ```
 
 On the **first read**, CSM-1B downloads (~6 GB) from Hugging Face and the MLX graph
@@ -58,17 +55,18 @@ Useful flags:
 readback --model qwen3                 # override the Ollama model for this run
 readback --port 9000                   # different port
 readback --config /path/to/config.yaml # custom config
-readback --host 0.0.0.0 --auto-cert    # LAN access over HTTPS (phone/tablet)
+readback-cli --host 192.168.1.x --port 8000 --no-spawn   # CLI → remote server
 ```
 
 ## 5. Verify
 
-1. Open `http://127.0.0.1:8000` — the orb breathes, the URL field is ready.
-2. Paste an article URL, leave it on **Full article**, hit **→**.
-3. The orb takes over with *Fetching… → Synthesizing N/M*, then a player appears,
-   audio plays, and **↓ Download audio** works.
-4. Switch to **Summary** (requires Ollama running) and read again — after
-   synthesis, **Show transcript** reveals the spoken summary.
+1. Run `readback-cli` — the home screen renders; with no server running it
+   spawns one (first boot waits on model load).
+2. Paste an article URL in **Full** mode — phases stream (*fetching →
+   synthesizing N/M*), then the player appears and audio plays via `afplay`.
+3. Switch to **Summary** (`/mode`, requires Ollama running) and read again —
+   `t` toggles the word-synced transcript.
+4. `q` exits; a server the CLI spawned dies with it.
 
 Voice-only smoke test from a REPL:
 
@@ -85,7 +83,7 @@ sf.write('/tmp/test.wav', np.asarray(s.synthesize('Hello from readback.'),dtype=
 | Summary mode errors / "error talking to Ollama" | Ollama isn't running or the model isn't pulled. `ollama serve` + `ollama pull <model>`; check `ollama.host` in `config.yaml`. |
 | First synthesis hangs for a while | One-time ~6 GB CSM download + MLX graph warm-up. Subsequent synth is fast. |
 | `ReadTimeout` mid-download | `export HF_HUB_DOWNLOAD_TIMEOUT=120` and re-run; partial files resume. |
-| Page looks unstyled / old | You didn't build the frontend, or built it stale. Re-run `npm run build`. |
+| CLI can't find/spawn the server | Spawn prefers `.venv/bin/readback` at the repo root — make sure `pip install -e .` ran in `.venv`, or start `readback` yourself and use `--no-spawn`. |
 | "no readable article text found" | The page isn't a standard article (paywall, JS-rendered, or login wall). Try a different URL. |
 | Voice sounds garbled on a clone | `ref_text` must exactly match the clip; use a clean 5–8 s reference; raise `tts.csm.temperature` toward 0.6–0.8. See `.claude/skills/csm-voice`. |
 

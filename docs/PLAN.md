@@ -6,6 +6,101 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-12 — Folder restructure: src/ layout + docs/
+
+**Status: done** — branch `depreciate/web` (continues PR #10, same post-web
+cleanup umbrella). Top-level reorganization only; zero code-logic changes.
+Shipped: everything python-side under `src/` (`readback/`, `cli/`, `voice/`,
+`finetune/`), all docs caps-named under `docs/` (`ARCHITECTURE.md`, `SETUP.md`,
+`PLAN.md` + `media/`). Riding along: `docs/SETUP.md` and `docs/ARCHITECTURE.md`
+rewritten for the CLI-only era (both still described the deleted web
+frontend/TLS). Verified: editable install + imports, server 200/404, CLI
+dev-mode auto-spawn from the new depth, `install.sh` binary bakes the correct
+repo root, stale-path sweep clean.
+
+### Context
+
+After the web deletion and package rename, the repo root holds 7 markdown/config
+files plus 6 directories — the Python package sits at top level next to the CLI,
+and docs are scattered. Goal: a conventional layout where the Python backend
+lives under `src/` (standard src-layout), the CLI stays a clear sibling at
+`cli/`, and reference docs collect under `docs/` — leaving the root with just
+the entry-point files (`README.md`, `CLAUDE.md`, `config.yaml`,
+`pyproject.toml`, `plan.md`, `LICENSE`).
+
+Research confirmed the moves are cheap: the package has no `__file__` path
+tricks, `config.yaml` resolves from cwd (the CLI spawns the server with
+cwd = repo root), and only two spots derive the repo root relative to `cli/`
+(`install.sh`, `server.ts`) — each needs one extra `..` when `cli/` moves
+under `src/`.
+
+### Design
+
+1. **`src/` layout — both clients**: `git mv readback/ src/readback/` and
+   `git mv cli/ src/cli/`. Update `pyproject.toml`:
+   `packages = ["src/readback"]`. No Python import changes — the package name
+   is unchanged. Requires one `pip install -e .` re-run.
+2. **Root-derivation fixes** (the only code-path edits):
+   - `src/cli/install.sh`: `REPO_ROOT="$(cd .. && pwd)"` → `cd ../..`.
+   - `src/cli/src/server.ts`: dev fallback `resolve(import.meta.dir, "..", "..")`
+     → `"..", "..", ".."`.
+3. **`docs/`** — all caps-named: `docs/ARCHITECTURE.md`, `docs/SETUP.md`,
+   `docs/PLAN.md` (renamed from `plan.md`), `docs/media/`. Fix links in
+   `README.md` (SETUP, ARCHITECTURE, 4 media images + sample WAV),
+   `src/cli/README.md` (media images, `../media/` → `../../docs/media/`), and
+   `CLAUDE.md` (ARCHITECTURE link + project-structure map).
+4. **`voice/` → `src/voice/`, `finetune/` → `src/finetune/`** — python-side
+   assets grouped under `src/` (as siblings of the package, NOT inside
+   `src/readback/`, so they don't ship in the wheel). Path updates:
+   `config.yaml` (`wav:` + `lora_path` comment), `.gitignore` (wav exceptions +
+   finetune ignores), `src/finetune/README.md` self-referencing commands,
+   `csm-voice` skill paths.
+5. **Stays at root**: `README.md` (GitHub landing + pyproject `readme`),
+   `CLAUDE.md` (user request), `config.yaml` (cwd-resolved at runtime),
+   `LICENSE`.
+5. **Stale-doc fixes riding along**: `SETUP.md` drops the Node.js/React
+   frontend prerequisite + build step (web is gone); the `doc-sync` skill's
+   `readback/web/server.py` reference becomes `src/readback/server/server.py`;
+   `cd cli` install instructions become `cd src/cli` everywhere.
+6. **CLAUDE.md project-structure block** rewritten to the new tree.
+
+### Files
+
+- `readback/` → `src/readback/` (git mv, no content changes).
+- `cli/` → `src/cli/` (git mv).
+- `src/cli/install.sh` (modified): repo-root derivation one level deeper.
+- `src/cli/src/server.ts` (modified): dev repo-root fallback one level deeper.
+- `ARCHITECTURE.md` → `docs/ARCHITECTURE.md`; `SETUP.md` → `docs/SETUP.md`
+  (+ stale frontend refs removed); `plan.md` → `docs/PLAN.md`;
+  `media/` → `docs/media/`.
+- `voice/` → `src/voice/`; `finetune/` → `src/finetune/` (+ path updates in
+  `config.yaml`, `.gitignore`, `src/finetune/README.md`, `csm-voice` skill).
+- `pyproject.toml` (modified): wheel packages path.
+- `README.md` (modified): doc + media links, `cd src/cli`.
+- `src/cli/README.md` (modified): media links.
+- `CLAUDE.md` (modified): structure map, ARCHITECTURE link, install notes.
+- `.claude/skills/doc-sync/SKILL.md` (modified): doc paths.
+
+### Out of scope
+
+- Moving `config.yaml` (stays at root, cwd-resolved).
+- Any logic changes — only the two root-derivation constants change in code.
+- Rewriting SETUP.md beyond deleting the dead frontend steps.
+
+### Verification
+
+1. `pip install -e .` succeeds with the src layout; `readback` entry point works.
+2. `python -c "from readback.server.server import create_app; print('ok')"`.
+3. `readback` boots; `GET /api/config` → 200; `GET /` → 404.
+4. `cd src/cli && bun run start` — auto-spawn + full read flow works
+   (cwd-relative `config.yaml` still resolves from the derived repo root).
+5. `cd src/cli && ./install.sh` — compiled binary bakes the right repo root,
+   finds the venv server.
+6. All README/cli README image + doc links resolve; no stale `cd cli` /
+   `media/` / root `ARCHITECTURE.md` references remain.
+
+---
+
 ## 2026-06-12 — Restructure Python package: pipeline/ + server/
 
 **Status: done** — branch `depreciate/web` (runs after web deletion is done).

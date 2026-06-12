@@ -28,13 +28,13 @@ tts:
         label: "Kay ★"
         # 11 s bootstrapped ref (CSM self-generated from the original 3.2 s clip);
         # longer refs condition far more reliably than the short original.
-        wav: "voice/voice_kay_long.wav"
+        wav: "src/voice/voice_kay_long.wav"
         speaker: 0
         ref_text: "Welcome back, everyone. Today we're going to look at how large language models actually process text, and why that matters for the tools you use every day. Let's start with a simple example before we get into the details."
     # Fine-tuned voice: point at a `csm-mlx finetune lora` run dir (adapters.safetensors
     # + adapter_config.json). Loaded over the base weights; generation then uses
-    # empty context per the FINETUNING preset. See finetune/README.md.
-    # lora_path: "finetune/runs/v1"
+    # empty context per the FINETUNING preset. See src/finetune/README.md.
+    # lora_path: "src/finetune/runs/v1"
 
 reader:
   # Generated WAVs are written here and served for playback + download.

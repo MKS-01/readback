@@ -20,7 +20,7 @@ Keep speaker IDs consistent
 across folders — here **speaker0 = casual, speaker1 = therapist**.
 
 ```
-finetune/data/
+src/finetune/data/
   casual_01/
     001_speaker0.wav      002_speaker0.wav   …   # sequential turns
     001_speaker0.txt      002_speaker0.txt   …
@@ -41,13 +41,13 @@ them (then **review for accuracy** — a wrong transcript degrades the voice):
 
 ```bash
 .venv/bin/python -m pip install mlx-whisper      # one-off, not a project dep
-.venv/bin/python finetune/transcribe.py          # writes .txt for every clip
+.venv/bin/python src/finetune/transcribe.py          # writes .txt for every clip
 ```
 
 ## 2. Build the dataset JSON
 
 ```bash
-.venv/bin/csm-mlx finetune convert finetune/data finetune/dataset.json
+.venv/bin/csm-mlx finetune convert src/finetune/data src/finetune/dataset.json
 ```
 
 ## 3. Train (LoRA)
@@ -57,8 +57,8 @@ Tuned for 48 GB — batch 1 + gradient accumulation + checkpointing keeps RAM lo
 
 ```bash
 .venv/bin/csm-mlx finetune lora sft \
-  --data-path finetune/dataset.json \
-  --output-dir finetune/runs/v1 \
+  --data-path src/finetune/dataset.json \
+  --output-dir src/finetune/runs/v1 \
   --lora-rank 8 --lora-alpha 16 \
   --epochs 10 \
   --batch-size 1 \
@@ -67,7 +67,7 @@ Tuned for 48 GB — batch 1 + gradient accumulation + checkpointing keeps RAM lo
   --learning-rate 5e-4
 ```
 
-Output: `finetune/runs/v1/adapters.safetensors` + `adapter_config.json`. Re-running
+Output: `src/finetune/runs/v1/adapters.safetensors` + `adapter_config.json`. Re-running
 with the same `--output-dir` resumes. If RAM still spikes, lower `--lora-rank` to
 4; if the voice underfits, raise `--epochs` or add data.
 
@@ -79,7 +79,7 @@ Wired and ready. In `config.yaml`, point at the run dir:
 tts:
   csm:
     temperature: 0.8          # FINETUNING preset
-    lora_path: "finetune/runs/v1"
+    lora_path: "src/finetune/runs/v1"
 ```
 
 `CsmEngine._load_impl` then calls `csm_mlx.load_adapters` over the base weights,

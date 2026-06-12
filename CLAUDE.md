@@ -14,7 +14,7 @@ referenced anywhere, it's stale: the current package is just
 tools/persona/obsidian machinery (the `tools/` module and the streaming/
 tool-calling LLM plumbing were removed in the v0.8.0 cleanup).
 
-**See [ARCHITECTURE.md](ARCHITECTURE.md)** for the system-level view (pipeline,
+**See [ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the system-level view (pipeline,
 concurrency model, extension points). This file holds implementation notes,
 gotchas, and exact knobs.
 
@@ -37,47 +37,52 @@ gotchas, and exact knobs.
   clone-condition voices + optional LoRA fine-tuning. English-best.
 - **Server**: FastAPI + WebSocket, single `/ws` endpoint. No browser UI — the
   server is a pure backend for the CLI client.
-- **Terminal CLI**: Bun + TypeScript + Ink (React for CLIs) in `cli/` — the sole
+- **Terminal CLI**: Bun + TypeScript + Ink (React for CLIs) in `src/cli/` — the sole
   client of the `/ws` protocol; `afplay` playback, macOS-only.
 
 ## Project Structure
 
 ```
 readback/
-├── pyproject.toml             # v1.0.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
-├── config.yaml                # user-editable: ollama / tts.csm / reader blocks
-├── README.md                  # user-facing
-├── ARCHITECTURE.md            # system-level view
-├── finetune/                  # LoRA fine-tune pipeline (README + transcribe.py + data/)
-├── cli/                       # terminal client (Bun + Ink); second /ws client
-│   ├── package.json           # readback-cli 1.0.0; ink + ink-text-input
-│   ├── install.sh             # one-command build: bun compile → ~/.local/bin/readback-cli
-│   └── src/                   # index.tsx (boot + resize repaint), app.tsx (screen
-│                              # switch), theme.ts (Ghost + BLUE accent),
-│                              # server.ts (spawn), ws.ts, player.ts (afplay + seek),
-│                              # prefs.ts, components/{Header,UrlInput,StatusLine,
-│                              # BusyView,PlayerView,ModelList}.tsx
-├── voice/                     # reference clips for clone voices; *.wav gitignored
-│                              # (exceptions: committed voice_kay_default.wav +
-│                              # voice_kay_long.wav, the active kay reference)
+├── pyproject.toml             # v2.0.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
+├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
+├── README.md                  # user-facing (GitHub landing; stays at root)
+├── docs/
+│   ├── ARCHITECTURE.md        # system-level view
+│   ├── SETUP.md               # end-to-end setup guide
+│   ├── PLAN.md                # planning history (newest entry on top)
+│   └── media/                 # README screenshots + sample WAV
 │
-└── readback/
-    ├── __main__.py            # `readback` CLI: argparse, --auto-cert/--cert/--key, uvicorn boot
-    ├── config.py              # Pydantic config: OllamaConfig / CsmTTSConfig (+ CsmVoicePrompt)
-    │                          # / ReaderConfig; load() resolves clone wav + lora paths
-    ├── llm/
-    │   ├── client.py          # LLMClient.oneshot() for summary + the <think> stripper
-    │   └── models.py          # Ollama model listing + RAM-fit verdict (GET /api/models)
-    ├── pipeline/
-    │   ├── extract.py         # fetch_article: trafilatura + UA fallback; TTS-prep scrub
-    │   ├── summarize.py       # summarize_article: LLM oneshot → spoken explanation
-    │   └── speak.py           # chunk_text + synthesize_article + _tidy_silence + write_wav
-    ├── tts/
-    │   ├── csm_engine.py      # CsmEngine (csm-mlx); single-thread MLX executor; _ref_for
-    │   │                      # (built-in prompt / clone clip / empty-for-LoRA); voices_for
-    │   └── synthesizer.py     # Synthesizer facade over CsmEngine
-    └── server/
-        └── server.py          # FastAPI app, /ws, read-job task + cancel, /audio serving
+└── src/
+    ├── finetune/              # LoRA fine-tune pipeline (README + transcribe.py + data/)
+    ├── voice/                 # reference clips for clone voices; *.wav gitignored
+    │                          # (exceptions: committed voice_kay_default.wav +
+    │                          # voice_kay_long.wav, the active kay reference)
+    ├── cli/                   # terminal client (Bun + Ink); sole /ws client
+    │   ├── package.json       # readback-cli 2.0.0; ink + ink-text-input
+    │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
+    │   └── src/               # index.tsx (boot + resize repaint), app.tsx (screen
+    │                          # switch), theme.ts (Ghost + BLUE accent),
+    │                          # server.ts (spawn), ws.ts, player.ts (afplay + seek),
+    │                          # prefs.ts, components/{Header,UrlInput,StatusLine,
+    │                          # BusyView,PlayerView,ModelList}.tsx
+    └── readback/              # python package (src layout; wheel packages src/readback)
+        ├── __main__.py        # `readback` CLI: argparse --host/--port/--model/--config, uvicorn boot
+        ├── config.py          # Pydantic config: OllamaConfig / CsmTTSConfig (+ CsmVoicePrompt)
+        │                      # / ReaderConfig; load() resolves clone wav + lora paths
+        ├── llm/
+        │   ├── client.py      # LLMClient.oneshot() for summary + the <think> stripper
+        │   └── models.py      # Ollama model listing + RAM-fit verdict (GET /api/models)
+        ├── pipeline/
+        │   ├── extract.py     # fetch_article: trafilatura + UA fallback; TTS-prep scrub
+        │   ├── summarize.py   # summarize_article: LLM oneshot → spoken explanation
+        │   └── speak.py       # chunk_text + synthesize_article + _tidy_silence + write_wav
+        ├── tts/
+        │   ├── csm_engine.py  # CsmEngine (csm-mlx); single-thread MLX executor; _ref_for
+        │   │                  # (built-in prompt / clone clip / empty-for-LoRA); voices_for
+        │   └── synthesizer.py # Synthesizer facade over CsmEngine
+        └── server/
+            └── server.py      # FastAPI app, /ws, read-job task + cancel, /audio serving
 ```
 
 ## Critical Implementation Notes
@@ -153,12 +158,12 @@ readback/
   tone are reproduced. Fields: `name`, `label`, `wav` (resolved relative to
   `config.yaml`), `ref_text` (the clip's **exact** transcript), `speaker`. The
   bundled config ships a sample `kay` voice. Its active reference is
-  `voice/voice_kay_long.wav` — an 11 s clip CSM-bootstrapped (2026-06-10) from
+  `src/voice/voice_kay_long.wav` — an 11 s clip CSM-bootstrapped (2026-06-10) from
   the original 3.2 s `voice_kay_default.wav` to fix short-ref instability; both
   are committed past the gitignore.
 - **The reusable procedure lives in `.claude/skills/csm-voice`** — clone, tune
   delivery, or LoRA fine-tune. Read it before any voice work.
-- **LoRA fine-tune** pipeline in `finetune/` (`README.md`): `transcribe.py` →
+- **LoRA fine-tune** pipeline in `src/finetune/` (`README.md`): `transcribe.py` →
   `csm-mlx finetune convert` → `csm-mlx finetune lora sft` → set `tts.csm.lora_path`.
   Tuned for M5/48 GB (batch 1 + grad-accum + checkpointing; full fine-tune is
   Mac-Studio-class RAM).
@@ -187,7 +192,7 @@ readback/
   `cfg.ollama.model` in place (process-wide, like `swap_voice`; **not** written
   back to `config.yaml`) — `oneshot()` picks it up per call, no reload.
 
-### CLI (`cli/`)
+### CLI (`src/cli/`)
 
 - **The `/ws` client** — Bun + Ink, same protocol as the server, zero
   Python changes. `ws.ts` and `player.ts` are module singletons outside the
@@ -270,8 +275,8 @@ and the Qwen→CSM config migration.
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e .                          # csm-mlx is a git dep (allow-direct-references)
 readback                                  # starts the server (or: python -m readback)
-cd cli && bun install && bun run start    # terminal CLI from source (auto-spawns the server)
-cd cli && ./install.sh                    # or: standalone binary → ~/.local/bin/readback-cli
+cd src/cli && bun install && bun run start    # terminal CLI from source (auto-spawns the server)
+cd src/cli && ./install.sh                    # or: standalone binary → ~/.local/bin/readback-cli
 ```
 
 Smoke test: paste an article URL → Full mode → player appears, audio plays,
@@ -289,4 +294,4 @@ removed, `readback.reader.*` / `readback.web.*` imports gone.
 (v1.1.0: CLI model switch `/model` with RAM-fit verdicts. v1.0.0: terminal CLI
 as a `/ws` client. v0.8.0: offline article reader pivot; CSM-1B via csm-mlx;
 renamed `local-tts` → `readback`.) Set in `pyproject.toml`, `readback/__init__.py`,
-and `cli/package.json`. Bump all three when releasing.
+and `src/cli/package.json`. Bump all three when releasing.

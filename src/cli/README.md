@@ -6,7 +6,7 @@ phases, and the finished WAV plays right in your terminal via `afplay`.
 macOS only. *Built with [Claude Code](https://claude.com/claude-code).*
 
 <p align="center">
-  <img src="../media/cli-home.png" alt="readback CLI — home screen" width="820">
+  <img src="../../docs/media/cli-home.png" alt="readback CLI — home screen" width="820">
 </p>
 
 The look: a two-tone block wordmark (`READ` white / `BACK` blue), the web app's
@@ -16,13 +16,13 @@ progress, player — switched in place.
 ## Prerequisites
 
 - [Bun](https://bun.sh/) 1.x
-- The readback Python package installed (see the [root README](../README.md)) —
+- The readback Python package installed (see the [root README](../../README.md)) —
   the CLI talks to (or spawns) the `readback` server.
 
 ## Install (one command)
 
 ```bash
-cd cli && ./install.sh     # or: bun run setup
+cd src/cli && ./install.sh     # or: bun run setup
 ```
 
 Builds a standalone binary (Bun runtime included) and installs it to
@@ -37,7 +37,7 @@ binary can still auto-spawn the server with the right `config.yaml`.
 ## Run from source (dev)
 
 ```bash
-cd cli
+cd src/cli
 bun install
 bun run start          # or: bun run src/index.tsx
 ```
@@ -77,7 +77,7 @@ best fit for summaries, and marks the active one with ★. The model is used by
 Summary mode only and switches on the next read — no server restart.
 
 <p align="center">
-  <img src="../media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts" width="820">
+  <img src="../../docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts" width="820">
 </p>
 
 Prefs (voice/mode/model) persist to `~/.readback/cli.json`.
@@ -85,7 +85,7 @@ Prefs (voice/mode/model) persist to `~/.readback/cli.json`.
 ### Player
 
 <p align="center">
-  <img src="../media/cli-player.png" alt="readback CLI — player with live transcript" width="820">
+  <img src="../../docs/media/cli-player.png" alt="readback CLI — player with live transcript" width="820">
 </p>
 
 | Key | What |

@@ -15,10 +15,10 @@ export interface ServerHandle {
   config: ServerConfig;
 }
 
-// In dev this file lives at <repo>/cli/src/; in a compiled binary
+// In dev this file lives at <repo>/src/cli/src/; in a compiled binary
 // import.meta.dir is a virtual bundle path, so install.sh bakes the real
 // repo root in via --define process.env.READBACK_ROOT.
-const REPO_ROOT = process.env.READBACK_ROOT ?? resolve(import.meta.dir, "..", "..");
+const REPO_ROOT = process.env.READBACK_ROOT ?? resolve(import.meta.dir, "..", "..", "..");
 
 async function health(base: string, timeoutMs = 1500): Promise<ServerConfig | null> {
   try {

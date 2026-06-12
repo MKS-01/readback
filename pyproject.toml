@@ -36,4 +36,4 @@ readback = "readback.__main__:main"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["readback"]
+packages = ["src/readback"]

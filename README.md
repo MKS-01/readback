@@ -30,12 +30,12 @@
 </p>
 
 <p align="center">
-  <img src="media/cli-player.png" alt="readback CLI — terminal player with the word-synced transcript highlight" width="820"><br>
+  <img src="docs/media/cli-player.png" alt="readback CLI — terminal player with the word-synced transcript highlight" width="820"><br>
   <sub>The terminal client mid-read: seekable player, live word-by-word transcript sync.</sub>
 </p>
 
 <p align="center">
-  <strong>🔊 <a href="media/sample-read.wav">Hear a sample read</a></strong><br>
+  <strong>🔊 <a href="docs/media/sample-read.wav">Hear a sample read</a></strong><br>
   <sub>A real Summary-mode read (local LLM + CSM-1B) in <strong>kay</strong> — a custom-tuned clone voice</sub>
 </p>
 
@@ -75,7 +75,7 @@ python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e .                        # csm-mlx is a git dep, pulled automatically
 
 # 3. Build + install the terminal client → ~/.local/bin/readback-cli
-cd cli && ./install.sh && cd ..
+cd src/cli && ./install.sh && cd ..
 
 # 4. Read something
 readback-cli                            # from anywhere; auto-starts the server
@@ -85,7 +85,7 @@ That's it — paste a URL, watch the progress, and the audio plays right in your
 shell via `afplay`.
 
 <p align="center">
-  <img src="media/cli-home.png" alt="readback CLI — home screen" width="820">
+  <img src="docs/media/cli-home.png" alt="readback CLI — home screen" width="820">
 </p>
 
 The CLI auto-starts the `readback` server if one isn't already running, and
@@ -94,16 +94,16 @@ shuts it down on exit if it started it. A real terminal player: space = pause,
 **highlighting word by word in sync with the voice**. Slash commands `/voice`,
 `/model` (pick the summary LLM from your local Ollama models, with a RAM-fit
 check), `/mode`, `/help`, `/quit`. Same Ghost look, plus an Xcode-blue accent. macOS
-only. Details: [`cli/README.md`](cli/README.md).
+only. Details: [`src/cli/README.md`](src/cli/README.md).
 
 <p align="center">
-  <img src="media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts and a recommendation" width="820"><br>
+  <img src="docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts and a recommendation" width="820"><br>
   <sub><code>/model</code> — every local Ollama model, sized up against your Mac's RAM before you commit.</sub>
 </p>
 
 On the **first read**, the CSM-1B weights (~6 GB) download from Hugging Face (no
 login) and the MLX graph warms up — so the first synthesis is slow; later runs
-are fast. See [SETUP.md](SETUP.md) for verification, flags, and troubleshooting.
+are fast. See [SETUP.md](docs/SETUP.md) for verification, flags, and troubleshooting.
 
 ---
 
@@ -146,7 +146,7 @@ The read pipeline, left to right:
 CSM runs on one MLX/Metal thread (MLX binds its GPU stream to the first thread
 that touches it), so read jobs queue naturally. The CLI is a pure client — it
 adds zero server code, just spawns and supervises the same `readback` process
-you'd start by hand. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full
+you'd start by hand. See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full
 system view.
 
 ---
@@ -170,7 +170,7 @@ readback's voice comes from a short **reference clip** that CSM conditions on �
 the clip's timbre, age, and accent are what you hear.
 
 - **Built-in** — `conversational_a` (female ★) / `conversational_b` (male), an even literary reading tone. English-best.
-- **Clone** — drop a clean 5–8 s mono clip into `voice/` and register it under `tts.csm.voices` (the bundled config ships a sample `kay` voice):
+- **Clone** — drop a clean 5–8 s mono clip into `src/voice/` and register it under `tts.csm.voices` (the bundled config ships a sample `kay` voice):
 
   ```yaml
   tts:
@@ -180,7 +180,7 @@ the clip's timbre, age, and accent are what you hear.
       voices:
         - name: "kay"
           label: "Kay ★"
-          wav: "voice/voice_kay_long.wav"             # relative to config.yaml
+          wav: "src/voice/voice_kay_long.wav"             # relative to config.yaml
           speaker: 0
           ref_text: "Exact transcript of the clip."   # MUST match the audio
   ```
@@ -188,7 +188,7 @@ the clip's timbre, age, and accent are what you hear.
   `ref_text` **must** be the clip's exact transcript — a mismatched pair garbles
   the voice. `temperature` tunes *delivery*, not *who* it sounds like.
 
-- **Fine-tune** (optional) — for higher fidelity with more audio there's a LoRA pipeline in [`finetune/`](finetune/README.md); point `tts.csm.lora_path` at the trained adapter.
+- **Fine-tune** (optional) — for higher fidelity with more audio there's a LoRA pipeline in [`src/finetune/`](src/finetune/README.md); point `tts.csm.lora_path` at the trained adapter.
 
 Full clone/tune procedure: `.claude/skills/csm-voice`.
 
@@ -229,7 +229,7 @@ Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
 - [ ] Loudness-normalize the final WAV to a consistent target (e.g. −1 dBFS) — levels currently vary with voice and chunk
 - [ ] Degenerate-chunk guard — a chunk that synthesizes to all-silence is silently dropped (`_tidy_silence` returns empty → content loss); detect + retry once
-- [x] Temperature / chunk-size tuning — shipped 2026-06-10: `temperature 0.6`, `fp32`, 280-char sentence-aware chunks; the next quality jump is the LoRA fine-tune (deferred, see `finetune/`)
+- [x] Temperature / chunk-size tuning — shipped 2026-06-10: `temperature 0.6`, `fp32`, 280-char sentence-aware chunks; the next quality jump is the LoRA fine-tune (deferred, see `src/finetune/`)
 - [ ] Light crossfade at chunk joins to remove residual seams (chunks are joined with a flat 0.18 s gap)
 
 **UI**

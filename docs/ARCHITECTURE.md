@@ -1,22 +1,20 @@
-# Architecture — readback (v1.0.0)
+# Architecture — readback (v2.0.0)
 
 How the pieces fit together and why. System-level companion to
-[CLAUDE.md](CLAUDE.md) (implementation notes, gotchas, exact knobs) and
-[README.md](README.md) (user-facing). When a specific threshold or flag is in
+[CLAUDE.md](../CLAUDE.md) (implementation notes, gotchas, exact knobs) and
+[README.md](../README.md) (user-facing). When a specific threshold or flag is in
 doubt, CLAUDE.md is authoritative.
 
 ## 1. What it is
 
-A fully **on-device** article reader served as a web app. You paste a URL; the
-server fetches and extracts the article, optionally summarizes it with a local
-LLM, synthesizes the whole thing offline with CSM-1B, and hands back an audio
-file the browser plays and lets you download. One process, one CLI (`readback`),
-one WebSocket. Two clients speak that WebSocket: the browser frontend and an
-optional terminal client (`cli/`, Bun + Ink, macOS) that plays the result via
-`afplay`.
+A fully **on-device**, terminal-first article reader. You paste a URL into the
+CLI; the server fetches and extracts the article, optionally summarizes it with
+a local LLM, synthesizes the whole thing offline with CSM-1B, and hands back an
+audio file the CLI plays via `afplay`. One server process (`readback`), one
+WebSocket, one client: the terminal CLI (`src/cli/`, Bun + Ink, macOS).
 
 ```
-URL ─▶ fetch + extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ browser
+URL ─▶ fetch + extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ afplay
        (trafilatura)    (Ollama)            (CSM-1B / csm-mlx)
 ```
 
@@ -27,8 +25,8 @@ voice quality win over latency.
 
 ## 2. Process & concurrency model
 
-A single FastAPI app (`readback/web/server.py`). The event loop stays responsive
-while a read job runs because all heavy work is pushed off it:
+A single FastAPI app (`src/readback/server/server.py`). The event loop stays
+responsive while a read job runs because all heavy work is pushed off it:
 
 - **Read jobs run as background `asyncio.Task`s.** The `/ws` receive loop launches
   `_run_read_job` as a task and keeps reading messages, so a `cancel` (or
@@ -41,7 +39,7 @@ while a read job runs because all heavy work is pushed off it:
 - **One job at a time per socket.** A second `read` while one is running is
   rejected ("still working on the last one").
 
-## 3. The pipeline (`readback/reader/`)
+## 3. The pipeline (`src/readback/pipeline/`)
 
 1. **Extract** (`extract.py`) — `fetch_article(url)` downloads via trafilatura,
    falling back to a browser-UA `urllib` fetch when a site 403s the default
@@ -64,7 +62,7 @@ while a read job runs because all heavy work is pushed off it:
    `reader.output_dir` (`~/.readback/reader/<uuid>.wav`) and served at
    `/audio/<id>.wav` for playback and download.
 
-## 4. TTS engine (`readback/tts/`)
+## 4. TTS engine (`src/readback/tts/`)
 
 - **`CsmEngine`** (`csm_engine.py`) wraps **CSM-1B via csm-mlx** (`senstella/csm-1b-mlx`),
   float32 @ 24 kHz (Mimi-native — matches the WS contract, no resample).
@@ -83,7 +81,7 @@ while a read job runs because all heavy work is pushed off it:
   server stays engine-agnostic — a future engine is a factory change, not a
   rewrite. `tts.engine` is a single-value enum (`"csm"`).
 
-## 5. LLM (`readback/llm/client.py`)
+## 5. LLM (`src/readback/llm/client.py`)
 
 Only **Summary mode** uses the LLM, via `LLMClient.oneshot()` — a single
 non-streaming Ollama `chat` (`think=False`, low temperature) with `<think>`
@@ -96,10 +94,11 @@ installed Ollama models with a RAM-fit verdict and a summary recommendation
 swaps `cfg.ollama.model` in place — `oneshot()` reads it per call, so no
 reload. The switch is process-wide and not written back to `config.yaml`.
 
-## 6. Web layer (`readback/web/`)
+## 6. Server layer (`src/readback/server/`)
 
-- **Server** (`server.py`) — FastAPI; serves the Vite `dist/` build (under
-  `web/static/dist/`), the generated audio, and `/ws`.
+- **Server** (`server.py`) — FastAPI; a pure WS/API backend (no HTML — `GET /`
+  is 404). Serves `/ws`, `GET /api/config`, `GET /api/models`, and the
+  generated audio under `/audio/`.
 - **WS protocol** —
   - client → `read {url, mode, voice?, model?}`, `cancel` (`model` swaps the
     summary LLM for this and later reads; validated against installed Ollama
@@ -108,32 +107,25 @@ reload. The switch is process-wide and not written back to `config.yaml`.
     `done {title, audio_url, duration_sec, word_count, mode, text?}`, `error {message}`
   - `done.text` carries the spoken summary (Summary mode only) for the
     transcript panel.
-- **Frontend** (`web/frontend/`) — React 18 + zustand. The three.js orb and WS
-  client live **outside** the React tree as singletons pushing into the store, so
-  re-renders never tear down the socket. Components: the URL input + circular
-  arrow CTA, the Full/Summary segment + voice `<select>`, the hero-orb busy state
-  (phase message + progress + Cancel), the custom `AudioPlayer`, and the summary
-  transcript toggle. Single dark "Ghost" theme.
-- **Terminal client** (`cli/`, repo root) — Bun + TypeScript + Ink; a second
-  consumer of the exact same WS protocol. It health-checks `/api/config`,
-  fetches `/api/models` for its `/model` picker, auto-spawns `readback` when no
-  server is running (and kills it on exit only if it spawned it), mirrors the
-  Ghost palette, and plays the finished WAV through `afplay`. Same
-  singleton-outside-the-React-tree pattern for its WS client and player.
+- **Terminal client** (`src/cli/`) — Bun + TypeScript + Ink; the sole consumer
+  of the WS protocol. It health-checks `/api/config`, fetches `/api/models` for
+  its `/model` picker, auto-spawns `readback` when no server is running (and
+  kills it on exit only if it spawned it), and plays the finished WAV through
+  `afplay`. Its WS client and player are singletons outside the React tree so
+  re-renders never tear down the socket.
 
-## 7. CLI & TLS (`readback/__main__.py`)
+## 7. Entry point (`src/readback/__main__.py`)
 
-`readback` parses args (`--host/--port/--model/--config`, TLS via
-`--auto-cert` or `--cert/--key`), loads config, and boots uvicorn. `--auto-cert`
-generates a self-signed cert (SAN = LAN IP + 127.0.0.1 + localhost, 825-day
-validity) under `~/.readback/certs/`, regenerated when the LAN IP changes, and
-prints the SHA-256 fingerprint + `/cert.pem` URL so phones/tablets can trust it.
+`readback` parses args (`--host/--port/--model/--config`), loads `config.yaml`
+(resolved from the working directory by default), and boots uvicorn. The CLI
+spawns it with cwd = repo root so the bundled config and its relative
+`src/voice/` / `src/finetune/` paths resolve.
 
 ## 8. Extension points
 
 - **New TTS engine** — implement the `Synthesizer` surface and branch on
   `tts.engine`.
 - **New voice** — a clone clip (`tts.csm.voices`) or a LoRA adapter
-  (`tts.csm.lora_path` + `finetune/`); no code change.
-- **Different extractor / summary prompt** — swap inside `reader/extract.py` /
-  `reader/summarize.py`; the rest of the pipeline is unaffected.
+  (`tts.csm.lora_path` + `src/finetune/`); no code change.
+- **Different extractor / summary prompt** — swap inside `pipeline/extract.py` /
+  `pipeline/summarize.py`; the rest of the pipeline is unaffected.

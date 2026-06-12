@@ -9,7 +9,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-REPO_ROOT="$(cd .. && pwd)"
+REPO_ROOT="$(cd ../.. && pwd)"
 BIN_DIR="${READBACK_BIN_DIR:-$HOME/.local/bin}"
 BIN_NAME="readback-cli"
 
