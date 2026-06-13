@@ -65,10 +65,12 @@ URL in, audio out, two clients reading from the same on-device store.
 - **v1.1.0** — CLI `/model` switch with RAM-fit verdicts.
 - **v2.0.0** — **CLI-only pivot**: web frontend removed, package restructured to
   the `src/` layout, TLS/`cryptography` dropped.
-- **v2.1.0** — the **library dashboard** (this milestone): persist every read to
-  SQLite + a Vue 3 replay UI. The web UI came *back* — but as a separate,
-  model-free replay client, not the thing that was removed.
-- **By the numbers:** ~81 commits; tags `v1.0.0`, `v1.1.0`, `v2.0.0`.
+- **v3.0.0** — the **library dashboard + persistence** (this milestone): persist
+  every read to SQLite + a Vue 3 replay UI. The web UI came *back* — reversing
+  v2.0.0's removal — but as a separate, model-free replay client, not the thing
+  that was deleted. A major bump: the on-disk layout moved out of `~/.readback/`
+  into a sibling `readback-audio-db/` folder.
+- **By the numbers:** ~95 commits; tags `v1.0.0`, `v1.1.0`, `v2.0.0`.
 
 > ✍️ **The two pivots are the heart of the story.** Why kill the real-time
 > assistant? Why later remove the very web UI you'd built, then reintroduce one?

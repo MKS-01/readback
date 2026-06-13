@@ -43,8 +43,10 @@ overflowed the card) — render two segments + dynamic joiner space, plus
 of list + active player + blue transcript) to README + dashboard README; README
 gained a "Why generation stays on the CLI" rationale (heavy LLM+TTS = on-demand
 CLI work; replay = model-free dashboard path) mirrored into ARCHITECTURE §1/§5.
-**Released v2.1.0** — bumped all four anchors (pyproject / `__init__` /
-cli+dashboard `package.json`) + CLAUDE/ARCHITECTURE version labels.
+**Released v3.0.0** (major — the browser UI returns, reversing v2.0.0's removal,
+and the on-disk audio/DB layout moved out of `~/.readback/`): bumped all four
+anchors (pyproject / `__init__` / cli+dashboard `package.json`) +
+CLAUDE/ARCHITECTURE version labels.
 **Audio relocation (post-release):** moved `output_dir` out of the hidden
 `~/.readback/reader/` into a sibling `readback-audio-db/audio/` folder next to
 the repo (audio + DB together, harder to delete by accident). Config defaults now

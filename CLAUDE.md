@@ -45,7 +45,7 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v2.1.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
+├── pyproject.toml             # v3.0.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── .github/workflows/
@@ -77,7 +77,7 @@ readback/
     │                          # src/{App,api,styles}.* + components/; build → dist/ (gitignored),
     │                          # which server.py mounts at / when present. Ghost palette reused.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
-    │   ├── package.json       # readback-cli 2.1.0; ink + ink-text-input
+    │   ├── package.json       # readback-cli 3.0.0; ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
     │   └── src/               # index.tsx (boot + resize repaint), app.tsx (screen
     │                          # switch), theme.ts (Ghost + BLUE accent),
@@ -369,13 +369,18 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v2.1.0** — library dashboard. New `src/readback/library.py` (SQLite
-read library) + REST routes (`/api/library` list/get/delete) + persist-on-read;
-new `src/dashboard/` web UI (Vue 3 + Vite + TS — search/sort/replay/delete, full
-player + CLI-synced karaoke transcript), served at `/` when built. New config
-`reader.library_db`. Additive + backward-compatible: WS protocol and CLI
-unchanged; the v2.0.0 "no browser UI / GET / is 404" rule now has one exception
-(the built dashboard).
+Current: **v3.0.0** — library dashboard + persistence (**major**). New
+`src/readback/library.py` (SQLite read library) + paged REST routes
+(`/api/library` list/get/delete) + persist-on-read; new `src/dashboard/` web UI
+(Vue 3 + Vite + TS — search/sort/paginate/replay/delete, full player +
+CLI-synced karaoke transcript), served at `/` when built. New config
+`reader.library_db`. **Why major (not 2.1):** the browser UI returns —
+*reversing* v2.0.0's deliberate web-frontend removal (v2.0.0 was itself a major
+bump *for* that removal) — and the default on-disk layout moved out of
+`~/.readback/reader` into a sibling `readback-audio-db/{audio,library.db}` folder
+(existing installs migrate). The programmatic surface is compatible, though: WS
+protocol + CLI unchanged. (v2.1.0 was an in-flight branch version, never
+tagged/released — folded into v3.0.0.)
 (v2.0.0: CLI-only pivot — web frontend removed, package restructured to the
 `src/` layout, docs under `docs/`, TLS/`cryptography` dropped. v1.1.0: CLI
 `/model` switch with RAM-fit verdicts. v1.0.0: terminal CLI as a `/ws` client.
