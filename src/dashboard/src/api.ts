@@ -18,8 +18,21 @@ export interface Read {
   created_at: string;
 }
 
-export async function listReads(q: string, sort: Sort): Promise<Read[]> {
-  const params = new URLSearchParams({ sort });
+// A page of library cards (shape of GET /api/library).
+export interface Page {
+  items: Read[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export async function listReads(
+  q: string,
+  sort: Sort,
+  limit: number,
+  offset: number,
+): Promise<Page> {
+  const params = new URLSearchParams({ sort, limit: String(limit), offset: String(offset) });
   if (q) params.set("q", q);
   const res = await fetch(`/api/library?${params}`);
   if (!res.ok) throw new Error(`library list failed: ${res.status}`);

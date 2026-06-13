@@ -50,7 +50,7 @@ readback           # then open http://127.0.0.1:8000/
 
 | Route | Purpose |
 |---|---|
-| `GET /api/library?q=&sort=newest\|oldest` | list cards (search + sort) |
+| `GET /api/library?q=&sort=newest\|oldest&limit=&offset=` | paged list → `{items, total, limit, offset}` (search + sort + Load more) |
 | `GET /api/library/{id}` | full record |
 | `DELETE /api/library/{id}` | remove the row + its WAV |
 | `GET /audio/{filename}` | the WAV (HTML5 `<audio>` playback) |

@@ -99,20 +99,39 @@ class Library:
                 ),
             )
 
-    def list(self, q: str = "", sort: Literal["newest", "oldest"] = "newest") -> list[dict]:
+    @staticmethod
+    def _where(q: str) -> tuple[str, tuple]:
+        """Shared search filter for list() + count() so they always agree."""
+        if not q:
+            return "", ()
+        like = f"%{q}%"
+        clause = (
+            " WHERE title LIKE ? OR summary LIKE ? OR excerpt LIKE ? "
+            "OR source_url LIKE ?"
+        )
+        return clause, (like, like, like, like)
+
+    def list(
+        self,
+        q: str = "",
+        sort: Literal["newest", "oldest"] = "newest",
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> list[dict]:
         order = _SORTS.get(sort, "DESC")
-        sql = f"SELECT {_CARD_COLS} FROM reads"
-        params: tuple = ()
-        if q:
-            like = f"%{q}%"
-            sql += (
-                " WHERE title LIKE ? OR summary LIKE ? OR excerpt LIKE ? "
-                "OR source_url LIKE ?"
-            )
-            params = (like, like, like, like)
-        sql += f" ORDER BY created_at {order}"
+        where, params = self._where(q)
+        sql = f"SELECT {_CARD_COLS} FROM reads{where} ORDER BY created_at {order}"
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params = params + (limit, max(0, offset))
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def count(self, q: str = "") -> int:
+        """Total rows matching `q` (for pagination — independent of limit/offset)."""
+        where, params = self._where(q)
+        with self._connect() as conn:
+            return int(conn.execute(f"SELECT COUNT(*) FROM reads{where}", params).fetchone()[0])
 
     def get(self, read_id: str) -> Optional[dict]:
         with self._connect() as conn:

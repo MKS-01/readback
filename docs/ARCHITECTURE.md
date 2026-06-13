@@ -120,9 +120,11 @@ reload. The switch is process-wide and not written back to `config.yaml`.
   `/audio/`. It additionally mounts the **built dashboard at `/`** when
   `src/dashboard/dist` exists (registered last, so the API/audio/ws routes win);
   in dev that dir is absent so `GET /` is 404 and Vite serves the SPA on :5173.
-- **Read library REST** — `GET /api/library?q=&sort=newest|oldest`,
-  `GET /api/library/{id}`, `DELETE /api/library/{id}` (deletes the row + its
-  WAV). All wrap blocking sqlite in `asyncio.to_thread`.
+- **Read library REST** — `GET /api/library?q=&sort=newest|oldest&limit=&offset=`
+  returns a page `{items, total, limit, offset}` (limit capped 1–100, default 20;
+  the dashboard appends pages via "Load more"); `GET /api/library/{id}`,
+  `DELETE /api/library/{id}` (deletes the row + its WAV). All wrap blocking
+  sqlite in `asyncio.to_thread`.
 - **WS protocol** —
   - client → `read {url, mode, voice?, model?}`, `cancel` (`model` swaps the
     summary LLM for this and later reads; validated against installed Ollama

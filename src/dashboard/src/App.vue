@@ -5,10 +5,14 @@ import SearchBar from "./components/SearchBar.vue";
 import SortToggle from "./components/SortToggle.vue";
 import ReadCard from "./components/ReadCard.vue";
 
+const PAGE_SIZE = 20;
+
 const q = ref("");
 const sort = ref<Sort>("newest");
 const reads = ref<Read[]>([]);
+const total = ref(0);
 const loading = ref(true);
+const loadingMore = ref(false);
 const error = ref<string | null>(null);
 
 // One shared <audio> so only one read plays at a time. The card whose id is
@@ -39,15 +43,33 @@ audio.addEventListener("ended", () => {
   elapsed.value = duration.value;
 });
 
+// Fresh load (mount / search / sort) — replaces the list with page 1.
 async function load() {
   loading.value = true;
   error.value = null;
   try {
-    reads.value = await listReads(q.value.trim(), sort.value);
+    const page = await listReads(q.value.trim(), sort.value, PAGE_SIZE, 0);
+    reads.value = page.items;
+    total.value = page.total;
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
     loading.value = false;
+  }
+}
+
+// Append the next page (offset = how many we already have).
+async function loadMore() {
+  if (loadingMore.value) return;
+  loadingMore.value = true;
+  try {
+    const page = await listReads(q.value.trim(), sort.value, PAGE_SIZE, reads.value.length);
+    reads.value = [...reads.value, ...page.items];
+    total.value = page.total;
+  } catch (e) {
+    error.value = (e as Error).message;
+  } finally {
+    loadingMore.value = false;
   }
 }
 
@@ -101,6 +123,7 @@ async function onDelete(read: Read) {
   try {
     await deleteRead(read.id);
     reads.value = reads.value.filter((r) => r.id !== read.id);
+    total.value = Math.max(0, total.value - 1);
   } catch (e) {
     error.value = (e as Error).message;
   }
@@ -160,7 +183,9 @@ onBeforeUnmount(() => {
     </p>
 
     <template v-else>
-      <p class="count">{{ reads.length }} read{{ reads.length === 1 ? "" : "s" }}</p>
+      <p class="count">
+        {{ reads.length === total ? `${total} read${total === 1 ? "" : "s"}` : `showing ${reads.length} of ${total}` }}
+      </p>
       <div class="cards">
         <ReadCard
           v-for="read in reads"
@@ -177,6 +202,9 @@ onBeforeUnmount(() => {
           @delete="onDelete"
         />
       </div>
+      <button v-if="reads.length < total" class="load-more" :disabled="loadingMore" @click="loadMore">
+        {{ loadingMore ? "loading…" : `Load more (${total - reads.length})` }}
+      </button>
     </template>
 
     <footer class="foot">readback · offline article reader · all on-device</footer>

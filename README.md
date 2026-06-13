@@ -126,7 +126,9 @@ any past read anytime** — no LLM, no GPU, just the saved audio.
   <sub>The library dashboard mid-replay: search + sort, a seekable player, and the same word-by-word transcript highlight as the CLI.</sub>
 </p>
 
-- **Search** title / summary / URL and **sort** newest↔oldest.
+- **Search** title / summary / URL, **sort** newest↔oldest, and **paginate** —
+  the list loads 20 at a time with a "Load more" button (so the library stays
+  fast as it grows).
 - **Full player** on each card — click-to-seek bar, ±5 s skips, pause / resume /
   replay, and `space` + `←/→` keyboard shortcuts (the same keys as the CLI).
 - **Synced transcript** — a Summary read highlights **word by word in blue** as it

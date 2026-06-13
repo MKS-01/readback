@@ -128,8 +128,10 @@ readback/
   (article text[:300], summary=None); Summary mode stores both. `id` = the WAV's
   uuid stem.
 - **Library REST** (read-only + delete, all `asyncio.to_thread` over blocking
-  sqlite): `GET /api/library?q=&sort=newest|oldest`, `GET /api/library/{id}`,
-  `DELETE /api/library/{id}` (deletes the row, then unlinks the WAV).
+  sqlite): `GET /api/library?q=&sort=newest|oldest&limit=&offset=` →
+  **paged** `{items, total, limit, offset}` (limit capped 1–100, default 20;
+  `total` is the full match count, independent of the page),
+  `GET /api/library/{id}`, `DELETE /api/library/{id}` (row, then unlinks the WAV).
 - **Browser UI is back — for the dashboard only.** When `src/dashboard/dist`
   exists it's mounted at `/` (`StaticFiles(html=True)`, registered LAST so
   `/api`/`/audio`/`/ws` win); absent (dev) → `GET /` is 404 and Vite serves the
@@ -298,6 +300,9 @@ readback/
   (click-to-seek), `elapsed / total`, ±5 s skip buttons, pause/resume/replay,
   and **space / ←→ keyboard parity** with the CLI (ignored while the search box
   is focused). Debounced search (220 ms); delete is confirm-then-fire.
+  **Paginated** (`PAGE_SIZE` 20): the list loads page 1 and a "Load more (N)"
+  button appends the next page (`offset = reads.length`); the count shows
+  "showing X of N". Search/sort reset to page 1; delete decrements `total`.
 - **Synced transcript = CLI parity** (`ReadCard`): a *playing Summary* read shows
   its summary with word-by-word **accent-blue highlight**, timed exactly like
   `cli/.../PlayerView.tsx` — no per-word timestamps exist, so each word's share

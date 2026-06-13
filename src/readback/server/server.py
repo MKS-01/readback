@@ -22,7 +22,8 @@ WS protocol (/ws):
 
 Each finished read is also recorded in the SQLite read library (library.py) and
 exposed over REST for the web dashboard (src/dashboard):
-  GET    /api/library?q=&sort=newest|oldest   # search + sort the recorded reads
+  GET    /api/library?q=&sort=newest|oldest&limit=&offset=  # paged list:
+                                               # {items, total, limit, offset}
   GET    /api/library/{id}                     # one full record
   DELETE /api/library/{id}                     # remove the row + its WAV
 The built dashboard (src/dashboard/dist) is mounted at / when present.
@@ -251,9 +252,14 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
 
     # ── Library (dashboard) ──────────────────────────────────────────────
     @app.get("/api/library")
-    async def api_library(q: str = "", sort: str = "newest"):
+    async def api_library(q: str = "", sort: str = "newest", limit: int = 20, offset: int = 0):
         sort = sort if sort in ("newest", "oldest") else "newest"
-        return await asyncio.to_thread(library.list, q.strip(), sort)
+        limit = max(1, min(limit, 100))   # cap the page size
+        offset = max(0, offset)
+        q = q.strip()
+        items = await asyncio.to_thread(library.list, q, sort, limit, offset)
+        total = await asyncio.to_thread(library.count, q)
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
 
     @app.get("/api/library/{read_id}")
     async def api_library_get(read_id: str):
