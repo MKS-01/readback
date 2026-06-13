@@ -64,6 +64,12 @@ const spokenCount = computed(() => {
   }
   return n;
 });
+// Two segments (blue spoken / dim rest). The joining space lives in a dynamic
+// value so Vue's whitespace-condensing doesn't strip it (a static "<span> </span>"
+// would render empty → words glue together and overflow the card).
+const spokenText = computed(() => words.value.slice(0, spokenCount.value).join(" "));
+const restText = computed(() => words.value.slice(spokenCount.value).join(" "));
+const joiner = computed(() => (spokenText.value && restText.value ? " " : ""));
 
 function onBarClick(e: MouseEvent) {
   const el = e.currentTarget as HTMLElement;
@@ -105,14 +111,7 @@ function onDelete() {
         </div>
 
         <!-- Active + summary → karaoke transcript; otherwise the static snippet. -->
-        <p v-if="active && isSummary" class="transcript">
-          <span
-            v-for="(w, i) in words"
-            :key="i"
-            :class="{ spoken: i < spokenCount }"
-            >{{ w }}<span v-if="i < words.length - 1"> </span></span
-          >
-        </p>
+        <p v-if="active && isSummary" class="transcript"><span class="spoken">{{ spokenText }}</span>{{ joiner }}{{ restText }}</p>
         <p v-else-if="snippet" class="snippet" :class="{ clamp: !showMore }">{{ snippet }}</p>
 
         <!-- Player controls (only while this card is active). -->

@@ -177,7 +177,7 @@ button { font: inherit; cursor: pointer; }
 
 .card-body { flex: 1; min-width: 0; }
 
-.title { font-size: 15px; font-weight: 600; line-height: 1.4; }
+.title { font-size: 15px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 
 .meta {
   color: var(--dim);
@@ -195,6 +195,7 @@ button { font: inherit; cursor: pointer; }
   font-size: 13.5px;
   margin-top: 10px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .snippet.clamp {
@@ -234,6 +235,7 @@ button { font: inherit; cursor: pointer; }
   margin-top: 10px;
   line-height: 1.75;
   color: var(--dim);
+  overflow-wrap: anywhere; /* never let a long token blow out the card */
 }
 
 .transcript .spoken { color: var(--accent); }
