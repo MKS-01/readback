@@ -19,12 +19,30 @@ voice; delete the prompts as you go.
 ## 1. The arc — what readback became
 
 readback didn't start as an article reader. It started as a **real-time local
-voice assistant** and pivoted twice. The hand-drawn sketches below are the actual
-briefs that kicked off features — concept on the left, shipped on the right.
+voice assistant** and pivoted twice into what it is now — a high-level wireframe
+of the concept it landed on:
+
+```mermaid
+flowchart LR
+    U["Article URL"] --> P
+
+    subgraph P["readback server · 100% on-device"]
+        direction LR
+        E["extract<br/>trafilatura"] --> L["summarize<br/>local LLM · optional"] --> T["synthesize<br/>CSM-1B neural TTS"]
+    end
+
+    T --> DB[("readback-audio-db<br/>WAV files + SQLite")]
+    DB --> CLI["CLI<br/>generate + play live"]
+    DB --> WEB["Dashboard<br/>search + replay anytime"]
+```
+
+The shape that matters: **generation** (extract → LLM → TTS) is the heavy,
+occasional half that wants the Mac's GPU; **replay** is light and model-free. One
+URL in, audio out, two clients reading from the same on-device store.
 
 <p align="center">
-  <img src="media/dashboard-plan.png" alt="the dashboard concept sketch" width="440">
-  <img src="media/dashboard.png" alt="the shipped dashboard" width="440">
+  <img src="media/dashboard.png" alt="the shipped library dashboard" width="460"><br>
+  <sub>The shipped replay surface. The original hand-drawn brief that kicked this off lives in <a href="PLAN.md">PLAN.md</a>.</sub>
 </p>
 
 > ✍️ **Write the narrative of the arc here.** The bullets below are the facts —
