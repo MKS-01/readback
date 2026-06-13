@@ -112,11 +112,27 @@ are fast. See [SETUP.md](docs/SETUP.md) for verification, flags, and troubleshoo
 
 ## Library dashboard
 
-Every read is recorded in a small local SQLite library, so you can **replay any
-past read anytime** from a web dashboard — search by title/summary/URL, sort
-newest↔oldest, expand the summary, open the original, or delete a read (which
-also removes its WAV). Same Ghost look as the CLI and landing page; it's a
-lightweight Vue 3 SPA, a pure REST + static client (no new Python at read time).
+Generating a read is the heavy part — fetch, an optional LLM summary pass, and
+CSM-1B synthesis all run on your Mac's GPU. But you pay that **once**: every read
+is recorded in a small local SQLite library, and the dashboard lets you **replay
+any past read anytime** — no LLM, no GPU, just the saved audio.
+
+<p align="center">
+  <img src="docs/media/dashboard.png" alt="readback library dashboard — searchable list of past reads with an inline player and word-synced transcript" width="820"><br>
+  <sub>The library dashboard mid-replay: search + sort, a seekable player, and the same word-by-word transcript highlight as the CLI.</sub>
+</p>
+
+- **Search** title / summary / URL and **sort** newest↔oldest.
+- **Full player** on each card — click-to-seek bar, ±5 s skips, pause / resume /
+  replay, and `space` + `←/→` keyboard shortcuts (the same keys as the CLI).
+- **Synced transcript** — a Summary read highlights **word by word in blue** as it
+  plays, identical to the terminal player.
+- **Read the original** for further reading, or **delete** a read (removes its DB
+  row *and* its WAV).
+
+It's a lightweight **Vue 3** SPA — a pure REST + static client, no new Python at
+read time, and the same Ghost design system (and fonts) as the CLI and landing
+page.
 
 ```bash
 cd src/dashboard && bun install && bun run build   # → dist/
@@ -124,10 +140,25 @@ readback                                            # then open http://127.0.0.1
 ```
 
 Built `dist/` is served by the same `readback` process at `/`; for development,
-`bun run dev` runs Vite on `:5173` and proxies to the server. The audio stays on
-your Mac (the DB stores each WAV's absolute path), so a future home-server /
-[Pi](https://github.com/MKS-01/pizow) host can serve the UI while the Mac keeps
-making the audio. Details: [`src/dashboard/README.md`](src/dashboard/README.md).
+`bun run dev` runs Vite on `:5173` and proxies to the server.
+
+### Why generation stays on the CLI
+
+The LLM summary is a **heavy, occasional task** — you don't re-summarize an
+article every time you want to *hear* it, and the model work (a local LLM plus
+neural TTS) wants your Mac's GPU and unified memory. So readback deliberately
+splits the two halves:
+
+- **Generate on demand**, from the terminal — the CLI drives the LLM + CSM
+  pipeline on the Mac. This is the part that costs RAM and GPU, and it runs only
+  when you actually want a new read.
+- **Replay anywhere**, from the dashboard — which never touches the LLM or TTS; it
+  only lists rows and serves a finished WAV, so it stays tiny and fast.
+
+That separation is also what keeps a future split deploy clean: the audio lives
+on the Mac (the DB stores each WAV's absolute path), so a home-server /
+[Pi](https://github.com/MKS-01/pizow) can host the lightweight UI while the Mac
+stays the generation brain. Details: [`src/dashboard/README.md`](src/dashboard/README.md).
 
 ---
 
@@ -170,8 +201,10 @@ The read pipeline, left to right:
 CSM runs on one MLX/Metal thread (MLX binds its GPU stream to the first thread
 that touches it), so read jobs queue naturally. The CLI is a pure client — it
 adds zero server code, just spawns and supervises the same `readback` process
-you'd start by hand. See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full
-system view.
+you'd start by hand. A second, lighter client — the [library
+dashboard](#library-dashboard) — replays *past* reads over plain REST (no
+WebSocket, no models), so generating and listening-again are cleanly separate.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system view.
 
 ---
 
@@ -183,8 +216,9 @@ system view.
 | **Summary (optional)** | [Ollama](https://ollama.ai/) — default `gemma4:26b`; any pulled chat model works |
 | **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, fp32 |
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
-| **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV |
+| **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV, REST library |
 | **CLI client** | Bun + TypeScript + [Ink](https://github.com/vadimdemedes/ink) — terminal UI, `afplay` playback |
+| **Dashboard** | [Vue 3](https://vuejs.org/) + [Vite](https://vite.dev/) + TS — replay past reads (search/sort/player); stdlib SQLite library |
 
 ---
 

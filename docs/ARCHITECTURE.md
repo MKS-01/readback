@@ -10,18 +10,31 @@ doubt, CLAUDE.md is authoritative.
 A fully **on-device**, terminal-first article reader. You paste a URL into the
 CLI; the server fetches and extracts the article, optionally summarizes it with
 a local LLM, synthesizes the whole thing offline with CSM-1B, and hands back an
-audio file the CLI plays via `afplay`. One server process (`readback`), one
-WebSocket, one client: the terminal CLI (`src/cli/`, Bun + Ink, macOS).
+audio file the CLI plays via `afplay`. One server process (`readback`) with two
+clients: the **terminal CLI** (`src/cli/`, Bun + Ink, macOS) drives *live* reads
+over a WebSocket, and the **web dashboard** (`src/dashboard/`, Vue 3) replays
+*past* reads over plain REST.
 
 ```
 URL ─▶ fetch + extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ afplay
-       (trafilatura)    (Ollama)            (CSM-1B / csm-mlx)
+       (trafilatura)    (Ollama)            (CSM-1B / csm-mlx)            └▶ library (SQLite) ─▶ dashboard replay
 ```
 
 Unlike the real-time voice assistant this project began as, synthesis is **batch,
 not streaming**: there is no live turn to keep pace with, so the whole piece is
 synthesized up front. That removes audio-underrun and echo entirely and lets
 voice quality win over latency.
+
+**Generate once, replay many — and why generation is CLI-side.** The expensive
+half (the LLM summary pass + neural TTS) is a *heavy, occasional* task: it wants
+the Mac's GPU and unified memory, and you only run it when you actually want a
+new read — not every time you want to hear an old one. So readback splits the
+two halves deliberately. **Generation** is on-demand from the terminal (LLM + CSM
+on the Mac); **replay** is a separate, model-free path that only lists library
+rows and serves a finished WAV. This is why the dashboard can stay tiny (no
+WebSocket, no models) and why a future split deploy is clean — a home-server / Pi
+can host the lightweight UI while the Mac remains the only thing that needs the
+GPU (see §6).
 
 ## 2. Process & concurrency model
 
@@ -91,7 +104,8 @@ responsive while a read job runs because all heavy work is pushed off it:
 Only **Summary mode** uses the LLM, via `LLMClient.oneshot()` — a single
 non-streaming Ollama `chat` (`think=False`, low temperature) with `<think>`
 stripping for GGUF builds that emit inline tags. Full mode skips the LLM
-entirely.
+entirely. This is the heaviest, most occasional step (see §1) — it runs only
+during generation, never on dashboard replay.
 
 The model is switchable at runtime: `llm/models.py` lists the locally
 installed Ollama models with a RAM-fit verdict and a summary recommendation

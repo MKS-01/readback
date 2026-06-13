@@ -8,6 +8,14 @@ It's a pure REST + static client — no WebSocket, no Python changes. Same desig
 system as the CLI and landing page (Ghost palette + IBM Plex Mono / Martian
 Mono).
 
+![readback dashboard](../../docs/media/dashboard.png)
+
+**Why this is a separate, model-free client.** Generating a read (LLM summary +
+CSM TTS) is the heavy, occasional work — it wants the Mac's GPU/RAM and runs only
+when you want a *new* read. Replaying is cheap: the dashboard never loads a model,
+it just lists library rows and serves a finished WAV. That split keeps the UI
+tiny and makes a future Pi deploy clean (UI on the Pi, generation on the Mac).
+
 Playing a read expands its card into a full player — seekable bar (click to
 seek), `elapsed / total`, ±5 s skips, pause/resume/replay, and **space / ←→**
 keyboard shortcuts (mirroring the CLI). A playing **Summary** read shows its
