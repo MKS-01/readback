@@ -62,6 +62,7 @@ readback/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide
 │   ├── PLAN.md                # planning history (newest entry on top)
+│   ├── JOURNEY.md             # agent-first devlog (scaffold; user fills prose)
 │   └── media/                 # README screenshots + sample WAV + wordmark.png
 │                              # (brand banner; regen: make_wordmark.py — keep in
 │                              # sync with the CLI banner in Header.tsx)
