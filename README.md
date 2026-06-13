@@ -298,34 +298,45 @@ Everything beyond this README lives in [`docs/`](docs/):
 
 ## Roadmap
 
-- [x] **Model switch (CLI)** — `/model` picks the summary LLM at runtime, with a RAM-fit check (v1.1.0)
-- [ ] **More voice options** — grow the voice menu beyond the two built-ins + `kay` (incl. A/B-ing the built-in read-speech references and exposing more of them)
-- [ ] **Voice tuning from the CLI** — clone a new voice (clip → transcript → register) from `readback-cli` instead of editing `config.yaml`
-- [ ] **Faster synthesis** — reduce conversion time; ultimately bounded by your Mac's GPU / unified memory, so tune the controllable knobs (precision, chunking, warm-up)
 
-**Audio quality**
+Direction now: **audio quality and CLI performance first**, then **serving the
+dashboard from a home Pi**. New features are intentionally lower priority.
 
-- [ ] Loudness-normalize the final WAV to a consistent target (e.g. −1 dBFS) — levels currently vary with voice and chunk
-- [ ] Degenerate-chunk guard — a chunk that synthesizes to all-silence is silently dropped (`_tidy_silence` returns empty → content loss); detect + retry once
-- [x] Temperature / chunk-size tuning — shipped 2026-06-10: `temperature 0.6`, `fp32`, 280-char sentence-aware chunks; the next quality jump is the LoRA fine-tune (deferred, see `src/finetune/`)
-- [ ] Light crossfade at chunk joins to remove residual seams (chunks are joined with a flat 0.18 s gap)
+_Recently shipped: the [library dashboard](#library-dashboard) + persistence
+(v3.0.0), CLI `/model` switch with RAM-fit verdicts (v1.1.0), and an audio-quality
+tuning pass (`temperature 0.6`, `fp32`, 280-char sentence-aware chunks)._
 
-**UI**
+### 🎧 Audio quality — priority
 
-- [ ] Extracted-article preview (title + word count + est. listen time) before synthesizing — both clients currently show only the phase until `done`
-- [ ] Progress: % + estimated time remaining (both clients already show a per-chunk bar; the CLI shows done/total)
-- [ ] Download filename = sanitized article title (the WAV is served/saved as a uuid)
-- [x] **History of recent reads** — the [library dashboard](#library-dashboard) lists/searches/replays every past read, backed by the saved WAVs (a SQLite library; 2026-06-13)
-- [ ] Nicer error states (paywalled / JS-only / fetch-blocked pages)
+- [ ] Loudness-normalize the final WAV to a consistent target (e.g. −1 dBFS) — levels vary with voice and chunk
+- [ ] Light crossfade at chunk joins to remove residual seams (chunks join with a flat 0.18 s gap)
+- [ ] Degenerate-chunk guard — an all-silence chunk is silently dropped (`_tidy_silence` → empty); detect + retry once
+- [ ] LoRA fine-tune for higher fidelity (pipeline in [`src/finetune/`](src/finetune/README.md))
+- [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `kay`; eventually clone a new voice from the CLI instead of editing `config.yaml`
 
-**Housekeeping & nice-to-have**
+### ⚡ CLI — tuning & performance — priority
 
-- [ ] Generated-WAV *auto*-rotation — the audio folder grows unbounded; keep N most-recent / age-out (the dashboard already supports manual delete, which removes the row + WAV)
+- [ ] Faster synthesis — tune the controllable knobs (precision, chunking, warm-up); ultimately bounded by your Mac's GPU / unified memory
 - [ ] Cache by (url, mode, voice) so re-reading is instant
-- [ ] Chunked summarization for very long articles (Summary mode truncates to `summary_max_chars`)
-- [ ] Paste raw text (not just a URL) as an input source
+- [ ] Trim startup / model warm-up and surface clearer progress (% + ETA, not just per-chunk)
 
-Ideas and PRs welcome — open an issue.
+### 🍓 Serve from a home Pi — next
+
+- [ ] Host the dashboard on the local Pi network ([pizow](https://github.com/MKS-01/pizow))
+- [ ] A **lite, read-only server** on the Pi — library REST (`/api/library`) + `/audio` + the static dashboard, **no LLM/TTS** (generation stays on the Mac)
+- [ ] Sync job / skill — push new reads (DB rows + WAVs) Mac → Pi on a schedule
+- [ ] Generated-WAV rotation so the synced store doesn't grow unbounded (the dashboard already supports manual delete)
+
+### 📄 More input sources
+
+- [ ] Read **local documents**, not just URLs — `.txt` and `.pdf` → voice
+- [ ] Paste raw text directly as a source
+
+### 🔭 Later
+
+- [ ] Automation + testing — CI, unit / integration coverage
+- [ ] Chunked summarization for very long articles (Summary mode truncates to `summary_max_chars`)
+- [ ] UX niceties (lower priority): extracted-article preview before synth, download filename = article title, nicer error states for paywalled / JS-only pages
 
 ---
 
