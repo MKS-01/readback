@@ -170,31 +170,23 @@ stays the generation brain. Details: [`src/dashboard/README.md`](src/dashboard/R
 
 ## How it works
 
-The terminal CLI talks to a local Python server over WebSocket — the same
-pipeline whether you're reading a news piece or a 10,000-word essay.
+readback is one on-device pipeline with two clients — the terminal **CLI**
+(generate + play live, over a WebSocket) and the web **dashboard** (replay past
+reads, over REST) — the same pipeline whether you're reading a news piece or a
+10,000-word essay.
 
-```
-              ┌─────────────────────┐
-              │      CLI mode       │
-              │      Bun + Ink      │
-              │   afplay  player    │
-              └──────────┬──────────┘
-                         │ auto-spawns the
-                         │ server if needed
-                         │  WebSocket  /ws
-                         ▼
-          ┌──────────────────────────────┐
-          │   readback server (FastAPI)  │
-          │                              │
-          │  fetch ▸ extract ▸ [summary] │
-          │   ▸ chunk ▸ TTS ▸ WAV        │
-          └──────┬────────────────┬──────┘
-                 ▼                ▼
-        ┌─────────────────┐ ┌─────────────────┐
-        │  Ollama (local) │ │ CSM-1B on MLX / │
-        │  Summary mode   │ │ Metal — offline │
-        │  only           │ │ voice synthesis │
-        └─────────────────┘ └─────────────────┘
+```mermaid
+flowchart LR
+    U["Article URL"] --> P
+
+    subgraph P["readback server · 100% on-device"]
+        direction LR
+        E["extract<br/>trafilatura"] --> L["summarize<br/>local LLM · optional"] --> T["synthesize<br/>CSM-1B neural TTS"]
+    end
+
+    T --> DB[("readback-audio-db<br/>WAV files + SQLite")]
+    DB --> CLI["CLI<br/>generate + play live"]
+    DB --> WEB["Dashboard<br/>search + replay anytime"]
 ```
 
 The read pipeline, left to right:
