@@ -1,11 +1,24 @@
 name: Deploy landing page
 
+# Deploy policy (the rule):
+#   • Only on push to `main` — i.e. AFTER a PR merges; never on feature branches.
+#   • Only when the landing page itself, OR one of the exact media files it ships,
+#     OR this workflow changed (the `paths` filter). Unrelated pushes — including
+#     other docs/media that the page doesn't use — do NOT redeploy.
+#   • `workflow_dispatch` forces a manual redeploy when you need one.
+# ⚠ When you add a media file to the page, add it in TWO places: this `paths`
+#   list AND the `cp` copy list in the deploy job below.
 on:
   push:
     branches: [main]
     paths:
       - "src/landing-page/**"
-      - "docs/media/**"
+      - "docs/media/wordmark.png"
+      - "docs/media/cli-home.png"
+      - "docs/media/cli-model.png"
+      - "docs/media/cli-player.png"
+      - "docs/media/dashboard.png"
+      - "docs/media/sample-read.wav"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -20,6 +33,9 @@ concurrency:
 
 jobs:
   deploy:
+    # Belt-and-suspenders: only ever publish from `main`, even on a manual
+    # workflow_dispatch (which can be triggered from any branch).
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

@@ -49,9 +49,12 @@ readback/
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── .github/workflows/
-│   └── pages.yml              # deploys src/landing-page/ to GitHub Pages on push
-│                              # to main; copies wordmark + CLI/dashboard shots +
-│                              # sample WAV from docs/media/ into the artifact
+│   └── pages.yml              # deploys src/landing-page/ to GitHub Pages — ONLY on
+│                              # push to main (i.e. after a PR merges) AND only when
+│                              # the page or one of its exact media files changed
+│                              # (narrow `paths`); job gated to main. Copies wordmark
+│                              # + CLI/dashboard shots + sample WAV from docs/media/.
+│                              # ⚠ new page media → add to BOTH `paths` + the cp list
 ├── docs/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide

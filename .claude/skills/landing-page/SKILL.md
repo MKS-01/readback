@@ -39,6 +39,21 @@ do and why is it nice" — only update sections the change actually affects.
 Keep the voice: terminal-first, lowercase headings prefixed `##`, Ghost palette,
 concise. Match the surrounding markup exactly — this page has no framework.
 
+### The timeline (`.timeline`, "How it took shape")
+
+This section is **derived from [JOURNEY.md](../../../docs/JOURNEY.md) §1's version
+timeline** — the canonical source. Keep it in sync:
+
+- **On a version bump / big milestone:** add a `.tl-item` (or update the last one)
+  mirroring the JOURNEY §1 bullet — `<span class="tl-tag">vX.Y · short</span>`, a
+  one-line `<h3>`, one `<p>`. Move `.cur` (filled dot) to the newest item.
+- **Milestones only** — big features + decisions/pivots, not commits. If it isn't
+  in JOURNEY §1, it probably doesn't belong here either.
+- Each `<li>` is `class="tl-item reveal"` so it scroll-animates via the existing
+  `IntersectionObserver`. No image; the `.tl-dot` is a CSS dot on the rail.
+- It **replaced** the old "The story" prose — fold any narrative into the first
+  one or two entries (the origin), don't re-add a separate story section.
+
 ## 3. Screenshots — pull from `docs/media/`
 
 `docs/media/` is the **canonical** image source (the README uses it too). The
@@ -50,9 +65,10 @@ page references images as `media/<file>` (served flat by the Pages workflow).
 - The crossfade (`#shots`) is **slide count–sensitive**: each `<img class="slide">`
   needs a matching `.dot` button *and* a `data-caption`. Add/remove all three
   together or the dots desync (the JS maps `slides[i]` ↔ `dots[i]`).
-- ⚠ **Add every newly-referenced `media/<file>` to the Pages workflow's copy
-  list** in `.github/workflows/pages.yml` — the page only renders an image on the
-  live site if the workflow copied it into `_site/media/`. Missing = broken image.
+- ⚠ **Add every newly-referenced `media/<file>` to `.github/workflows/pages.yml`
+  in TWO places**: (1) the `paths:` trigger (so a change to it actually fires a
+  deploy) and (2) the `cp` copy list (so it lands in `_site/media/`). Miss the
+  copy list → broken image; miss `paths` → the page won't redeploy when it changes.
 - Update `og:image` if a better hero shot landed.
 
 ## 4. Keep the aesthetic + gotchas
@@ -89,11 +105,17 @@ page** — it's the public front door.
 
 ## 6. Deploy (GitHub Pages)
 
-Deployment is automatic: `.github/workflows/pages.yml` publishes
-`src/landing-page/` to `mks-01.github.io/readback` on **push to `main`** when the
-push touches `src/landing-page/**`, `docs/media/**`, or the workflow itself.
-Nothing to run by hand — just merge to main and watch the Action go green
-(`gh run watch`). Verify the live URL returns 200 and the new images load.
+Deployment is automatic but **gated by a rule** (`.github/workflows/pages.yml`):
+it publishes `src/landing-page/` to `mks-01.github.io/readback` **only on push to
+`main`** (i.e. after a PR merges — never from a feature branch) **and only when
+the page itself or one of its exact media files changed** (the narrow `paths:`
+list). Unrelated pushes — including `docs/media/` files the page doesn't ship —
+don't redeploy. The deploy job is also `if: github.ref == 'refs/heads/main'`, so a
+manual `workflow_dispatch` still only publishes from main.
+
+So: **merge to main**, then watch the Action go green (`gh run watch`). Verify the
+live URL returns 200 and the new images load. (On a feature branch / PR, nothing
+deploys — that's intended.)
 
 ## 7. Done check
 
