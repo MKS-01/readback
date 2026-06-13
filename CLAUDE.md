@@ -291,9 +291,19 @@ readback/
   search is `LIKE %q%` over title/summary/excerpt/source_url; sort is
   `created_at ASC|DESC`.
 - **Dashboard** (`src/dashboard/`): Vue 3 + Vite + TS, built with **Bun**
-  (`bun run build` → `dist/`, ~27 KB gz). A pure REST + static client — no WS,
+  (`bun run build` → `dist/`, ~28 KB gz). A pure REST + static client — no WS,
   no Python at read time. One shared `<audio>` element (single read plays at a
-  time); debounced search (220 ms); delete is confirm-then-fire. Palette + fonts
+  time); the active card expands into a **full player** — seekable bar
+  (click-to-seek), `elapsed / total`, ±5 s skip buttons, pause/resume/replay,
+  and **space / ←→ keyboard parity** with the CLI (ignored while the search box
+  is focused). Debounced search (220 ms); delete is confirm-then-fire.
+- **Synced transcript = CLI parity** (`ReadCard`): a *playing Summary* read shows
+  its summary with word-by-word **accent-blue highlight**, timed exactly like
+  `cli/.../PlayerView.tsx` — no per-word timestamps exist, so each word's share
+  of the duration is **proportional to its char count** (`target =
+  elapsed/total × totalCharWeight`; a word goes blue once its cumulative weight
+  passes `target`). Web wrapping is CSS, so no manual line-splitting is needed
+  (the CLI splits by hand only to dodge an ink ANSI-reset bug). Palette + fonts
   (IBM Plex Mono / Martian Mono) lifted from `site/style.css` — visually matches
   the CLI + landing page. ⚠ Audio lives only on the Mac; the DB stores the
   absolute `audio_path` so a future Pi host can sync/proxy it (deploy deferred).

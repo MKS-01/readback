@@ -11,17 +11,32 @@ const reads = ref<Read[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
-// One shared <audio> so only one read plays at a time.
+// One shared <audio> so only one read plays at a time. The card whose id is
+// `activeId` shows the expanded player (controls + synced transcript).
 const audio = new Audio();
-const playingId = ref<string | null>(null);
-const progress = ref(0);
+const activeId = ref<string | null>(null);
+const paused = ref(true);
+const finished = ref(false);
+const elapsed = ref(0);
+const duration = ref(0);
 
 audio.addEventListener("timeupdate", () => {
-  progress.value = audio.duration ? audio.currentTime / audio.duration : 0;
+  elapsed.value = audio.currentTime;
+});
+audio.addEventListener("durationchange", () => {
+  if (isFinite(audio.duration)) duration.value = audio.duration;
+});
+audio.addEventListener("play", () => {
+  paused.value = false;
+  finished.value = false;
+});
+audio.addEventListener("pause", () => {
+  paused.value = true;
 });
 audio.addEventListener("ended", () => {
-  playingId.value = null;
-  progress.value = 0;
+  finished.value = true;
+  paused.value = true;
+  elapsed.value = duration.value;
 });
 
 async function load() {
@@ -44,25 +59,44 @@ watch(q, () => {
 });
 watch(sort, load);
 
-function onPlay(read: Read) {
-  if (playingId.value === read.id) {
-    if (audio.paused) audio.play();
-    else {
+function play(read: Read) {
+  if (activeId.value === read.id) {
+    // Same card: replay if finished, else toggle pause/resume.
+    if (finished.value) {
+      audio.currentTime = 0;
+      audio.play();
+    } else if (audio.paused) {
+      audio.play();
+    } else {
       audio.pause();
-      playingId.value = null; // paused reads as "not playing"
     }
     return;
   }
+  // Switch to a different read.
   audio.src = audioUrl(read.audio_filename);
-  audio.currentTime = 0;
+  elapsed.value = 0;
+  duration.value = read.duration_sec; // until real metadata loads
+  finished.value = false;
+  activeId.value = read.id;
   audio.play();
-  playingId.value = read.id;
+}
+
+function seek(fraction: number) {
+  const total = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : duration.value;
+  if (total > 0) audio.currentTime = Math.max(0, Math.min(1, fraction)) * total;
+  if (finished.value && fraction < 1) audio.play(); // scrubbing back un-finishes
+}
+
+function skip(deltaSec: number) {
+  const total = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : duration.value;
+  audio.currentTime = Math.max(0, Math.min(total, audio.currentTime + deltaSec));
+  if (finished.value && deltaSec < 0) audio.play();
 }
 
 async function onDelete(read: Read) {
-  if (playingId.value === read.id) {
+  if (activeId.value === read.id) {
     audio.pause();
-    playingId.value = null;
+    activeId.value = null;
   }
   try {
     await deleteRead(read.id);
@@ -72,9 +106,35 @@ async function onDelete(read: Read) {
   }
 }
 
-onMounted(load);
+// Keyboard parity with the CLI player: space = pause/resume (replay if finished),
+// ←/→ = seek ±5 s. Ignored while typing in the search box.
+function onKey(e: KeyboardEvent) {
+  if (!activeId.value) return;
+  const t = e.target as HTMLElement | null;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+  if (e.key === " ") {
+    e.preventDefault();
+    if (finished.value) {
+      audio.currentTime = 0;
+      audio.play();
+    } else if (audio.paused) audio.play();
+    else audio.pause();
+  } else if (e.key === "ArrowLeft") {
+    e.preventDefault();
+    skip(-5);
+  } else if (e.key === "ArrowRight") {
+    e.preventDefault();
+    skip(5);
+  }
+}
+
+onMounted(() => {
+  load();
+  window.addEventListener("keydown", onKey);
+});
 onBeforeUnmount(() => {
   clearTimeout(timer);
+  window.removeEventListener("keydown", onKey);
   audio.pause();
 });
 </script>
@@ -106,9 +166,14 @@ onBeforeUnmount(() => {
           v-for="read in reads"
           :key="read.id"
           :read="read"
-          :playing="playingId === read.id"
-          :progress="progress"
-          @play="onPlay"
+          :active="activeId === read.id"
+          :paused="paused"
+          :finished="finished"
+          :elapsed="activeId === read.id ? elapsed : 0"
+          :duration="activeId === read.id ? duration : read.duration_sec"
+          @play="play"
+          @seek="seek"
+          @skip="skip"
           @delete="onDelete"
         />
       </div>

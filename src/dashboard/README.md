@@ -8,6 +8,13 @@ It's a pure REST + static client — no WebSocket, no Python changes. Same desig
 system as the CLI and landing page (Ghost palette + IBM Plex Mono / Martian
 Mono).
 
+Playing a read expands its card into a full player — seekable bar (click to
+seek), `elapsed / total`, ±5 s skips, pause/resume/replay, and **space / ←→**
+keyboard shortcuts (mirroring the CLI). A playing **Summary** read shows its
+summary as a **synced karaoke transcript** (words highlight in accent blue in
+time with the audio), using the same char-count-proportional timing as the CLI
+player.
+
 ## Develop
 
 ```bash

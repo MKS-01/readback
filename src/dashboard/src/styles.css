@@ -223,19 +223,92 @@ button { font: inherit; cursor: pointer; }
 .actions button.danger:hover { color: var(--red); }
 .actions button.confirm { color: var(--red); }
 
-/* progress bar under a playing card */
-.bar {
-  height: 2px;
-  background: var(--line);
+/* active card — the one driving the shared player */
+.card.active { background: var(--panel); box-shadow: inset 2px 0 0 var(--accent); }
+.card.active .play.on { background: var(--accent); color: var(--bg); }
+
+/* ── synced transcript (karaoke) ─────────────────────────── */
+/* Mirrors the CLI: spoken words in accent blue, the rest dim. */
+.transcript {
+  font-size: 13.5px;
+  margin-top: 10px;
+  line-height: 1.75;
+  color: var(--dim);
+}
+
+.transcript .spoken { color: var(--accent); }
+
+/* ── player controls (active card only) ──────────────────── */
+.player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-top: 14px;
 }
 
-.bar > span {
-  display: block;
-  height: 100%;
+.player .t {
+  font-size: 12px;
+  color: var(--text);
+  min-width: 34px;
+  flex-shrink: 0;
+}
+
+.player .t.dim { color: var(--dim); text-align: right; }
+
+.track {
+  flex: 1;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* the visible rail sits inside the taller hit area */
+.track::before {
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 3px;
+  background: var(--line);
+}
+
+.track { position: relative; }
+
+.fill {
+  position: relative;
+  height: 3px;
   background: var(--accent);
   width: 0;
+  min-width: 1px;
 }
+
+.knob {
+  position: absolute;
+  right: -4px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  transform: translateY(-50%);
+  background: var(--accent);
+  border-radius: 50%;
+}
+
+.skips {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.skips button {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 11.5px;
+  padding: 3px 8px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.skips button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── footer ──────────────────────────────────────────────── */
 
