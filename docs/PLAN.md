@@ -8,9 +8,13 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ## 2026-06-13 — Library dashboard (persist reads + Vue web UI)
 
-**Status: done** — branch `feat/dashboard`. A SQLite library that records
+**Status: done** — branch `feat/dashboard`, PR #12. A SQLite library that records
 every synthesized read, plus a Vue 3 web dashboard to search, sort, and replay
 the audio anytime. Local env only; Pi/remote deploy deferred.
+
+Original concept sketch (the brief that kicked this off):
+
+![Dashboard concept sketch](media/dashboard-plan.png)
 
 **Shipped (2026-06-13):** `src/readback/library.py` (`Library` over stdlib
 sqlite3 — per-call connections, `add/list/get/delete`); persist in
@@ -26,6 +30,21 @@ title (`pelican`) + summary (`terminal`), `GET /{id}`, `GET /` serves the SPA
 (200 text/html), `/audio/{wav}` 200, `DELETE` removed both row and WAV (404 on
 unknown id/get); Full-mode excerpt vs Summary-mode summary both stored; seed
 rows cleaned up after. Per-read persist + CLI path unchanged.
+**Follow-ups (same day):** the active card grew into a **full player** —
+click-to-seek bar, `elapsed / total`, ±5 s skips, pause/resume/replay, and
+`space` + `←/→` keyboard parity with the CLI (ignored while the search box is
+focused); a playing **Summary** read shows a **synced karaoke transcript**
+(word-by-word accent-blue highlight, char-count-proportional timing lifted from
+`cli/.../PlayerView.tsx`). Fixed a layout bug where Vue's whitespace-condensing
+stripped the inter-word spaces in the transcript (words glued together +
+overflowed the card) — render two segments + dynamic joiner space, plus
+`overflow-wrap: anywhere` guards; verified via headless-Chrome CDP
+(`scrollWidth == clientWidth`). Added `docs/media/dashboard.png` (real capture
+of list + active player + blue transcript) to README + dashboard README; README
+gained a "Why generation stays on the CLI" rationale (heavy LLM+TTS = on-demand
+CLI work; replay = model-free dashboard path) mirrored into ARCHITECTURE §1/§5.
+**Released v2.1.0** — bumped all four anchors (pyproject / `__init__` /
+cli+dashboard `package.json`) + CLAUDE/ARCHITECTURE version labels.
 **Deferred:** Pi/remote deploy + Mac→Pi audio sync; backfill of pre-existing
 orphan WAVs; WAV auto-rotation (manual delete only).
 
