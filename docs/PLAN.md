@@ -8,9 +8,26 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ## 2026-06-13 — Library dashboard (persist reads + Vue web UI)
 
-**Status: in progress** — branch `feat/dashboard`. A SQLite library that records
+**Status: done** — branch `feat/dashboard`. A SQLite library that records
 every synthesized read, plus a Vue 3 web dashboard to search, sort, and replay
 the audio anytime. Local env only; Pi/remote deploy deferred.
+
+**Shipped (2026-06-13):** `src/readback/library.py` (`Library` over stdlib
+sqlite3 — per-call connections, `add/list/get/delete`); persist in
+`_run_read_job` step 4b (best-effort, logged); `ReaderConfig.library_db`
+(default `~/Desktop/C0D3/readback-audio-db/library.db`, resolved in `load()`);
+REST `GET /api/library?q=&sort=`, `GET /api/library/{id}`,
+`DELETE /api/library/{id}`; built dashboard mounted at `/` when present.
+`src/dashboard/` = Vue 3 + Vite + TS (App/SearchBar/SortToggle/ReadCard, one
+shared `<audio>`, debounced search, delete-confirm), Ghost palette + IBM Plex
+Mono / Martian Mono — `bun run build` clean (vue-tsc, ~27 KB gz).
+**Verified:** seeded the real DB → list newest/oldest ordering, `q=` search over
+title (`pelican`) + summary (`terminal`), `GET /{id}`, `GET /` serves the SPA
+(200 text/html), `/audio/{wav}` 200, `DELETE` removed both row and WAV (404 on
+unknown id/get); Full-mode excerpt vs Summary-mode summary both stored; seed
+rows cleaned up after. Per-read persist + CLI path unchanged.
+**Deferred:** Pi/remote deploy + Mac→Pi audio sync; backfill of pre-existing
+orphan WAVs; WAV auto-rotation (manual delete only).
 
 ### Context
 

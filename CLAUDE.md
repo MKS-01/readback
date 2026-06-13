@@ -35,8 +35,9 @@ gotchas, and exact knobs.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +
   clone-condition voices + optional LoRA fine-tuning. English-best.
-- **Server**: FastAPI + WebSocket, single `/ws` endpoint. No browser UI — the
-  server is a pure backend for the CLI client.
+- **Server**: FastAPI + WebSocket (`/ws`) for live reads, plus a small REST
+  surface (config / models / read-library). Two clients: the terminal CLI (the
+  sole `/ws` consumer) and the web dashboard (REST + static, served at `/`).
 - **Terminal CLI**: Bun + TypeScript + Ink (React for CLIs) in `src/cli/` — the sole
   client of the `/ws` protocol; `afplay` playback, macOS-only.
 
@@ -70,6 +71,10 @@ readback/
     ├── voice/                 # reference clips for clone voices; *.wav gitignored
     │                          # (exceptions: committed voice_kay_default.wav +
     │                          # voice_kay_long.wav, the active kay reference)
+    ├── dashboard/             # web library UI (Vue 3 + Vite + TS); REST + static client
+    │                          # (search/sort/replay/delete past reads), NOT a /ws client.
+    │                          # src/{App,api,styles}.* + components/; build → dist/ (gitignored),
+    │                          # which server.py mounts at / when present. Ghost palette reused.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
     │   ├── package.json       # readback-cli 2.0.0; ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
@@ -81,7 +86,9 @@ readback/
     └── readback/              # python package (src layout; wheel packages src/readback)
         ├── __main__.py        # `readback` CLI: argparse --host/--port/--model/--config, uvicorn boot
         ├── config.py          # Pydantic config: OllamaConfig / CsmTTSConfig (+ CsmVoicePrompt)
-        │                      # / ReaderConfig; load() resolves clone wav + lora paths
+        │                      # / ReaderConfig; load() resolves clone wav + lora + library_db
+        ├── library.py         # SQLite read library (stdlib sqlite3): Library class
+        │                      # (add/list/get/delete over a `reads` table) — powers the dashboard
         ├── llm/
         │   ├── client.py      # LLMClient.oneshot() for summary + the <think> stripper
         │   └── models.py      # Ollama model listing + RAM-fit verdict (GET /api/models)
@@ -114,7 +121,19 @@ readback/
   source page).
 - Models (`Synthesizer` + `LLMClient`) load lazily on first read via
   `ReaderModels.ensure_loaded` (downloads the CSM checkpoint the first time).
-- No browser UI — `GET /` returns 404. The server is a pure WS/API backend.
+- **Read library persist.** Step 4b (after `write_wav`) records the read in the
+  SQLite library via `library.add(...)` (best-effort — wrapped in try/except +
+  logged; a DB failure must never break playback). Full mode stores `excerpt`
+  (article text[:300], summary=None); Summary mode stores both. `id` = the WAV's
+  uuid stem.
+- **Library REST** (read-only + delete, all `asyncio.to_thread` over blocking
+  sqlite): `GET /api/library?q=&sort=newest|oldest`, `GET /api/library/{id}`,
+  `DELETE /api/library/{id}` (deletes the row, then unlinks the WAV).
+- **Browser UI is back — for the dashboard only.** When `src/dashboard/dist`
+  exists it's mounted at `/` (`StaticFiles(html=True)`, registered LAST so
+  `/api`/`/audio`/`/ws` win); absent (dev) → `GET /` is 404 and Vite serves the
+  SPA on :5173, proxying to :8000. This is the lone exception to the v2.0.0
+  "pure backend" rule — a separate read-only library, NOT the removed read-UI.
 
 ### Pipeline (`pipeline/`)
 
@@ -186,9 +205,11 @@ readback/
 - `CsmTTSConfig{precision, speaker, temperature, top_k, max_audio_length_ms,
   ref_max_sec, voices, lora_path}`. The checkpoint (`senstella/csm-1b-mlx`) is
   fixed in the engine.
-- `ReaderConfig{output_dir, default_mode, gap_sec, summary_max_chars}`.
-- `Config.load()` resolves clone `wav` paths and `lora_path` relative to the
-  config file's directory.
+- `ReaderConfig{output_dir, default_mode, gap_sec, summary_max_chars,
+  library_db}`. `library_db` defaults to
+  `~/Desktop/C0D3/readback-audio-db/library.db` (the dashboard's SQLite store).
+- `Config.load()` resolves clone `wav` paths, `lora_path`, and `library_db`
+  relative to the config file's directory (`~` expands; absolute paths as-is).
 
 ### LLM (`llm/client.py`)
 
@@ -257,6 +278,26 @@ readback/
   progress fills, transcript highlight). Banner = half-block wordmark in
   `Header.tsx`; tagline + hints render on the input screen only.
 
+### Read library & dashboard (`library.py`, `src/dashboard/`)
+
+- **`Library`** (`library.py`): stdlib `sqlite3`, no ORM, no new dependency. One
+  `reads` table keyed by the WAV's uuid stem (`id`); columns: `title, summary,
+  excerpt, source_url, mode, voice, duration_sec, word_count, audio_filename,
+  audio_path, created_at`. **Connections are opened per call** (`_connect`) so
+  it's safe across asyncio's threadpool — every call site wraps it in
+  `asyncio.to_thread`. `CREATE TABLE IF NOT EXISTS` on init (idempotent).
+  `delete()` returns the `audio_path` so the server can unlink the WAV.
+- `add()` is `INSERT OR REPLACE` (re-reads with the same id overwrite). `list()`
+  search is `LIKE %q%` over title/summary/excerpt/source_url; sort is
+  `created_at ASC|DESC`.
+- **Dashboard** (`src/dashboard/`): Vue 3 + Vite + TS, built with **Bun**
+  (`bun run build` → `dist/`, ~27 KB gz). A pure REST + static client — no WS,
+  no Python at read time. One shared `<audio>` element (single read plays at a
+  time); debounced search (220 ms); delete is confirm-then-fire. Palette + fonts
+  (IBM Plex Mono / Martian Mono) lifted from `site/style.css` — visually matches
+  the CLI + landing page. ⚠ Audio lives only on the Mac; the DB stores the
+  absolute `audio_path` so a future Pi host can sync/proxy it (deploy deferred).
+
 ## Things that look like bugs but aren't
 
 - **First synth is slow.** One-time CSM graph warm-up + ~6 GB checkpoint download
@@ -275,7 +316,8 @@ readback/
 
 ## Remaining cleanup candidates (tracked in README.md → Roadmap)
 
-- Generated WAVs in `~/.readback/reader/` grow unbounded (no rotation yet).
+- Generated WAVs in `~/.readback/reader/` grow unbounded (no *auto*-rotation
+  yet — the dashboard's delete removes a row + its WAV manually).
 
 The v0.8.0 cleanup removed the dead `tools/` module, the streaming/tool-calling
 LLM plumbing, the legacy vanilla-JS static bundle, the inert `CsmTTSConfig`

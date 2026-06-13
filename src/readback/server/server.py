@@ -19,6 +19,13 @@ WS protocol (/ws):
            {"type":"done", "title","audio_url","duration_sec","word_count","mode",
                            "text": str|None (summary text for transcript; None in full mode)}
            {"type":"error", "message": str}
+
+Each finished read is also recorded in the SQLite read library (library.py) and
+exposed over REST for the web dashboard (src/dashboard):
+  GET    /api/library?q=&sort=newest|oldest   # search + sort the recorded reads
+  GET    /api/library/{id}                     # one full record
+  DELETE /api/library/{id}                     # remove the row + its WAV
+The built dashboard (src/dashboard/dist) is mounted at / when present.
 """
 from __future__ import annotations
 

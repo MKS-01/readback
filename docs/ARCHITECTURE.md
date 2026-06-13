@@ -61,6 +61,11 @@ responsive while a read job runs because all heavy work is pushed off it:
 4. **Serve** — the concatenated float32 buffer is written to
    `reader.output_dir` (`~/.readback/reader/<uuid>.wav`) and served at
    `/audio/<id>.wav` for playback and download.
+5. **Record** — the read's metadata (title, summary/excerpt, source URL, mode,
+   voice, duration, word count, WAV filename + absolute path, timestamp) is
+   written to the SQLite **read library** (`library.py`, `reader.library_db`).
+   Best-effort: a DB failure is logged, never breaks playback. This is what the
+   web dashboard lists and replays.
 
 ## 4. TTS engine (`src/readback/tts/`)
 
@@ -96,9 +101,14 @@ reload. The switch is process-wide and not written back to `config.yaml`.
 
 ## 6. Server layer (`src/readback/server/`)
 
-- **Server** (`server.py`) — FastAPI; a pure WS/API backend (no HTML — `GET /`
-  is 404). Serves `/ws`, `GET /api/config`, `GET /api/models`, and the
-  generated audio under `/audio/`.
+- **Server** (`server.py`) — FastAPI. Serves `/ws`, `GET /api/config`,
+  `GET /api/models`, the read-library REST routes, and the generated audio under
+  `/audio/`. It additionally mounts the **built dashboard at `/`** when
+  `src/dashboard/dist` exists (registered last, so the API/audio/ws routes win);
+  in dev that dir is absent so `GET /` is 404 and Vite serves the SPA on :5173.
+- **Read library REST** — `GET /api/library?q=&sort=newest|oldest`,
+  `GET /api/library/{id}`, `DELETE /api/library/{id}` (deletes the row + its
+  WAV). All wrap blocking sqlite in `asyncio.to_thread`.
 - **WS protocol** —
   - client → `read {url, mode, voice?, model?}`, `cancel` (`model` swaps the
     summary LLM for this and later reads; validated against installed Ollama
@@ -113,6 +123,10 @@ reload. The switch is process-wide and not written back to `config.yaml`.
   kills it on exit only if it spawned it), and plays the finished WAV through
   `afplay`. Its WS client and player are singletons outside the React tree so
   re-renders never tear down the socket.
+- **Web dashboard** (`src/dashboard/`) — Vue 3 + Vite + TS; a *second*, separate
+  client that speaks **REST only** (not WS): lists/searches/sorts the read
+  library, replays each WAV via an HTML5 `<audio>`, and can delete reads. Built
+  to static files (served by the server at `/`, or by a future Pi host).
 
 ## 7. Entry point (`src/readback/__main__.py`)
 
@@ -129,3 +143,6 @@ spawns it with cwd = repo root so the bundled config and its relative
   (`tts.csm.lora_path` + `src/finetune/`); no code change.
 - **Different extractor / summary prompt** — swap inside `pipeline/extract.py` /
   `pipeline/summarize.py`; the rest of the pipeline is unaffected.
+- **New client** — talk the WS protocol (live reads, like the CLI) or just the
+  REST library routes (replay past reads, like the dashboard); the server adds
+  no per-client code.

@@ -110,6 +110,27 @@ are fast. See [SETUP.md](docs/SETUP.md) for verification, flags, and troubleshoo
 
 ---
 
+## Library dashboard
+
+Every read is recorded in a small local SQLite library, so you can **replay any
+past read anytime** from a web dashboard — search by title/summary/URL, sort
+newest↔oldest, expand the summary, open the original, or delete a read (which
+also removes its WAV). Same Ghost look as the CLI and landing page; it's a
+lightweight Vue 3 SPA, a pure REST + static client (no new Python at read time).
+
+```bash
+cd src/dashboard && bun install && bun run build   # → dist/
+readback                                            # then open http://127.0.0.1:8000/
+```
+
+Built `dist/` is served by the same `readback` process at `/`; for development,
+`bun run dev` runs Vite on `:5173` and proxies to the server. The audio stays on
+your Mac (the DB stores each WAV's absolute path), so a future home-server /
+[Pi](https://github.com/MKS-01/pizow) host can serve the UI while the Mac keeps
+making the audio. Details: [`src/dashboard/README.md`](src/dashboard/README.md).
+
+---
+
 ## How it works
 
 The terminal CLI talks to a local Python server over WebSocket — the same
@@ -214,6 +235,7 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `reader.output_dir` | Where generated WAVs are written/served | `~/.readback/reader` |
 | `reader.gap_sec` | Silence inserted between synthesized chunks | `0.18` |
 | `reader.summary_max_chars` | Cap article text fed to the LLM in Summary mode | `16000` |
+| `reader.library_db` | SQLite library of past reads (powers the dashboard) | `~/Desktop/C0D3/readback-audio-db/library.db` |
 
 Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
@@ -231,6 +253,7 @@ Everything beyond this README lives in [`docs/`](docs/):
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System view — pipeline, concurrency model, WS protocol, extension points |
 | [`docs/PLAN.md`](docs/PLAN.md) | Planning history — every feature/refactor plan with status, newest first |
 | [`src/cli/README.md`](src/cli/README.md) | Terminal client — keys, slash commands, player internals |
+| [`src/dashboard/README.md`](src/dashboard/README.md) | Web dashboard — library UI (Vue 3), dev/build/deploy |
 | [`src/finetune/README.md`](src/finetune/README.md) | LoRA voice fine-tune pipeline (data prep → training → config) |
 
 ---
@@ -254,12 +277,12 @@ Everything beyond this README lives in [`docs/`](docs/):
 - [ ] Extracted-article preview (title + word count + est. listen time) before synthesizing — both clients currently show only the phase until `done`
 - [ ] Progress: % + estimated time remaining (both clients already show a per-chunk bar; the CLI shows done/total)
 - [ ] Download filename = sanitized article title (the WAV is served/saved as a uuid)
-- [ ] History of recent reads, backed by the saved WAVs
+- [x] **History of recent reads** — the [library dashboard](#library-dashboard) lists/searches/replays every past read, backed by the saved WAVs (a SQLite library; 2026-06-13)
 - [ ] Nicer error states (paywalled / JS-only / fetch-blocked pages)
 
 **Housekeeping & nice-to-have**
 
-- [ ] Generated-WAV rotation — `~/.readback/reader/` grows unbounded; keep N most-recent / age-out
+- [ ] Generated-WAV *auto*-rotation — `~/.readback/reader/` grows unbounded; keep N most-recent / age-out (the dashboard already supports manual delete, which removes the row + WAV)
 - [ ] Cache by (url, mode, voice) so re-reading is instant
 - [ ] Chunked summarization for very long articles (Summary mode truncates to `summary_max_chars`)
 - [ ] Paste raw text (not just a URL) as an input source
