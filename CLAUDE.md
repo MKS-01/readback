@@ -49,15 +49,9 @@ readback/
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── .github/workflows/
-│   └── pages.yml              # deploys site/ to GitHub Pages on push to main;
-│                              # copies wordmark + 3 CLI screenshots + sample WAV
-│                              # from docs/media/ into the artifact
-├── site/                      # static landing page (mks-01.github.io/readback —
-│                              # also the repo's About link). index.html +
-│                              # style.css only, vanilla JS inline (waveform
-│                              # player, screenshot crossfade, scroll reveal) —
-│                              # NOT a web client; site/media/ is gitignored
-│                              # (local preview copy of docs/media)
+│   └── pages.yml              # deploys src/landing-page/ to GitHub Pages on push
+│                              # to main; copies wordmark + CLI/dashboard shots +
+│                              # sample WAV from docs/media/ into the artifact
 ├── docs/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide
@@ -76,6 +70,11 @@ readback/
     │                          # (search/sort/replay/delete past reads), NOT a /ws client.
     │                          # src/{App,api,styles}.* + components/; build → dist/ (gitignored),
     │                          # which server.py mounts at / when present. Ghost palette reused.
+    ├── landing-page/          # static marketing site (mks-01.github.io/readback) —
+    │                          # index.html + style.css, vanilla inline JS (waveform
+    │                          # player, screenshot crossfade, scroll reveal). NOT a web
+    │                          # client; media/ gitignored (local preview of docs/media).
+    │                          # Deployed by pages.yml; refresh via the landing-page skill.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
     │   ├── package.json       # readback-cli 3.0.0; ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
@@ -321,7 +320,7 @@ readback/
   elapsed/total × totalCharWeight`; a word goes blue once its cumulative weight
   passes `target`). Web wrapping is CSS, so no manual line-splitting is needed
   (the CLI splits by hand only to dodge an ink ANSI-reset bug). Palette + fonts
-  (IBM Plex Mono / Martian Mono) lifted from `site/style.css` — visually matches
+  (IBM Plex Mono / Martian Mono) lifted from `src/landing-page/style.css` — visually matches
   the CLI + landing page. ⚠ Audio lives only on the Mac; the DB stores the
   absolute `audio_path` so a future Pi host can sync/proxy it (deploy deferred).
 

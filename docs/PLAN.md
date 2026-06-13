@@ -6,6 +6,52 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-13 — Landing page → `src/landing-page/` + a landing-page skill
+
+**Status: done** — on branch `feat/dashboard` (PR #12). Repo reorg + a new skill;
+landing-page *content* refresh deferred.
+
+### Context
+
+`site/` lived at the repo root (the v2.0.0-era "marketing, not a client" call).
+With `src/cli`, `src/dashboard`, etc. all grouped under `src/`, the landing page
+belongs there too. Also: the page is stale vs v3.0.0 (all-CLI, no dashboard), and
+there was no repeatable way to keep it current — so add a skill for that.
+
+### What shipped
+
+1. **Moved `site/` → `src/landing-page/`** (`git mv` index.html + style.css; the
+   gitignored local `media/` preview copy moved alongside). Updated every
+   reference in lockstep: `.gitignore` (`src/landing-page/media/`),
+   `.github/workflows/pages.yml` (trigger `paths: src/landing-page/**`,
+   `cp -R src/landing-page/.`, **+ `dashboard.png` added to the media copy list**),
+   and the CLAUDE.md tree + `style.css` mentions.
+2. **New `.claude/skills/landing-page/` skill** — "doc-sync for the marketing
+   site": maps shipped changes → page sections, pulls screenshots from
+   `docs/media/`, enforces the crossfade slide/dot/caption parity + the pages.yml
+   media-copy rule, mandates a local serve+screenshot review, and notes the Pages
+   auto-deploy on push to main.
+3. **Kept GitHub Pages auto-deploy** — workflow repointed at the new path.
+
+### Out of scope (deferred)
+
+- **Landing-page content refresh** for v3.0.0 (dashboard section, `dashboard.png`
+  screenshot, two-client "How it works", persistence in Features/Architecture) —
+  done in a later pass via the new skill.
+
+### Verification
+
+1. Move clean: `git ls-files src/landing-page` shows index.html + style.css; root
+   `site/` gone. ✓
+2. Local render: `python3 -m http.server -d src/landing-page` → `/`, `style.css`,
+   `media/*` all 200; headless screenshot renders correctly (no broken images /
+   overflow). ✓
+3. No stale `site/` references in current docs/workflow (PLAN history excepted). ✓
+4. Pages: after merge to main, the workflow runs (path trigger fires) and the live
+   site returns 200. *(verify post-merge)*
+
+---
+
 ## 2026-06-13 — Library dashboard (persist reads + Vue web UI)
 
 **Status: done** — branch `feat/dashboard`, PR #12. A SQLite library that records

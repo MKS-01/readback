@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "site/**"
+      - "src/landing-page/**"
       - "docs/media/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -30,12 +30,13 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p _site
-          cp -R site/. _site/
+          cp -R src/landing-page/. _site/
           mkdir -p _site/media
           cp docs/media/wordmark.png \
              docs/media/cli-player.png \
              docs/media/cli-home.png \
              docs/media/cli-model.png \
+             docs/media/dashboard.png \
              docs/media/sample-read.wav \
              _site/media/
 
