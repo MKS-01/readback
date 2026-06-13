@@ -45,7 +45,7 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v2.0.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
+├── pyproject.toml             # v2.1.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── .github/workflows/
@@ -76,7 +76,7 @@ readback/
     │                          # src/{App,api,styles}.* + components/; build → dist/ (gitignored),
     │                          # which server.py mounts at / when present. Ghost palette reused.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
-    │   ├── package.json       # readback-cli 2.0.0; ink + ink-text-input
+    │   ├── package.json       # readback-cli 2.1.0; ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
     │   └── src/               # index.tsx (boot + resize repaint), app.tsx (screen
     │                          # switch), theme.ts (Ghost + BLUE accent),
@@ -352,15 +352,18 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v2.0.0** — CLI-only pivot: web frontend removed, package restructured
-(`reader/` → `pipeline/`, `web/` → `server/`), `cryptography` dep dropped,
-TLS flags removed, then the folder restructure: `src/` layout (`src/readback`,
-`src/cli`, `src/voice`, `src/finetune`) + docs collected under `docs/`
-(ARCHITECTURE / SETUP / PLAN / media). Breaking change: browser UI gone,
-`--auto-cert`/`--cert`/`--key` removed, `readback.reader.*` / `readback.web.*`
-imports gone.
-(v1.1.0: CLI model switch `/model` with RAM-fit verdicts. v1.0.0: terminal CLI
-as a `/ws` client. v0.8.0: offline article reader pivot; CSM-1B via csm-mlx;
-renamed `local-tts` → `readback`.) Set in `pyproject.toml`,
-`src/readback/__init__.py`, and `src/cli/package.json`. Bump all three when
-releasing.
+Current: **v2.1.0** — library dashboard. New `src/readback/library.py` (SQLite
+read library) + REST routes (`/api/library` list/get/delete) + persist-on-read;
+new `src/dashboard/` web UI (Vue 3 + Vite + TS — search/sort/replay/delete, full
+player + CLI-synced karaoke transcript), served at `/` when built. New config
+`reader.library_db`. Additive + backward-compatible: WS protocol and CLI
+unchanged; the v2.0.0 "no browser UI / GET / is 404" rule now has one exception
+(the built dashboard).
+(v2.0.0: CLI-only pivot — web frontend removed, package restructured to the
+`src/` layout, docs under `docs/`, TLS/`cryptography` dropped. v1.1.0: CLI
+`/model` switch with RAM-fit verdicts. v1.0.0: terminal CLI as a `/ws` client.
+v0.8.0: offline article reader pivot; CSM-1B via csm-mlx; renamed `local-tts` →
+`readback`.) Set in `pyproject.toml`, `src/readback/__init__.py`,
+`src/cli/package.json`, and `src/dashboard/package.json` — bump all four when
+releasing. The standalone CLI binary needs `src/cli/install.sh` re-run to pick
+up the new version in its banner.
