@@ -18,6 +18,7 @@ export type ServerMsg =
       voice: string;
       model: string;
       default_mode: "full" | "summary";
+      audio_dir?: string;   // where the server writes WAVs (same-machine shortcut)
     }
   | { type: "phase"; value: string }
   | { type: "progress"; done: number; total: number }

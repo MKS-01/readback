@@ -19,6 +19,14 @@ WS protocol (/ws):
            {"type":"done", "title","audio_url","duration_sec","word_count","mode",
                            "text": str|None (summary text for transcript; None in full mode)}
            {"type":"error", "message": str}
+
+Each finished read is also recorded in the SQLite read library (library.py) and
+exposed over REST for the web dashboard (src/dashboard):
+  GET    /api/library?q=&sort=newest|oldest&limit=&offset=  # paged list:
+                                               # {items, total, limit, offset}
+  GET    /api/library/{id}                     # one full record
+  DELETE /api/library/{id}                     # remove the row + its WAV
+The built dashboard (src/dashboard/dist) is mounted at / when present.
 """
 from __future__ import annotations
 
@@ -26,12 +34,15 @@ import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from readback.config import Config
+from readback.library import Library, ReadRecord
 from readback.llm.client import LLMClient
 from readback.llm.models import installed_model_names, list_models
 from readback.pipeline import ExtractError, fetch_article
@@ -39,6 +50,11 @@ from readback.pipeline.speak import synthesize_article, write_wav
 from readback.pipeline.summarize import summarize_article
 from readback.tts.csm_engine import voices_for
 from readback.tts.synthesizer import Synthesizer
+
+# The built Vue dashboard (src/dashboard/dist), if present. Mounted at / so the
+# library UI is served by the same process that makes the audio. Absent in dev
+# (Vite serves it on :5173, proxying /api + /audio here) → GET / stays 404.
+_DASHBOARD_DIST = Path(__file__).resolve().parents[2] / "dashboard" / "dist"
 
 log = logging.getLogger("readback.server")
 
@@ -74,7 +90,7 @@ class ReaderModels:
 
 async def _run_read_job(
     ws: WebSocket, models: ReaderModels, cfg: Config, payload: dict,
-    state: Optional[dict] = None,
+    library: Library, state: Optional[dict] = None,
 ) -> None:
     loop = asyncio.get_running_loop()
     # `alive` flips false the moment a send fails (client closed the tab) OR the
@@ -167,12 +183,36 @@ async def _run_read_job(
     out_dir = cfg.reader.output_dir.expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     fname = f"{uuid.uuid4().hex}.wav"
-    await asyncio.to_thread(write_wav, str(out_dir / fname), audio, synth.sample_rate)
+    audio_path = out_dir / fname
+    duration_sec = round(len(audio) / synth.sample_rate, 1)
+    await asyncio.to_thread(write_wav, str(audio_path), audio, synth.sample_rate)
+
+    # 4b) Record the read in the library (powers the dashboard). A DB hiccup must
+    # never break playback, so this is best-effort + logged.
+    try:
+        rec = ReadRecord(
+            id=audio_path.stem,
+            title=article.title,
+            summary=text if mode == "summary" else None,
+            excerpt=(article.text or "").strip()[:300],
+            source_url=url,
+            mode=mode,
+            voice=synth.current_voice,
+            duration_sec=duration_sec,
+            word_count=article.word_count,
+            audio_filename=fname,
+            audio_path=str(audio_path),
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        await asyncio.to_thread(library.add, rec)
+    except Exception:
+        log.exception("failed to record read in library")
+
     await send({
         "type": "done",
         "title": article.title,
         "audio_url": f"/audio/{fname}",
-        "duration_sec": round(len(audio) / synth.sample_rate, 1),
+        "duration_sec": duration_sec,
         "word_count": article.word_count,
         "mode": mode,
         # Spoken text for the client transcript panel — summary only (the full
@@ -186,6 +226,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
     models = ReaderModels(cfg)
     out_dir = cfg.reader.output_dir.expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
+    library = Library(cfg.reader.library_db)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -203,11 +244,42 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voice": cfg.tts.active.speaker,
             "model": cfg.ollama.model,
             "default_mode": cfg.reader.default_mode,
+            "audio_dir": str(out_dir),   # where WAVs live (CLI same-machine shortcut)
         }
 
     @app.get("/api/models")
     async def api_models():
         return await asyncio.to_thread(list_models, cfg.ollama)
+
+    # ── Library (dashboard) ──────────────────────────────────────────────
+    @app.get("/api/library")
+    async def api_library(q: str = "", sort: str = "newest", limit: int = 20, offset: int = 0):
+        sort = sort if sort in ("newest", "oldest") else "newest"
+        limit = max(1, min(limit, 100))   # cap the page size
+        offset = max(0, offset)
+        q = q.strip()
+        items = await asyncio.to_thread(library.list, q, sort, limit, offset)
+        total = await asyncio.to_thread(library.count, q)
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+    @app.get("/api/library/{read_id}")
+    async def api_library_get(read_id: str):
+        rec = await asyncio.to_thread(library.get, read_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="No such read.")
+        return rec
+
+    @app.delete("/api/library/{read_id}")
+    async def api_library_delete(read_id: str):
+        audio_path = await asyncio.to_thread(library.delete, read_id)
+        if audio_path is None:
+            raise HTTPException(status_code=404, detail="No such read.")
+        # Best-effort unlink of the WAV; the row is already gone either way.
+        try:
+            Path(audio_path).unlink(missing_ok=True)
+        except Exception:
+            log.warning("could not delete WAV %s", audio_path)
+        return {"deleted": True}
 
     @app.websocket("/ws")
     async def ws_endpoint(websocket: WebSocket):
@@ -219,6 +291,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voice": cfg.tts.active.speaker,
             "model": cfg.ollama.model,
             "default_mode": cfg.reader.default_mode,
+            "audio_dir": str(out_dir),
         })
         # The active read job runs as a background task so the receive loop stays
         # free to handle `cancel` (and disconnects) mid-synthesis.
@@ -241,7 +314,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
                     continue
                 job_state = {"alive": True}
                 job_task = asyncio.create_task(
-                    _run_read_job(websocket, models, cfg, payload, job_state)
+                    _run_read_job(websocket, models, cfg, payload, library, job_state)
                 )
 
                 def _log_job_exc(t: asyncio.Task) -> None:
@@ -259,5 +332,11 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
                 job_state["alive"] = False
             if job_task is not None and not job_task.done():
                 job_task.cancel()
+
+    # Serve the built Vue dashboard at / when present (registered last so the
+    # API/audio/ws routes above take precedence). Absent in dev → GET / stays 404.
+    if _DASHBOARD_DIST.is_dir():
+        app.mount("/", StaticFiles(directory=str(_DASHBOARD_DIST), html=True), name="dashboard")
+        log.info("serving dashboard from %s", _DASHBOARD_DIST)
 
     return app

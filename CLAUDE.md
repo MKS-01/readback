@@ -35,8 +35,9 @@ gotchas, and exact knobs.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +
   clone-condition voices + optional LoRA fine-tuning. English-best.
-- **Server**: FastAPI + WebSocket, single `/ws` endpoint. No browser UI — the
-  server is a pure backend for the CLI client.
+- **Server**: FastAPI + WebSocket (`/ws`) for live reads, plus a small REST
+  surface (config / models / read-library). Two clients: the terminal CLI (the
+  sole `/ws` consumer) and the web dashboard (REST + static, served at `/`).
 - **Terminal CLI**: Bun + TypeScript + Ink (React for CLIs) in `src/cli/` — the sole
   client of the `/ws` protocol; `afplay` playback, macOS-only.
 
@@ -44,23 +45,21 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v2.0.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
+├── pyproject.toml             # v3.0.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── .github/workflows/
-│   └── pages.yml              # deploys site/ to GitHub Pages on push to main;
-│                              # copies wordmark + 3 CLI screenshots + sample WAV
-│                              # from docs/media/ into the artifact
-├── site/                      # static landing page (mks-01.github.io/readback —
-│                              # also the repo's About link). index.html +
-│                              # style.css only, vanilla JS inline (waveform
-│                              # player, screenshot crossfade, scroll reveal) —
-│                              # NOT a web client; site/media/ is gitignored
-│                              # (local preview copy of docs/media)
+│   └── pages.yml              # deploys src/landing-page/ to GitHub Pages — ONLY on
+│                              # push to main (i.e. after a PR merges) AND only when
+│                              # the page or one of its exact media files changed
+│                              # (narrow `paths`); job gated to main. Copies wordmark
+│                              # + CLI/dashboard shots + sample WAV from docs/media/.
+│                              # ⚠ new page media → add to BOTH `paths` + the cp list
 ├── docs/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide
 │   ├── PLAN.md                # planning history (newest entry on top)
+│   ├── JOURNEY.md             # agent-first devlog (scaffold; user fills prose)
 │   └── media/                 # README screenshots + sample WAV + wordmark.png
 │                              # (brand banner; regen: make_wordmark.py — keep in
 │                              # sync with the CLI banner in Header.tsx)
@@ -70,8 +69,17 @@ readback/
     ├── voice/                 # reference clips for clone voices; *.wav gitignored
     │                          # (exceptions: committed voice_kay_default.wav +
     │                          # voice_kay_long.wav, the active kay reference)
+    ├── dashboard/             # web library UI (Vue 3 + Vite + TS); REST + static client
+    │                          # (search/sort/replay/delete past reads), NOT a /ws client.
+    │                          # src/{App,api,styles}.* + components/; build → dist/ (gitignored),
+    │                          # which server.py mounts at / when present. Ghost palette reused.
+    ├── landing-page/          # static marketing site (mks-01.github.io/readback) —
+    │                          # index.html + style.css, vanilla inline JS (waveform
+    │                          # player, screenshot crossfade, scroll reveal). NOT a web
+    │                          # client; media/ gitignored (local preview of docs/media).
+    │                          # Deployed by pages.yml; refresh via the landing-page skill.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
-    │   ├── package.json       # readback-cli 2.0.0; ink + ink-text-input
+    │   ├── package.json       # readback-cli 3.0.0; ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
     │   └── src/               # index.tsx (boot + resize repaint), app.tsx (screen
     │                          # switch), theme.ts (Ghost + BLUE accent),
@@ -81,7 +89,9 @@ readback/
     └── readback/              # python package (src layout; wheel packages src/readback)
         ├── __main__.py        # `readback` CLI: argparse --host/--port/--model/--config, uvicorn boot
         ├── config.py          # Pydantic config: OllamaConfig / CsmTTSConfig (+ CsmVoicePrompt)
-        │                      # / ReaderConfig; load() resolves clone wav + lora paths
+        │                      # / ReaderConfig; load() resolves clone wav + lora + library_db
+        ├── library.py         # SQLite read library (stdlib sqlite3): Library class
+        │                      # (add/list/get/delete over a `reads` table) — powers the dashboard
         ├── llm/
         │   ├── client.py      # LLMClient.oneshot() for summary + the <think> stripper
         │   └── models.py      # Ollama model listing + RAM-fit verdict (GET /api/models)
@@ -114,7 +124,21 @@ readback/
   source page).
 - Models (`Synthesizer` + `LLMClient`) load lazily on first read via
   `ReaderModels.ensure_loaded` (downloads the CSM checkpoint the first time).
-- No browser UI — `GET /` returns 404. The server is a pure WS/API backend.
+- **Read library persist.** Step 4b (after `write_wav`) records the read in the
+  SQLite library via `library.add(...)` (best-effort — wrapped in try/except +
+  logged; a DB failure must never break playback). Full mode stores `excerpt`
+  (article text[:300], summary=None); Summary mode stores both. `id` = the WAV's
+  uuid stem.
+- **Library REST** (read-only + delete, all `asyncio.to_thread` over blocking
+  sqlite): `GET /api/library?q=&sort=newest|oldest&limit=&offset=` →
+  **paged** `{items, total, limit, offset}` (limit capped 1–100, default 20;
+  `total` is the full match count, independent of the page),
+  `GET /api/library/{id}`, `DELETE /api/library/{id}` (row, then unlinks the WAV).
+- **Browser UI is back — for the dashboard only.** When `src/dashboard/dist`
+  exists it's mounted at `/` (`StaticFiles(html=True)`, registered LAST so
+  `/api`/`/audio`/`/ws` win); absent (dev) → `GET /` is 404 and Vite serves the
+  SPA on :5173, proxying to :8000. This is the lone exception to the v2.0.0
+  "pure backend" rule — a separate read-only library, NOT the removed read-UI.
 
 ### Pipeline (`pipeline/`)
 
@@ -186,9 +210,18 @@ readback/
 - `CsmTTSConfig{precision, speaker, temperature, top_k, max_audio_length_ms,
   ref_max_sec, voices, lora_path}`. The checkpoint (`senstella/csm-1b-mlx`) is
   fixed in the engine.
-- `ReaderConfig{output_dir, default_mode, gap_sec, summary_max_chars}`.
-- `Config.load()` resolves clone `wav` paths and `lora_path` relative to the
-  config file's directory.
+- `ReaderConfig{output_dir, default_mode, gap_sec, summary_max_chars,
+  library_db}`. `output_dir` + `library_db` default to a sibling
+  `readback-audio-db/` folder next to the repo (`../readback-audio-db/audio` and
+  `../readback-audio-db/library.db`) — audio + DB in one visible, back-up-able
+  place, NOT a hidden `~/.readback` dir. ⚠ Defaults use **`../` relative
+  notation** (no personal absolute path baked into the public repo).
+- `Config.load()` resolves clone `wav` paths + `lora_path` relative to the config
+  dir, and resolves **`output_dir` + `library_db`** the same way then `.resolve()`s
+  them to clean absolute paths (`~` expands; absolute paths as-is). The absolute
+  `output_dir` is what the server stores in each row's `audio_path` and reports as
+  `audio_dir` in `/api/config` + the WS `config` message (the CLI's same-machine
+  playback shortcut — see CLI section).
 
 ### LLM (`llm/client.py`)
 
@@ -224,8 +257,12 @@ readback/
 - **Playback = `afplay`** (macOS-only): pause/resume via **SIGSTOP/SIGCONT**;
   always SIGCONT before SIGTERM (a SIGSTOPped process can't handle SIGTERM).
   Caveats: pause flushes ~0.5 s of buffer, elapsed time is wall-clock-tracked.
-  Plays the local WAV in `~/.readback/reader/` when present, else downloads
-  from `/audio`.
+  Plays the server-written WAV directly when the file is on this machine —
+  `resolveWav` checks `<config.audio_dir>/<fname>` (the `audio_dir` the server
+  reports in its config) and falls back to downloading from `/audio` into
+  `~/.readback/cli-cache/` (a CLI-only cache, deliberately NOT the server's audio
+  dir). ⚠ The old hardcoded `~/.readback/reader/` path is gone — never reintroduce
+  it; the audio location is config-driven now.
 - **Seek (←/→ ±5 s)** despite afplay having no transport: `player.ts` parses
   the WAV's RIFF chunks, slices the PCM data at the target byte offset into
   `$TMPDIR/readback-seek-<pid>.wav`, and relaunches afplay there. Rapid
@@ -257,6 +294,39 @@ readback/
   progress fills, transcript highlight). Banner = half-block wordmark in
   `Header.tsx`; tagline + hints render on the input screen only.
 
+### Read library & dashboard (`library.py`, `src/dashboard/`)
+
+- **`Library`** (`library.py`): stdlib `sqlite3`, no ORM, no new dependency. One
+  `reads` table keyed by the WAV's uuid stem (`id`); columns: `title, summary,
+  excerpt, source_url, mode, voice, duration_sec, word_count, audio_filename,
+  audio_path, created_at`. **Connections are opened per call** (`_connect`) so
+  it's safe across asyncio's threadpool — every call site wraps it in
+  `asyncio.to_thread`. `CREATE TABLE IF NOT EXISTS` on init (idempotent).
+  `delete()` returns the `audio_path` so the server can unlink the WAV.
+- `add()` is `INSERT OR REPLACE` (re-reads with the same id overwrite). `list()`
+  search is `LIKE %q%` over title/summary/excerpt/source_url; sort is
+  `created_at ASC|DESC`.
+- **Dashboard** (`src/dashboard/`): Vue 3 + Vite + TS, built with **Bun**
+  (`bun run build` → `dist/`, ~28 KB gz). A pure REST + static client — no WS,
+  no Python at read time. One shared `<audio>` element (single read plays at a
+  time); the active card expands into a **full player** — seekable bar
+  (click-to-seek), `elapsed / total`, ±5 s skip buttons, pause/resume/replay,
+  and **space / ←→ keyboard parity** with the CLI (ignored while the search box
+  is focused). Debounced search (220 ms); delete is confirm-then-fire.
+  **Paginated** (`PAGE_SIZE` 20): the list loads page 1 and a "Load more (N)"
+  button appends the next page (`offset = reads.length`); the count shows
+  "showing X of N". Search/sort reset to page 1; delete decrements `total`.
+- **Synced transcript = CLI parity** (`ReadCard`): a *playing Summary* read shows
+  its summary with word-by-word **accent-blue highlight**, timed exactly like
+  `cli/.../PlayerView.tsx` — no per-word timestamps exist, so each word's share
+  of the duration is **proportional to its char count** (`target =
+  elapsed/total × totalCharWeight`; a word goes blue once its cumulative weight
+  passes `target`). Web wrapping is CSS, so no manual line-splitting is needed
+  (the CLI splits by hand only to dodge an ink ANSI-reset bug). Palette + fonts
+  (IBM Plex Mono / Martian Mono) lifted from `src/landing-page/style.css` — visually matches
+  the CLI + landing page. ⚠ Audio lives only on the Mac; the DB stores the
+  absolute `audio_path` so a future Pi host can sync/proxy it (deploy deferred).
+
 ## Things that look like bugs but aren't
 
 - **First synth is slow.** One-time CSM graph warm-up + ~6 GB checkpoint download
@@ -275,7 +345,8 @@ readback/
 
 ## Remaining cleanup candidates (tracked in README.md → Roadmap)
 
-- Generated WAVs in `~/.readback/reader/` grow unbounded (no rotation yet).
+- Generated WAVs in `output_dir` (`readback-audio-db/audio/`) grow unbounded (no
+  *auto*-rotation yet — the dashboard's delete removes a row + its WAV manually).
 
 The v0.8.0 cleanup removed the dead `tools/` module, the streaming/tool-calling
 LLM plumbing, the legacy vanilla-JS static bundle, the inert `CsmTTSConfig`
@@ -300,15 +371,23 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v2.0.0** — CLI-only pivot: web frontend removed, package restructured
-(`reader/` → `pipeline/`, `web/` → `server/`), `cryptography` dep dropped,
-TLS flags removed, then the folder restructure: `src/` layout (`src/readback`,
-`src/cli`, `src/voice`, `src/finetune`) + docs collected under `docs/`
-(ARCHITECTURE / SETUP / PLAN / media). Breaking change: browser UI gone,
-`--auto-cert`/`--cert`/`--key` removed, `readback.reader.*` / `readback.web.*`
-imports gone.
-(v1.1.0: CLI model switch `/model` with RAM-fit verdicts. v1.0.0: terminal CLI
-as a `/ws` client. v0.8.0: offline article reader pivot; CSM-1B via csm-mlx;
-renamed `local-tts` → `readback`.) Set in `pyproject.toml`,
-`src/readback/__init__.py`, and `src/cli/package.json`. Bump all three when
-releasing.
+Current: **v3.0.0** — library dashboard + persistence (**major**). New
+`src/readback/library.py` (SQLite read library) + paged REST routes
+(`/api/library` list/get/delete) + persist-on-read; new `src/dashboard/` web UI
+(Vue 3 + Vite + TS — search/sort/paginate/replay/delete, full player +
+CLI-synced karaoke transcript), served at `/` when built. New config
+`reader.library_db`. **Why major (not 2.1):** the browser UI returns —
+*reversing* v2.0.0's deliberate web-frontend removal (v2.0.0 was itself a major
+bump *for* that removal) — and the default on-disk layout moved out of
+`~/.readback/reader` into a sibling `readback-audio-db/{audio,library.db}` folder
+(existing installs migrate). The programmatic surface is compatible, though: WS
+protocol + CLI unchanged. (v2.1.0 was an in-flight branch version, never
+tagged/released — folded into v3.0.0.)
+(v2.0.0: CLI-only pivot — web frontend removed, package restructured to the
+`src/` layout, docs under `docs/`, TLS/`cryptography` dropped. v1.1.0: CLI
+`/model` switch with RAM-fit verdicts. v1.0.0: terminal CLI as a `/ws` client.
+v0.8.0: offline article reader pivot; CSM-1B via csm-mlx; renamed `local-tts` →
+`readback`.) Set in `pyproject.toml`, `src/readback/__init__.py`,
+`src/cli/package.json`, and `src/dashboard/package.json` — bump all four when
+releasing. The standalone CLI binary needs `src/cli/install.sh` re-run to pick
+up the new version in its banner.

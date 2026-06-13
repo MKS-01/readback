@@ -1,4 +1,4 @@
-# Architecture — readback (v2.0.0)
+# Architecture — readback (v3.0.0)
 
 How the pieces fit together and why. System-level companion to
 [CLAUDE.md](../CLAUDE.md) (implementation notes, gotchas, exact knobs) and
@@ -10,18 +10,31 @@ doubt, CLAUDE.md is authoritative.
 A fully **on-device**, terminal-first article reader. You paste a URL into the
 CLI; the server fetches and extracts the article, optionally summarizes it with
 a local LLM, synthesizes the whole thing offline with CSM-1B, and hands back an
-audio file the CLI plays via `afplay`. One server process (`readback`), one
-WebSocket, one client: the terminal CLI (`src/cli/`, Bun + Ink, macOS).
+audio file the CLI plays via `afplay`. One server process (`readback`) with two
+clients: the **terminal CLI** (`src/cli/`, Bun + Ink, macOS) drives *live* reads
+over a WebSocket, and the **web dashboard** (`src/dashboard/`, Vue 3) replays
+*past* reads over plain REST.
 
 ```
 URL ─▶ fetch + extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ afplay
-       (trafilatura)    (Ollama)            (CSM-1B / csm-mlx)
+       (trafilatura)    (Ollama)            (CSM-1B / csm-mlx)            └▶ library (SQLite) ─▶ dashboard replay
 ```
 
 Unlike the real-time voice assistant this project began as, synthesis is **batch,
 not streaming**: there is no live turn to keep pace with, so the whole piece is
 synthesized up front. That removes audio-underrun and echo entirely and lets
 voice quality win over latency.
+
+**Generate once, replay many — and why generation is CLI-side.** The expensive
+half (the LLM summary pass + neural TTS) is a *heavy, occasional* task: it wants
+the Mac's GPU and unified memory, and you only run it when you actually want a
+new read — not every time you want to hear an old one. So readback splits the
+two halves deliberately. **Generation** is on-demand from the terminal (LLM + CSM
+on the Mac); **replay** is a separate, model-free path that only lists library
+rows and serves a finished WAV. This is why the dashboard can stay tiny (no
+WebSocket, no models) and why a future split deploy is clean — a home-server / Pi
+can host the lightweight UI while the Mac remains the only thing that needs the
+GPU (see §6).
 
 ## 2. Process & concurrency model
 
@@ -59,8 +72,16 @@ responsive while a read job runs because all heavy work is pushed off it:
    otherwise sound halting), and joins chunks with a uniform `reader.gap_sec`
    gap. `progress(done, total)` fires per chunk; `should_stop()` aborts early.
 4. **Serve** — the concatenated float32 buffer is written to
-   `reader.output_dir` (`~/.readback/reader/<uuid>.wav`) and served at
-   `/audio/<id>.wav` for playback and download.
+   `reader.output_dir` (a `readback-audio-db/audio/<uuid>.wav` folder beside the
+   repo by default — kept next to the library DB, not in a hidden `~/.readback`
+   dir) and served at `/audio/<id>.wav` for playback and download. The server
+   reports this dir as `audio_dir` in `/api/config` so the CLI can play a
+   same-machine WAV without re-downloading.
+5. **Record** — the read's metadata (title, summary/excerpt, source URL, mode,
+   voice, duration, word count, WAV filename + absolute path, timestamp) is
+   written to the SQLite **read library** (`library.py`, `reader.library_db`).
+   Best-effort: a DB failure is logged, never breaks playback. This is what the
+   web dashboard lists and replays.
 
 ## 4. TTS engine (`src/readback/tts/`)
 
@@ -86,7 +107,8 @@ responsive while a read job runs because all heavy work is pushed off it:
 Only **Summary mode** uses the LLM, via `LLMClient.oneshot()` — a single
 non-streaming Ollama `chat` (`think=False`, low temperature) with `<think>`
 stripping for GGUF builds that emit inline tags. Full mode skips the LLM
-entirely.
+entirely. This is the heaviest, most occasional step (see §1) — it runs only
+during generation, never on dashboard replay.
 
 The model is switchable at runtime: `llm/models.py` lists the locally
 installed Ollama models with a RAM-fit verdict and a summary recommendation
@@ -96,9 +118,16 @@ reload. The switch is process-wide and not written back to `config.yaml`.
 
 ## 6. Server layer (`src/readback/server/`)
 
-- **Server** (`server.py`) — FastAPI; a pure WS/API backend (no HTML — `GET /`
-  is 404). Serves `/ws`, `GET /api/config`, `GET /api/models`, and the
-  generated audio under `/audio/`.
+- **Server** (`server.py`) — FastAPI. Serves `/ws`, `GET /api/config`,
+  `GET /api/models`, the read-library REST routes, and the generated audio under
+  `/audio/`. It additionally mounts the **built dashboard at `/`** when
+  `src/dashboard/dist` exists (registered last, so the API/audio/ws routes win);
+  in dev that dir is absent so `GET /` is 404 and Vite serves the SPA on :5173.
+- **Read library REST** — `GET /api/library?q=&sort=newest|oldest&limit=&offset=`
+  returns a page `{items, total, limit, offset}` (limit capped 1–100, default 20;
+  the dashboard appends pages via "Load more"); `GET /api/library/{id}`,
+  `DELETE /api/library/{id}` (deletes the row + its WAV). All wrap blocking
+  sqlite in `asyncio.to_thread`.
 - **WS protocol** —
   - client → `read {url, mode, voice?, model?}`, `cancel` (`model` swaps the
     summary LLM for this and later reads; validated against installed Ollama
@@ -113,6 +142,10 @@ reload. The switch is process-wide and not written back to `config.yaml`.
   kills it on exit only if it spawned it), and plays the finished WAV through
   `afplay`. Its WS client and player are singletons outside the React tree so
   re-renders never tear down the socket.
+- **Web dashboard** (`src/dashboard/`) — Vue 3 + Vite + TS; a *second*, separate
+  client that speaks **REST only** (not WS): lists/searches/sorts the read
+  library, replays each WAV via an HTML5 `<audio>`, and can delete reads. Built
+  to static files (served by the server at `/`, or by a future Pi host).
 
 ## 7. Entry point (`src/readback/__main__.py`)
 
@@ -129,3 +162,6 @@ spawns it with cwd = repo root so the bundled config and its relative
   (`tts.csm.lora_path` + `src/finetune/`); no code change.
 - **Different extractor / summary prompt** — swap inside `pipeline/extract.py` /
   `pipeline/summarize.py`; the rest of the pipeline is unaffected.
+- **New client** — talk the WS protocol (live reads, like the CLI) or just the
+  REST library routes (replay past reads, like the dashboard); the server adds
+  no per-client code.

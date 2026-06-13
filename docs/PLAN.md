@@ -6,6 +6,242 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-13 — Landing page → `src/landing-page/` + a landing-page skill
+
+**Status: done** — on branch `feat/dashboard` (PR #12). Repo reorg + a new skill;
+landing-page *content* refresh deferred.
+
+### Context
+
+`site/` lived at the repo root (the v2.0.0-era "marketing, not a client" call).
+With `src/cli`, `src/dashboard`, etc. all grouped under `src/`, the landing page
+belongs there too. Also: the page is stale vs v3.0.0 (all-CLI, no dashboard), and
+there was no repeatable way to keep it current — so add a skill for that.
+
+### What shipped
+
+1. **Moved `site/` → `src/landing-page/`** (`git mv` index.html + style.css; the
+   gitignored local `media/` preview copy moved alongside). Updated every
+   reference in lockstep: `.gitignore` (`src/landing-page/media/`),
+   `.github/workflows/pages.yml` (trigger `paths: src/landing-page/**`,
+   `cp -R src/landing-page/.`, **+ `dashboard.png` added to the media copy list**),
+   and the CLAUDE.md tree + `style.css` mentions.
+2. **New `.claude/skills/landing-page/` skill** — "doc-sync for the marketing
+   site": maps shipped changes → page sections, pulls screenshots from
+   `docs/media/`, enforces the crossfade slide/dot/caption parity + the pages.yml
+   media-copy rule, mandates a local serve+screenshot review, and notes the Pages
+   auto-deploy on push to main.
+3. **Kept GitHub Pages auto-deploy** — workflow repointed at the new path.
+
+### Out of scope (deferred)
+
+- **Landing-page content refresh** for v3.0.0 (dashboard section, `dashboard.png`
+  screenshot, two-client "How it works", persistence in Features/Architecture) —
+  done in a later pass via the new skill.
+
+### Verification
+
+1. Move clean: `git ls-files src/landing-page` shows index.html + style.css; root
+   `site/` gone. ✓
+2. Local render: `python3 -m http.server -d src/landing-page` → `/`, `style.css`,
+   `media/*` all 200; headless screenshot renders correctly (no broken images /
+   overflow). ✓
+3. No stale `site/` references in current docs/workflow (PLAN history excepted). ✓
+4. Pages: after merge to main, the workflow runs (path trigger fires) and the live
+   site returns 200. *(verify post-merge)*
+
+---
+
+## 2026-06-13 — Library dashboard (persist reads + Vue web UI)
+
+**Status: done** — branch `feat/dashboard`, PR #12. A SQLite library that records
+every synthesized read, plus a Vue 3 web dashboard to search, sort, and replay
+the audio anytime. Local env only; Pi/remote deploy deferred.
+
+Original concept sketch (the brief that kicked this off):
+
+![Dashboard concept sketch](media/dashboard-plan.png)
+
+**Shipped (2026-06-13):** `src/readback/library.py` (`Library` over stdlib
+sqlite3 — per-call connections, `add/list/get/delete`); persist in
+`_run_read_job` step 4b (best-effort, logged); `ReaderConfig.library_db`
+(default `../readback-audio-db/library.db`, resolved in `load()`);
+REST `GET /api/library?q=&sort=`, `GET /api/library/{id}`,
+`DELETE /api/library/{id}`; built dashboard mounted at `/` when present.
+`src/dashboard/` = Vue 3 + Vite + TS (App/SearchBar/SortToggle/ReadCard, one
+shared `<audio>`, debounced search, delete-confirm), Ghost palette + IBM Plex
+Mono / Martian Mono — `bun run build` clean (vue-tsc, ~27 KB gz).
+**Verified:** seeded the real DB → list newest/oldest ordering, `q=` search over
+title (`pelican`) + summary (`terminal`), `GET /{id}`, `GET /` serves the SPA
+(200 text/html), `/audio/{wav}` 200, `DELETE` removed both row and WAV (404 on
+unknown id/get); Full-mode excerpt vs Summary-mode summary both stored; seed
+rows cleaned up after. Per-read persist + CLI path unchanged.
+**Follow-ups (same day):** the active card grew into a **full player** —
+click-to-seek bar, `elapsed / total`, ±5 s skips, pause/resume/replay, and
+`space` + `←/→` keyboard parity with the CLI (ignored while the search box is
+focused); a playing **Summary** read shows a **synced karaoke transcript**
+(word-by-word accent-blue highlight, char-count-proportional timing lifted from
+`cli/.../PlayerView.tsx`). Fixed a layout bug where Vue's whitespace-condensing
+stripped the inter-word spaces in the transcript (words glued together +
+overflowed the card) — render two segments + dynamic joiner space, plus
+`overflow-wrap: anywhere` guards; verified via headless-Chrome CDP
+(`scrollWidth == clientWidth`). Added `docs/media/dashboard.png` (real capture
+of list + active player + blue transcript) to README + dashboard README; README
+gained a "Why generation stays on the CLI" rationale (heavy LLM+TTS = on-demand
+CLI work; replay = model-free dashboard path) mirrored into ARCHITECTURE §1/§5.
+**Released v3.0.0** (major — the browser UI returns, reversing v2.0.0's removal,
+and the on-disk audio/DB layout moved out of `~/.readback/`): bumped all four
+anchors (pyproject / `__init__` / cli+dashboard `package.json`) +
+CLAUDE/ARCHITECTURE version labels.
+**Audio relocation (post-release):** moved `output_dir` out of the hidden
+`~/.readback/reader/` into a sibling `readback-audio-db/audio/` folder next to
+the repo (audio + DB together, harder to delete by accident). Config defaults now
+use **`../` relative notation** (resolved against `config.yaml`'s dir, then
+`.resolve()`d) so no personal absolute path leaks into the public repo; `load()`
+resolves `output_dir` like `library_db`. The server reports the resolved dir as
+`audio_dir` in `/api/config` + WS `config`, and the CLI's `resolveWav` uses it for
+the same-machine playback shortcut (cache moved to `~/.readback/cli-cache/`).
+Migrated the 5 tracked WAVs + rewrote their `audio_path`; deleted 23 orphan WAVs.
+**Deferred:** Pi/remote deploy + Mac→Pi audio sync; backfill of pre-existing
+orphan WAVs; WAV auto-rotation (manual delete only).
+
+### Context
+
+Today a read is ephemeral: `_run_read_job` writes `~/.readback/reader/<uuid>.wav`,
+emits a `done` payload, and forgets it. The user wants to **replay any past read
+on demand** from a browser dashboard (eventually served from a home Pi —
+`github.com/MKS-01/pizow` — while the Mac stays the LLM+TTS brain). Two gaps:
+(1) nothing persists read metadata, (2) there is no web client (the v2.0.0 pivot
+removed the old browser read-UI on purpose — `GET /` returns 404). This feature
+adds a **new, separate read-only library UI**, not a resurrection of that client.
+
+Key constraint from the flow sketch: **audio files stay in the local Mac
+directory only**; the DB stores their absolute path so a future Pi host can sync
+or proxy them. Must stay lightweight (Pi-friendly): a built SPA is static files,
+so runtime cost is just FastAPI + SQLite (stdlib, near-zero RAM).
+
+Decisions (confirmed with user): **Vue 3 + Vite + TS**; **delete capability
+included** (also closes the "WAVs grow unbounded" roadmap item); DB lives at
+**`../readback-audio-db/library.db`** (sibling to the repo).
+
+### Design
+
+1. **DB layer — `src/readback/library.py`** (new). Stdlib `sqlite3`, one table
+   `reads`. No ORM. A thin `Library` class: `__init__(db_path)` creates the dir +
+   table if missing (idempotent `CREATE TABLE IF NOT EXISTS`); methods
+   `add(record)`, `list(q, sort)`, `get(id)`, `delete(id) -> audio_path|None`.
+   Connections are opened per-call (`sqlite3.connect`) so it's safe across
+   asyncio's threadpool — all DB calls go through `asyncio.to_thread`.
+
+   Schema (`reads`):
+   - `id` TEXT PRIMARY KEY — the WAV's uuid stem (matches "id: audio file name")
+   - `title` TEXT
+   - `summary` TEXT — spoken summary (Summary mode), NULL in Full mode
+   - `excerpt` TEXT — first ~300 chars of article text (always present, so Full
+     reads still show a 2-3 line preview in the card)
+   - `source_url` TEXT — for "read the original"
+   - `mode` TEXT — `full` | `summary`
+   - `voice` TEXT — active voice id at synth time
+   - `duration_sec` REAL
+   - `word_count` INTEGER
+   - `audio_filename` TEXT — `<uuid>.wav`
+   - `audio_path` TEXT — absolute Mac path
+   - `created_at` TEXT — ISO-8601 (date of extraction/creation)
+
+2. **Persist on read — `server/server.py`**. In `_run_read_job` step 4, right
+   after `write_wav` succeeds, call `library.add(...)` via `asyncio.to_thread`
+   with the fields already in scope (`article.title`, `url`, `mode`, `voice`,
+   `text`, `article.text[:300]`, durations, counts, `fname`, absolute path).
+   Wrapped in try/except + log — a DB failure must never break playback. The
+   `Library` is instantiated once in `create_app` and passed into
+   `_run_read_job` (mirrors how `models`/`cfg` are threaded through).
+
+3. **Config — `config.py`**. Add `ReaderConfig.library_db: Path =
+   Path("../readback-audio-db/library.db")`, expanded at use. `load()`
+   resolves it like the other paths. (Configurable, not hard-coded.)
+
+4. **REST API — `server/server.py`** (read-only + delete; no WS changes):
+   - `GET /api/library?q=<str>&sort=newest|oldest` → `[{...card fields...}]`.
+     `q` filters title/summary/excerpt/source_url (SQL `LIKE`, case-insensitive);
+     `sort` orders by `created_at` (default `newest`).
+   - `GET /api/library/{id}` → full record (full summary text for the toggle).
+   - `DELETE /api/library/{id}` → removes the row, then unlinks the WAV from
+     `~/.readback/reader/`. Returns `{deleted: true}`.
+   All wrap blocking sqlite in `asyncio.to_thread`.
+
+5. **Serve the dashboard — `server/server.py`**. If `src/dashboard/dist` exists,
+   mount it at `/` (`StaticFiles(..., html=True)`); otherwise keep the 404 (dev
+   uses the Vite dev server on :5173 proxying `/api` + `/audio` → :8000). This is
+   the one deliberate change to the "no browser UI" rule — scoped to a built
+   artifact, additive to the WS/API backend.
+
+6. **Frontend — `src/dashboard/`** (new; Vue 3 + Vite + TS, sibling to
+   `src/cli`). Single-view SPA:
+   - **Design system reused verbatim**: Ghost palette `:root` vars + the IBM Plex
+     Mono / Martian Mono Google-Font links lifted from `site/style.css`. Dark
+     terminal aesthetic, accent `#4da3ff`. Feels like the landing page.
+   - **Layout**: header (wordmark + "library" subtitle) → a **search input** +
+     **sort toggle** (Newest ↔ Oldest) → a vertical list of **read cards**.
+   - **Card**: title (bright), meta line (date · duration · mode · voice ·
+     word count), 2-3 line clamped summary/excerpt, a **"Show more" toggle**
+     that expands the full summary, a **play button** (HTML5 `<audio>` pointing
+     at `/audio/<filename>`, with seek), a **source-URL** link ("read original
+     ↗"), and a **delete** affordance (confirm before firing DELETE).
+   - **State**: `fetch('/api/library?q=&sort=')`, debounced search (~200 ms),
+     client re-fetch on sort change. One global `<audio>` element so only one
+     read plays at a time.
+   - **Build**: `bun install && bun run build` → `dist/`; `bun run dev` for the
+     proxying dev server. A short `src/dashboard/README.md` documents both.
+
+### Files
+
+- `src/readback/library.py` (new): `Library` class — sqlite schema + CRUD.
+- `src/readback/config.py` (modified): `ReaderConfig.library_db` + path resolve.
+- `src/readback/server/server.py` (modified): instantiate `Library`; persist in
+  `_run_read_job` step 4; `GET /api/library`, `GET /api/library/{id}`,
+  `DELETE /api/library/{id}`; mount `src/dashboard/dist` at `/` when present.
+- `src/dashboard/` (new): Vue 3 + Vite + TS app — `package.json`,
+  `vite.config.ts` (dev proxy), `index.html`, `src/main.ts`, `src/App.vue`,
+  `src/components/{SearchBar,ReadCard,SortToggle}.vue`, `src/api.ts`,
+  `src/styles.css` (Ghost palette), `README.md`.
+- `docs/ARCHITECTURE.md`, `CLAUDE.md`, `README.md` (doc-sync at the end).
+
+### Out of scope
+
+- **Pi / remote deployment, nginx, audio sync Mac→Pi** — explicitly later.
+- **Auth / multi-user** — local single-user only.
+- **No WS protocol change** — the read flow is untouched; the dashboard is a
+  pure REST+static client. The CLI is unaffected.
+- **No backfill** of the ~24 existing orphan WAVs in `~/.readback/reader/` (no
+  metadata to recover). Library starts populating from the next read. (Could add
+  a one-off backfill script later if wanted.)
+- **No WAV auto-rotation policy** — delete is manual via the dashboard.
+- **No `config.yaml` write-back.**
+
+### Verification
+
+1. **DB bootstrap**: fresh run with no DB → first read creates
+   `../readback-audio-db/library.db` + `reads` table; `sqlite3 …
+   "SELECT id,title,mode FROM reads"` shows the row.
+2. **Persist both modes**: a Full read stores `summary=NULL` + non-empty
+   `excerpt`; a Summary read stores both. `audio_path` is the real absolute WAV
+   path and the file exists there.
+3. **List + search**: `GET /api/library` returns newest-first; `?sort=oldest`
+   flips it; `?q=<word from a title>` filters to matching rows only.
+4. **Dashboard happy path**: `bun run dev` → cards render in Ghost styling with
+   correct fonts; search box filters live; sort toggle reorders; "Show more"
+   expands the full summary; play button streams the audio and seeks; source
+   link opens the original.
+5. **Delete**: delete a card → confirm → row gone from `GET /api/library` AND
+   the WAV removed from `~/.readback/reader/`; refresh shows it stays gone.
+6. **Resilience**: stop/point DB at an unwritable path → a read still synthesizes
+   and plays (CLI unaffected); the persist failure is logged, not fatal.
+7. **Built mount**: `bun run build` → restart `readback` → `GET /` serves the
+   dashboard; CLI (`/ws`) still works unchanged.
+8. **Restart persistence**: kill + restart the server → past reads still listed.
+
+---
+
 ## 2026-06-13 — Landing page on GitHub Pages
 
 **Status: done** — branch `landing-page`, PR #11 merged 2026-06-13. Static

@@ -104,11 +104,17 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-async function resolveWav(base: string, audioUrl: string): Promise<string> {
+async function resolveWav(base: string, audioUrl: string, audioDir?: string): Promise<string> {
   const fname = audioUrl.split("/").pop()!;
-  const local = join(homedir(), ".readback", "reader", fname);
-  if (existsSync(local)) return local;
-  const dir = join(homedir(), ".readback", "reader", "cli");
+  // Same-machine shortcut: play the server-written WAV directly (no download).
+  // The server reports its output_dir via the config message (audio_dir).
+  if (audioDir) {
+    const local = join(audioDir, fname);
+    if (existsSync(local)) return local;
+  }
+  // Otherwise (remote server, or file missing) download into a CLI-only cache —
+  // deliberately NOT under the server's audio dir.
+  const dir = join(homedir(), ".readback", "cli-cache");
   mkdirSync(dir, { recursive: true });
   const dest = join(dir, fname);
   const res = await fetch(base + audioUrl);
@@ -161,7 +167,7 @@ export function App({ handle, prefs, onQuit }: Props) {
             dispatch({ type: "progress", done: msg.done, total: msg.total });
             break;
           case "done":
-            resolveWav(handle.base, msg.audio_url)
+            resolveWav(handle.base, msg.audio_url, cfg.audio_dir)
               .then((wavPath) => {
                 dispatch({ type: "done", result: msg, wavPath });
                 player.play(wavPath, msg.duration_sec);

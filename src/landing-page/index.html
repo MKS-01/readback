@@ -46,19 +46,23 @@
     <audio id="audio" src="media/sample-read.wav" preload="metadata"></audio>
   </section>
 
-  <!-- ── screenshots (auto-crossfade) ───────────────────── -->
-  <section class="reveal shot" id="shots">
-    <div class="slides">
-      <img class="slide on" src="media/cli-player.png" alt="readback CLI mid-read: seekable terminal player with live word-by-word transcript highlighting" data-caption="Mid-read: seekable player, word-by-word transcript sync.">
-      <img class="slide" src="media/cli-home.png" alt="readback CLI home screen: paste a URL, slash commands for voice, mode, and model" loading="lazy" data-caption="Home: paste a URL — /voice, /mode, /model do the rest.">
-      <img class="slide" src="media/cli-model.png" alt="readback CLI /model list: local Ollama models with RAM-fit verdicts and a recommendation" loading="lazy" data-caption="/model — every local Ollama model, sized against your RAM.">
+  <!-- ── see it work (CLI + dashboard, one flow) ────────── -->
+  <section class="reveal demo" id="shots">
+    <h2><span class="dim">##</span> See it work</h2>
+    <p class="dim small">From a pasted URL to replaying it days later — one flow, four steps.</p>
+    <div class="demo-frame">
+      <img class="demo-slide on" src="media/cli-home.png" alt="readback CLI home screen: paste a URL, slash commands for voice, mode, and model" data-cap="Open it — paste a URL; /voice, /mode, /model do the rest.">
+      <img class="demo-slide" src="media/cli-model.png" alt="readback CLI /model list: local Ollama models with RAM-fit verdicts and a recommendation" loading="lazy" data-cap="Pick a summary model — every local Ollama model, sized against your RAM.">
+      <img class="demo-slide" src="media/cli-player.png" alt="readback CLI mid-read: seekable terminal player with live word-by-word transcript highlighting" loading="lazy" data-cap="Listen — seek ±5 s, with a transcript that highlights word by word.">
+      <img class="demo-slide" src="media/dashboard.png" alt="readback web dashboard: a searchable library of past reads with an inline player and word-synced transcript" loading="lazy" data-cap="Replay anytime — every read saved to a searchable web dashboard.">
     </div>
-    <p class="dim small center" id="shot-caption">Mid-read: seekable player, word-by-word transcript sync.</p>
-    <div class="dots" role="tablist" aria-label="Screenshots">
-      <button class="dot on" aria-label="Screenshot 1"></button>
-      <button class="dot" aria-label="Screenshot 2"></button>
-      <button class="dot" aria-label="Screenshot 3"></button>
+    <div class="demo-steps" role="tablist" aria-label="Steps — click to jump">
+      <button class="demo-step on" role="tab" aria-label="Step 1: open"><span class="k"><span class="num">01</span> OPEN</span><span class="t">paste a URL</span></button>
+      <button class="demo-step" role="tab" aria-label="Step 2: model"><span class="k"><span class="num">02</span> MODEL</span><span class="t">pick the LLM</span></button>
+      <button class="demo-step" role="tab" aria-label="Step 3: listen"><span class="k"><span class="num">03</span> LISTEN</span><span class="t">play + transcript</span></button>
+      <button class="demo-step" role="tab" aria-label="Step 4: replay"><span class="k"><span class="num">04</span> REPLAY</span><span class="t">dashboard library</span></button>
     </div>
+    <p class="dim small center demo-cap">Open it — paste a URL; /voice, /mode, /model do the rest.</p>
   </section>
 
   <!-- ── features ───────────────────────────────────────── -->
@@ -82,9 +86,10 @@
         works</span>; <code>/model</code> lists them with a RAM-fit check.</p>
       </li>
       <li>
-        <h3><span class="accent">▮</span> A real terminal player</h3>
+        <h3><span class="accent">▮</span> A real player — plus a library</h3>
         <p>Pause, seek ±5 s, and a transcript that <span class="bright">highlights word by
-        word</span> in sync with the voice — all in Ink, all in your shell.</p>
+        word</span> in sync with the voice — in your shell, or the web dashboard.
+        Every read is <span class="bright">saved to replay anytime</span>.</p>
       </li>
     </ul>
   </section>
@@ -92,25 +97,29 @@
   <!-- ── how it works ───────────────────────────────────── -->
   <section class="reveal how">
     <h2><span class="dim">##</span> How it works</h2>
-    <div class="flow" aria-label="Architecture: the CLI talks to a local FastAPI server over WebSocket; the server fetches, extracts, optionally summarizes via Ollama, then synthesizes with CSM-1B on MLX/Metal">
+    <div class="flow" aria-label="Pipeline: paste a URL; the on-device FastAPI server fetches, extracts, optionally summarizes via Ollama, and synthesizes with CSM-1B; output saves to a local WAV + SQLite library that two clients read — the CLI for live reads over WebSocket, the web dashboard for replay over REST">
       <div class="node">
-        <strong>CLI</strong>
-        <span class="dim">Bun + Ink · afplay</span>
+        <strong>Article URL</strong>
       </div>
-      <div class="link"><span class="link-label dim">WebSocket /ws</span></div>
+      <div class="link"></div>
       <div class="node node-wide">
-        <strong>readback server <span class="dim">(FastAPI)</span></strong>
-        <span class="dim">fetch <span class="accent">▸</span> extract <span class="accent">▸</span> [summary] <span class="accent">▸</span> chunk <span class="accent">▸</span> TTS <span class="accent">▸</span> WAV</span>
+        <strong>readback server <span class="dim">(FastAPI · on-device)</span></strong>
+        <span class="dim">fetch <span class="accent">▸</span> extract <span class="accent">▸</span> [Ollama summary] <span class="accent">▸</span> chunk <span class="accent">▸</span> CSM-1B TTS <span class="accent">▸</span> WAV</span>
+      </div>
+      <div class="link"><span class="link-label dim">saved</span></div>
+      <div class="node node-wide">
+        <strong>readback-audio-db</strong>
+        <span class="dim">WAV files <span class="accent">+</span> SQLite library</span>
       </div>
       <div class="link link-split"><span></span><span></span></div>
       <div class="flow-pair">
         <div class="node">
-          <strong>Ollama <span class="dim">(local)</span></strong>
-          <span class="dim">Summary mode only</span>
+          <strong>CLI <span class="dim">· live</span></strong>
+          <span class="dim">generate + play · /ws</span>
         </div>
         <div class="node">
-          <strong>CSM-1B <span class="dim">on MLX / Metal</span></strong>
-          <span class="dim">offline voice synthesis</span>
+          <strong>Dashboard <span class="dim">· replay</span></strong>
+          <span class="dim">search + replay · REST</span>
         </div>
       </div>
     </div>
@@ -137,21 +146,68 @@ readback-cli</code></pre>
     Full docs in the <a href="https://github.com/MKS-01/readback#quick-start">README</a>.</p>
   </section>
 
-  <!-- ── the story ──────────────────────────────────────── -->
-  <section class="reveal story">
-    <h2><span class="dim">##</span> The story</h2>
-    <p>I read a lot, but there's a whole pile of <em>good writing</em> I never
-    get to — some days I'd just rather listen than read another wall of text.
-    I've been tinkering with voice agents since college (2015), back when it
-    was a speech-to-text → text-to-speech loop held together with duct tape.</p>
-    <p>readback actually <span class="bright">started as a real-time voice
-    assistant</span> — mic capture, wake-words, the whole live cascade.
-    Building that taught me the part I really wanted wasn't the conversation;
-    it was the listening. So I cut everything else, and the assistant became
-    a reader: a local LLM for summaries, a neural voice (CSM-1B) for the
-    reading, all on-device, nothing phoning home. It lives in the terminal,
-    where it always felt most at home.</p>
-    <p class="dim">Made to make reading interesting again.</p>
+  <!-- ── timeline (replaces "the story"; milestones from JOURNEY §1 / version bumps) ── -->
+  <section class="reveal timeline-sec">
+    <h2><span class="dim">##</span> How it took shape</h2>
+    <p class="dim small">The big turns and decisions — not every commit.</p>
+    <ol class="timeline">
+      <li class="tl-item reveal">
+        <span class="tl-dot"></span>
+        <div class="tl-body">
+          <span class="tl-tag">2015 · the itch</span>
+          <h3>A duct-tape voice loop</h3>
+          <p>Tinkering with speech-to-text → text-to-speech since college. The part I
+          kept wanting was the <span class="bright">listening</span>, not the talking.</p>
+        </div>
+      </li>
+      <li class="tl-item reveal">
+        <span class="tl-dot"></span>
+        <div class="tl-body">
+          <span class="tl-tag">start · local-tts</span>
+          <h3>A real-time voice assistant</h3>
+          <p>Mic capture, wake-words, a full live cascade — dual ASR, Smart-Turn, a
+          neural voice. Useful, but the <em>conversation</em> was never the point.</p>
+        </div>
+      </li>
+      <li class="tl-item reveal">
+        <span class="tl-dot"></span>
+        <div class="tl-body">
+          <span class="tl-tag">v0.8 · the pivot</span>
+          <h3>From assistant to reader</h3>
+          <p>Cut the entire live cascade. Switched to <span class="bright">CSM-1B</span>
+          and one job: <span class="bright">URL → article → audio, offline</span>.
+          Renamed <code>local-tts</code> → <code>readback</code>.</p>
+        </div>
+      </li>
+      <li class="tl-item reveal">
+        <span class="tl-dot"></span>
+        <div class="tl-body">
+          <span class="tl-tag">v1.0 · terminal</span>
+          <h3>A client worth living in</h3>
+          <p>A Bun + Ink CLI over a WebSocket — seekable player, a transcript that
+          highlights word by word. It belonged in the shell.</p>
+        </div>
+      </li>
+      <li class="tl-item reveal">
+        <span class="tl-dot"></span>
+        <div class="tl-body">
+          <span class="tl-tag">v2.0 · subtract</span>
+          <h3>CLI-only</h3>
+          <p>Removed the web frontend entirely; leaned the package down to a clean
+          <code>src/</code> layout. <span class="bright">Voice quality over surface area.</span></p>
+        </div>
+      </li>
+      <li class="tl-item reveal cur">
+        <span class="tl-dot"></span>
+        <div class="tl-body">
+          <span class="tl-tag">v3.0 · the library</span>
+          <h3>The web returns — as replay</h3>
+          <p>Every read persists to <span class="bright">SQLite</span>; a Vue dashboard
+          searches &amp; replays past audio. Generation stays heavy and on-demand,
+          replay stays light and model-free.</p>
+        </div>
+      </li>
+    </ol>
   </section>
 
   <!-- ── architecture ───────────────────────────────────── -->
@@ -164,6 +220,7 @@ readback-cli</code></pre>
       <li><span class="stack-k">One GPU thread</span><span>MLX binds its Metal stream to a single thread, so read jobs queue naturally and a cancel actually stops the synthesis mid-job.</span></li>
       <li><span class="stack-k">Voice = a clip</span><span><a href="https://huggingface.co/senstella/csm-1b-mlx">CSM-1B</a> conditions on a short reference clip + its transcript — swap the clip, swap the voice; LoRA fine-tune for more fidelity.</span></li>
       <li><span class="stack-k">Bring your LLM</span><span>Summary mode runs on whatever <a href="https://ollama.ai/">Ollama</a> models you have installed — we ran <span class="bright">gemma</span> &amp; <span class="bright">qwen</span>; <span class="bright">/model</span> lists yours with a RAM-fit verdict.</span></li>
+      <li><span class="stack-k">Generate ↔ replay</span><span>Every read persists to a stdlib-<span class="bright">SQLite</span> library; a separate <a href="https://vuejs.org/">Vue</a> dashboard searches &amp; replays past audio — model-free, so generation stays heavy/on-demand while replay stays light.</span></li>
       <li><span class="stack-k">Offline by design</span><span>Weights download once, then nothing leaves the machine — synthesis on Metal, playback via <span class="bright">afplay</span>, the WAV saved locally.</span></li>
     </ul>
   </section>
@@ -222,28 +279,29 @@ readback-cli</code></pre>
     audio.play();
   });
 
-  // Screenshot crossfade: slow auto-rotate, click a dot to jump, hover to hold.
-  const slides = [...document.querySelectorAll(".slide")];
-  const dots = [...document.querySelectorAll(".dot")];
-  const caption = document.getElementById("shot-caption");
-  const shots = document.getElementById("shots");
+  // "See it work" stepper: auto-advance through OPEN → MODEL → LISTEN → REPLAY,
+  // click a step to jump, hover to hold. Slides crossfade in the framed viewer.
+  const slides = [...document.querySelectorAll(".demo-slide")];
+  const steps = [...document.querySelectorAll(".demo-step")];
+  const caption = document.querySelector(".demo-cap");
+  const demo = document.querySelector(".demo");
   let cur = 0, timer = null;
 
   function show(i) {
     cur = i;
     slides.forEach((s, n) => s.classList.toggle("on", n === i));
-    dots.forEach((d, n) => d.classList.toggle("on", n === i));
-    caption.textContent = slides[i].dataset.caption;
+    steps.forEach((s, n) => s.classList.toggle("on", n === i));
+    caption.textContent = slides[i].dataset.cap;
   }
 
   function start() {
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    timer = setInterval(() => show((cur + 1) % slides.length), 6000);
+    timer = setInterval(() => show((cur + 1) % slides.length), 4500);
   }
 
-  dots.forEach((d, i) => d.addEventListener("click", () => { show(i); clearInterval(timer); start(); }));
-  shots.addEventListener("mouseenter", () => clearInterval(timer));
-  shots.addEventListener("mouseleave", start);
+  steps.forEach((s, i) => s.addEventListener("click", () => { show(i); clearInterval(timer); start(); }));
+  demo.addEventListener("mouseenter", () => clearInterval(timer));
+  demo.addEventListener("mouseleave", start);
   start();
 
   // Scroll reveal: fade sections up as they enter the viewport.

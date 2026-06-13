@@ -24,6 +24,10 @@
 </p>
 
 <p align="center">
+  <sub>🤖 Built agent-first with Claude Code — <a href="docs/JOURNEY.md"><strong>read the devlog →</strong></a></sub>
+</p>
+
+<p align="center">
   <a href="https://mks-01.github.io/readback/">Landing page</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -110,33 +114,79 @@ are fast. See [SETUP.md](docs/SETUP.md) for verification, flags, and troubleshoo
 
 ---
 
+## Library dashboard
+
+Generating a read is the heavy part — fetch, an optional LLM summary pass, and
+CSM-1B synthesis all run on your Mac's GPU. But you pay that **once**: every read
+is recorded in a small local SQLite library, and the dashboard lets you **replay
+any past read anytime** — no LLM, no GPU, just the saved audio.
+
+<p align="center">
+  <img src="docs/media/dashboard.png" alt="readback library dashboard — searchable list of past reads with an inline player and word-synced transcript" width="820"><br>
+  <sub>The library dashboard mid-replay: search + sort, a seekable player, and the same word-by-word transcript highlight as the CLI.</sub>
+</p>
+
+- **Search** title / summary / URL, **sort** newest↔oldest, and **paginate** —
+  the list loads 20 at a time with a "Load more" button (so the library stays
+  fast as it grows).
+- **Full player** on each card — click-to-seek bar, ±5 s skips, pause / resume /
+  replay, and `space` + `←/→` keyboard shortcuts (the same keys as the CLI).
+- **Synced transcript** — a Summary read highlights **word by word in blue** as it
+  plays, identical to the terminal player.
+- **Read the original** for further reading, or **delete** a read (removes its DB
+  row *and* its WAV).
+
+It's a lightweight **Vue 3** SPA — a pure REST + static client, no new Python at
+read time, and the same Ghost design system (and fonts) as the CLI and landing
+page.
+
+```bash
+cd src/dashboard && bun install && bun run build   # → dist/
+readback                                            # then open http://127.0.0.1:8000/
+```
+
+Built `dist/` is served by the same `readback` process at `/`; for development,
+`bun run dev` runs Vite on `:5173` and proxies to the server.
+
+### Why generation stays on the CLI
+
+The LLM summary is a **heavy, occasional task** — you don't re-summarize an
+article every time you want to *hear* it, and the model work (a local LLM plus
+neural TTS) wants your Mac's GPU and unified memory. So readback deliberately
+splits the two halves:
+
+- **Generate on demand**, from the terminal — the CLI drives the LLM + CSM
+  pipeline on the Mac. This is the part that costs RAM and GPU, and it runs only
+  when you actually want a new read.
+- **Replay anywhere**, from the dashboard — which never touches the LLM or TTS; it
+  only lists rows and serves a finished WAV, so it stays tiny and fast.
+
+That separation is also what keeps a future split deploy clean: the audio lives
+on the Mac (the DB stores each WAV's absolute path), so a home-server /
+[Pi](https://github.com/MKS-01/pizow) can host the lightweight UI while the Mac
+stays the generation brain. Details: [`src/dashboard/README.md`](src/dashboard/README.md).
+
+---
+
 ## How it works
 
-The terminal CLI talks to a local Python server over WebSocket — the same
-pipeline whether you're reading a news piece or a 10,000-word essay.
+readback is one on-device pipeline with two clients — the terminal **CLI**
+(generate + play live, over a WebSocket) and the web **dashboard** (replay past
+reads, over REST) — the same pipeline whether you're reading a news piece or a
+10,000-word essay.
 
-```
-              ┌─────────────────────┐
-              │      CLI mode       │
-              │      Bun + Ink      │
-              │   afplay  player    │
-              └──────────┬──────────┘
-                         │ auto-spawns the
-                         │ server if needed
-                         │  WebSocket  /ws
-                         ▼
-          ┌──────────────────────────────┐
-          │   readback server (FastAPI)  │
-          │                              │
-          │  fetch ▸ extract ▸ [summary] │
-          │   ▸ chunk ▸ TTS ▸ WAV        │
-          └──────┬────────────────┬──────┘
-                 ▼                ▼
-        ┌─────────────────┐ ┌─────────────────┐
-        │  Ollama (local) │ │ CSM-1B on MLX / │
-        │  Summary mode   │ │ Metal — offline │
-        │  only           │ │ voice synthesis │
-        └─────────────────┘ └─────────────────┘
+```mermaid
+flowchart LR
+    U["Article URL"] --> P
+
+    subgraph P["readback server · 100% on-device"]
+        direction LR
+        E["extract<br/>trafilatura"] --> L["summarize<br/>local LLM · optional"] --> T["synthesize<br/>CSM-1B neural TTS"]
+    end
+
+    T --> DB[("readback-audio-db<br/>WAV files + SQLite")]
+    DB --> CLI["CLI<br/>generate + play live"]
+    DB --> WEB["Dashboard<br/>search + replay anytime"]
 ```
 
 The read pipeline, left to right:
@@ -149,8 +199,10 @@ The read pipeline, left to right:
 CSM runs on one MLX/Metal thread (MLX binds its GPU stream to the first thread
 that touches it), so read jobs queue naturally. The CLI is a pure client — it
 adds zero server code, just spawns and supervises the same `readback` process
-you'd start by hand. See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full
-system view.
+you'd start by hand. A second, lighter client — the [library
+dashboard](#library-dashboard) — replays *past* reads over plain REST (no
+WebSocket, no models), so generating and listening-again are cleanly separate.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system view.
 
 ---
 
@@ -162,8 +214,9 @@ system view.
 | **Summary (optional)** | [Ollama](https://ollama.ai/) — default `gemma4:26b`; any pulled chat model works |
 | **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, fp32 |
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
-| **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV |
+| **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV, REST library |
 | **CLI client** | Bun + TypeScript + [Ink](https://github.com/vadimdemedes/ink) — terminal UI, `afplay` playback |
+| **Dashboard** | [Vue 3](https://vuejs.org/) + [Vite](https://vite.dev/) + TS — replay past reads (search/sort/player); stdlib SQLite library |
 
 ---
 
@@ -211,9 +264,15 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `tts.csm.voices` | Clone voices (`name`, `label`, `wav`, `ref_text`, `speaker`) | sample `kay` |
 | `tts.csm.lora_path` | LoRA adapter dir from a `csm-mlx finetune` run | `null` |
 | `reader.default_mode` | `full` (verbatim) or `summary` (LLM) | `full` |
-| `reader.output_dir` | Where generated WAVs are written/served | `~/.readback/reader` |
+| `reader.output_dir` | Where generated WAVs are written/served (a `readback-audio-db/` folder beside the repo) | `../readback-audio-db/audio` |
 | `reader.gap_sec` | Silence inserted between synthesized chunks | `0.18` |
 | `reader.summary_max_chars` | Cap article text fed to the LLM in Summary mode | `16000` |
+| `reader.library_db` | SQLite library of past reads (powers the dashboard) | `../readback-audio-db/library.db` |
+
+Audio + the library DB live together in a **`readback-audio-db/` folder next to
+the repo** (relative paths resolve against `config.yaml`'s location), so your reads
+sit in one visible, back-up-able place — not a hidden `~/.readback` dir. Point
+`output_dir` / `library_db` anywhere you like (absolute or `~`-prefixed both work).
 
 Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
@@ -230,7 +289,9 @@ Everything beyond this README lives in [`docs/`](docs/):
 | [`docs/SETUP.md`](docs/SETUP.md) | End-to-end setup, flags, verification, troubleshooting |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System view — pipeline, concurrency model, WS protocol, extension points |
 | [`docs/PLAN.md`](docs/PLAN.md) | Planning history — every feature/refactor plan with status, newest first |
+| [`docs/JOURNEY.md`](docs/JOURNEY.md) | Devlog — how readback was built agent-first (the pivots, decisions, gotchas) |
 | [`src/cli/README.md`](src/cli/README.md) | Terminal client — keys, slash commands, player internals |
+| [`src/dashboard/README.md`](src/dashboard/README.md) | Web dashboard — library UI (Vue 3), dev/build/deploy |
 | [`src/finetune/README.md`](src/finetune/README.md) | LoRA voice fine-tune pipeline (data prep → training → config) |
 
 ---
@@ -254,12 +315,12 @@ Everything beyond this README lives in [`docs/`](docs/):
 - [ ] Extracted-article preview (title + word count + est. listen time) before synthesizing — both clients currently show only the phase until `done`
 - [ ] Progress: % + estimated time remaining (both clients already show a per-chunk bar; the CLI shows done/total)
 - [ ] Download filename = sanitized article title (the WAV is served/saved as a uuid)
-- [ ] History of recent reads, backed by the saved WAVs
+- [x] **History of recent reads** — the [library dashboard](#library-dashboard) lists/searches/replays every past read, backed by the saved WAVs (a SQLite library; 2026-06-13)
 - [ ] Nicer error states (paywalled / JS-only / fetch-blocked pages)
 
 **Housekeeping & nice-to-have**
 
-- [ ] Generated-WAV rotation — `~/.readback/reader/` grows unbounded; keep N most-recent / age-out
+- [ ] Generated-WAV *auto*-rotation — the audio folder grows unbounded; keep N most-recent / age-out (the dashboard already supports manual delete, which removes the row + WAV)
 - [ ] Cache by (url, mode, voice) so re-reading is instant
 - [ ] Chunked summarization for very long articles (Summary mode truncates to `summary_max_chars`)
 - [ ] Paste raw text (not just a URL) as an input source

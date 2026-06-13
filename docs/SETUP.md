@@ -92,4 +92,6 @@ sf.write('/tmp/test.wav', np.asarray(s.synthesize('Hello from readback.'),dtype=
 - `.venv/` — ~2–3 GB.
 - `~/.cache/huggingface/hub/` — ~6.5 GB (CSM `ckpt.safetensors` + Mimi codec +
   Sesame voice prompts).
-- Generated audio — `~/.readback/reader/` (grows with use; safe to clear).
+- Generated audio + the library DB — a `readback-audio-db/` folder beside the
+  repo (`reader.output_dir` / `reader.library_db`; grows with use). Deleting a
+  read from the dashboard removes its WAV; clearing the folder wipes the library.

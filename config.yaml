@@ -37,8 +37,11 @@ tts:
     # lora_path: "src/finetune/runs/v1"
 
 reader:
-  # Generated WAVs are written here and served for playback + download.
-  output_dir: "~/.readback/reader"
+  # Generated WAVs are written here and served for playback + download. Kept
+  # next to the library DB (readback-audio-db/) so audio + metadata live in one
+  # visible, back-up-able folder — not a hidden ~/.readback dir that's easy to
+  # wipe by accident.
+  output_dir: "../readback-audio-db/audio"   # sibling of the repo (resolved from here)
   default_mode: "full"               # "full" (verbatim) or "summary" (LLM)
   gap_sec: 0.18                      # silence between (trimmed) chunks
   summary_max_chars: 16000           # cap article text fed to the LLM in summary mode

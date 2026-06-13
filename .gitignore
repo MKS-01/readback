@@ -58,4 +58,4 @@ src/finetune/dataset.json
 vendor/csm/
 
 # --- Landing page (media is copied in by the Pages workflow / locally for preview) ---
-site/media/
+src/landing-page/media/
