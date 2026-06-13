@@ -209,10 +209,17 @@ readback/
   ref_max_sec, voices, lora_path}`. The checkpoint (`senstella/csm-1b-mlx`) is
   fixed in the engine.
 - `ReaderConfig{output_dir, default_mode, gap_sec, summary_max_chars,
-  library_db}`. `library_db` defaults to
-  `~/Desktop/C0D3/readback-audio-db/library.db` (the dashboard's SQLite store).
-- `Config.load()` resolves clone `wav` paths, `lora_path`, and `library_db`
-  relative to the config file's directory (`~` expands; absolute paths as-is).
+  library_db}`. `output_dir` + `library_db` default to a sibling
+  `readback-audio-db/` folder next to the repo (`../readback-audio-db/audio` and
+  `../readback-audio-db/library.db`) — audio + DB in one visible, back-up-able
+  place, NOT a hidden `~/.readback` dir. ⚠ Defaults use **`../` relative
+  notation** (no personal absolute path baked into the public repo).
+- `Config.load()` resolves clone `wav` paths + `lora_path` relative to the config
+  dir, and resolves **`output_dir` + `library_db`** the same way then `.resolve()`s
+  them to clean absolute paths (`~` expands; absolute paths as-is). The absolute
+  `output_dir` is what the server stores in each row's `audio_path` and reports as
+  `audio_dir` in `/api/config` + the WS `config` message (the CLI's same-machine
+  playback shortcut — see CLI section).
 
 ### LLM (`llm/client.py`)
 
@@ -248,8 +255,12 @@ readback/
 - **Playback = `afplay`** (macOS-only): pause/resume via **SIGSTOP/SIGCONT**;
   always SIGCONT before SIGTERM (a SIGSTOPped process can't handle SIGTERM).
   Caveats: pause flushes ~0.5 s of buffer, elapsed time is wall-clock-tracked.
-  Plays the local WAV in `~/.readback/reader/` when present, else downloads
-  from `/audio`.
+  Plays the server-written WAV directly when the file is on this machine —
+  `resolveWav` checks `<config.audio_dir>/<fname>` (the `audio_dir` the server
+  reports in its config) and falls back to downloading from `/audio` into
+  `~/.readback/cli-cache/` (a CLI-only cache, deliberately NOT the server's audio
+  dir). ⚠ The old hardcoded `~/.readback/reader/` path is gone — never reintroduce
+  it; the audio location is config-driven now.
 - **Seek (←/→ ±5 s)** despite afplay having no transport: `player.ts` parses
   the WAV's RIFF chunks, slices the PCM data at the target byte offset into
   `$TMPDIR/readback-seek-<pid>.wav`, and relaunches afplay there. Rapid
@@ -332,8 +343,8 @@ readback/
 
 ## Remaining cleanup candidates (tracked in README.md → Roadmap)
 
-- Generated WAVs in `~/.readback/reader/` grow unbounded (no *auto*-rotation
-  yet — the dashboard's delete removes a row + its WAV manually).
+- Generated WAVs in `output_dir` (`readback-audio-db/audio/`) grow unbounded (no
+  *auto*-rotation yet — the dashboard's delete removes a row + its WAV manually).
 
 The v0.8.0 cleanup removed the dead `tools/` module, the streaming/tool-calling
 LLM plumbing, the legacy vanilla-JS static bundle, the inert `CsmTTSConfig`

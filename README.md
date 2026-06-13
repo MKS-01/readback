@@ -272,10 +272,15 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `tts.csm.voices` | Clone voices (`name`, `label`, `wav`, `ref_text`, `speaker`) | sample `kay` |
 | `tts.csm.lora_path` | LoRA adapter dir from a `csm-mlx finetune` run | `null` |
 | `reader.default_mode` | `full` (verbatim) or `summary` (LLM) | `full` |
-| `reader.output_dir` | Where generated WAVs are written/served | `~/.readback/reader` |
+| `reader.output_dir` | Where generated WAVs are written/served (a `readback-audio-db/` folder beside the repo) | `../readback-audio-db/audio` |
 | `reader.gap_sec` | Silence inserted between synthesized chunks | `0.18` |
 | `reader.summary_max_chars` | Cap article text fed to the LLM in Summary mode | `16000` |
-| `reader.library_db` | SQLite library of past reads (powers the dashboard) | `~/Desktop/C0D3/readback-audio-db/library.db` |
+| `reader.library_db` | SQLite library of past reads (powers the dashboard) | `../readback-audio-db/library.db` |
+
+Audio + the library DB live together in a **`readback-audio-db/` folder next to
+the repo** (relative paths resolve against `config.yaml`'s location), so your reads
+sit in one visible, back-up-able place — not a hidden `~/.readback` dir. Point
+`output_dir` / `library_db` anywhere you like (absolute or `~`-prefixed both work).
 
 Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
@@ -323,7 +328,7 @@ Everything beyond this README lives in [`docs/`](docs/):
 
 **Housekeeping & nice-to-have**
 
-- [ ] Generated-WAV *auto*-rotation — `~/.readback/reader/` grows unbounded; keep N most-recent / age-out (the dashboard already supports manual delete, which removes the row + WAV)
+- [ ] Generated-WAV *auto*-rotation — the audio folder grows unbounded; keep N most-recent / age-out (the dashboard already supports manual delete, which removes the row + WAV)
 - [ ] Cache by (url, mode, voice) so re-reading is instant
 - [ ] Chunked summarization for very long articles (Summary mode truncates to `summary_max_chars`)
 - [ ] Paste raw text (not just a URL) as an input source

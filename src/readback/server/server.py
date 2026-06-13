@@ -244,6 +244,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voice": cfg.tts.active.speaker,
             "model": cfg.ollama.model,
             "default_mode": cfg.reader.default_mode,
+            "audio_dir": str(out_dir),   # where WAVs live (CLI same-machine shortcut)
         }
 
     @app.get("/api/models")
@@ -290,6 +291,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voice": cfg.tts.active.speaker,
             "model": cfg.ollama.model,
             "default_mode": cfg.reader.default_mode,
+            "audio_dir": str(out_dir),
         })
         # The active read job runs as a background task so the receive loop stays
         # free to handle `cancel` (and disconnects) mid-synthesis.

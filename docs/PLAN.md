@@ -19,7 +19,7 @@ Original concept sketch (the brief that kicked this off):
 **Shipped (2026-06-13):** `src/readback/library.py` (`Library` over stdlib
 sqlite3 — per-call connections, `add/list/get/delete`); persist in
 `_run_read_job` step 4b (best-effort, logged); `ReaderConfig.library_db`
-(default `~/Desktop/C0D3/readback-audio-db/library.db`, resolved in `load()`);
+(default `../readback-audio-db/library.db`, resolved in `load()`);
 REST `GET /api/library?q=&sort=`, `GET /api/library/{id}`,
 `DELETE /api/library/{id}`; built dashboard mounted at `/` when present.
 `src/dashboard/` = Vue 3 + Vite + TS (App/SearchBar/SortToggle/ReadCard, one
@@ -45,6 +45,15 @@ gained a "Why generation stays on the CLI" rationale (heavy LLM+TTS = on-demand
 CLI work; replay = model-free dashboard path) mirrored into ARCHITECTURE §1/§5.
 **Released v2.1.0** — bumped all four anchors (pyproject / `__init__` /
 cli+dashboard `package.json`) + CLAUDE/ARCHITECTURE version labels.
+**Audio relocation (post-release):** moved `output_dir` out of the hidden
+`~/.readback/reader/` into a sibling `readback-audio-db/audio/` folder next to
+the repo (audio + DB together, harder to delete by accident). Config defaults now
+use **`../` relative notation** (resolved against `config.yaml`'s dir, then
+`.resolve()`d) so no personal absolute path leaks into the public repo; `load()`
+resolves `output_dir` like `library_db`. The server reports the resolved dir as
+`audio_dir` in `/api/config` + WS `config`, and the CLI's `resolveWav` uses it for
+the same-machine playback shortcut (cache moved to `~/.readback/cli-cache/`).
+Migrated the 5 tracked WAVs + rewrote their `audio_path`; deleted 23 orphan WAVs.
 **Deferred:** Pi/remote deploy + Mac→Pi audio sync; backfill of pre-existing
 orphan WAVs; WAV auto-rotation (manual delete only).
 
@@ -65,7 +74,7 @@ so runtime cost is just FastAPI + SQLite (stdlib, near-zero RAM).
 
 Decisions (confirmed with user): **Vue 3 + Vite + TS**; **delete capability
 included** (also closes the "WAVs grow unbounded" roadmap item); DB lives at
-**`~/Desktop/C0D3/readback-audio-db/library.db`** (sibling to the repo).
+**`../readback-audio-db/library.db`** (sibling to the repo).
 
 ### Design
 
@@ -100,7 +109,7 @@ included** (also closes the "WAVs grow unbounded" roadmap item); DB lives at
    `_run_read_job` (mirrors how `models`/`cfg` are threaded through).
 
 3. **Config — `config.py`**. Add `ReaderConfig.library_db: Path =
-   Path("~/Desktop/C0D3/readback-audio-db/library.db")`, expanded at use. `load()`
+   Path("../readback-audio-db/library.db")`, expanded at use. `load()`
    resolves it like the other paths. (Configurable, not hard-coded.)
 
 4. **REST API — `server/server.py`** (read-only + delete; no WS changes):
@@ -164,7 +173,7 @@ included** (also closes the "WAVs grow unbounded" roadmap item); DB lives at
 ### Verification
 
 1. **DB bootstrap**: fresh run with no DB → first read creates
-   `~/Desktop/C0D3/readback-audio-db/library.db` + `reads` table; `sqlite3 …
+   `../readback-audio-db/library.db` + `reads` table; `sqlite3 …
    "SELECT id,title,mode FROM reads"` shows the row.
 2. **Persist both modes**: a Full read stores `summary=NULL` + non-empty
    `excerpt`; a Summary read stores both. `audio_path` is the real absolute WAV

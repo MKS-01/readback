@@ -72,8 +72,11 @@ responsive while a read job runs because all heavy work is pushed off it:
    otherwise sound halting), and joins chunks with a uniform `reader.gap_sec`
    gap. `progress(done, total)` fires per chunk; `should_stop()` aborts early.
 4. **Serve** — the concatenated float32 buffer is written to
-   `reader.output_dir` (`~/.readback/reader/<uuid>.wav`) and served at
-   `/audio/<id>.wav` for playback and download.
+   `reader.output_dir` (a `readback-audio-db/audio/<uuid>.wav` folder beside the
+   repo by default — kept next to the library DB, not in a hidden `~/.readback`
+   dir) and served at `/audio/<id>.wav` for playback and download. The server
+   reports this dir as `audio_dir` in `/api/config` so the CLI can play a
+   same-machine WAV without re-downloading.
 5. **Record** — the read's metadata (title, summary/excerpt, source URL, mode,
    voice, duration, word count, WAV filename + absolute path, timestamp) is
    written to the SQLite **read library** (`library.py`, `reader.library_db`).

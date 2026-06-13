@@ -79,16 +79,19 @@ class TTSConfig(BaseModel):
 
 class ReaderConfig(BaseModel):
     # Offline article reader (project pivot, v0.8.0). Generated WAVs are written
-    # here and served for in-browser playback + download.
-    output_dir: Path = Path.home() / ".readback" / "reader"
+    # here and served for playback + download. Default keeps audio alongside the
+    # library DB (see library_db) in a sibling `readback-audio-db/` folder next to
+    # the repo — visible + back-up-able, not a hidden ~/.readback dir that's easy
+    # to delete by accident. Relative paths resolve against config.yaml's dir.
+    output_dir: Path = Path("../readback-audio-db/audio")
     default_mode: Literal["full", "summary"] = "full"
     gap_sec: float = 0.18                 # silence between (trimmed) chunks
     # Cap article text fed to the LLM in summary mode (keeps it within context).
     summary_max_chars: int = 16000
     # SQLite library of past reads (powers the web dashboard). One file, stdlib
-    # sqlite3. Default sits beside the repo; resolved relative to config.yaml if
-    # given as a relative path.
-    library_db: Path = Path("~/Desktop/C0D3/readback-audio-db/library.db")
+    # sqlite3. Default sits in the sibling `readback-audio-db/` folder next to the
+    # repo; relative paths resolve against config.yaml's dir.
+    library_db: Path = Path("../readback-audio-db/library.db")
 
 
 class Config(BaseModel):
@@ -123,8 +126,11 @@ class Config(BaseModel):
             lp = Path(str(cfg.tts.csm.lora_path)).expanduser()
             cfg.tts.csm.lora_path = lp if lp.is_absolute() else (base / lp)
 
-        # Library DB path: ~ expands; a relative path resolves against config.yaml.
-        ldb = Path(str(cfg.reader.library_db)).expanduser()
-        cfg.reader.library_db = ldb if ldb.is_absolute() else (base / ldb)
+        # Reader paths: ~ expands; a relative path resolves against config.yaml's
+        # dir, then is normalized (so a `../` default becomes a clean absolute
+        # path — what gets stored in the DB's audio_path).
+        for attr in ("output_dir", "library_db"):
+            p = Path(str(getattr(cfg.reader, attr))).expanduser()
+            setattr(cfg.reader, attr, (p if p.is_absolute() else (base / p)).resolve())
 
         return cfg
