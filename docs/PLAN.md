@@ -6,6 +6,201 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-14 — Landing page layout rework (de-box + catchier hero)
+
+**Status: done** — branch `feat/animations`. The page read as a rigid stack
+of bordered rectangles; rework it to structure with whitespace + typography +
+a couple of intentional surfaces (per `emil-design-eng`: "beauty is leverage",
+reduce noise, cohesion). User-approved direction: bold rework.
+
+### Design
+
+1. **De-box.** Drop most `1px` borders. Sections separate with air + a single
+   **hairline rule under each `##` header**, not a full box. Keep only two framed
+   surfaces — the **screenshot viewer** (`.demo-frame`) and the **`--features`
+   terminal** (`.feat-term`) — since those genuinely are screens/terminals.
+2. **Sample player** — borderless; the waveform floats on the page (play button
+   keeps its accent outline since it's a control).
+3. **Step rail → underline tabs.** `.demo-steps`/`.demo-step` lose the boxed
+   panel; active step = accent text + accent underline on a shared baseline rule.
+   The rAF progress bar (`#demo-progress`) stays (timing), JS untouched.
+4. **Hero.** Kicker above the wordmark: `// a weekend project · built with Claude
+   Code` (Martian Mono). Tagline → **"Your reading list, read to you."** (USP +
+   the name: readback = read back to you); pitch → "A natural neural voice reads
+   whole articles aloud — right in your terminal, entirely on-device. Nothing
+   leaves your Mac." Copy mined from docs/JOURNEY.md, not generic.
+5. **Rhythm.** More vertical air; bigger `##` headers; hero stays centered, content
+   sections left-aligned (incl. the Dive-in CTA) for variety vs the all-centered
+   monotone.
+6. **Animation** — keep everything (ease-out curves, stagger, stepper progress,
+   reduced-motion); just re-apply to the new structure.
+7. **Softer corners + no `##`.** Sharp box corners read harsh, and the `##`
+   header prefix looked like broken markdown to non-tech viewers. Added
+   `--radius: 8px` on buttons/frames/panels (rounded-square sample play button,
+   4px on inline code), and dropped the `##` spans from all `h2`s (the hairline
+   rule already separates them). The **dashboard** got the same `--radius: 8px`
+   for cohesion — search box, sort toggle, the cards panel (+ `overflow:hidden`),
+   play + skip buttons, load-more.
+
+### Files
+
+- `src/landing-page/index.html` — hero kicker + new copy; step-rail markup stays.
+- `src/landing-page/style.css` — de-box, hairline headers, underline tabs,
+  left-align, hero kicker, spacing.
+
+### Out of scope
+
+- Section content/order changes beyond the hero copy (order stays hook-first).
+- New media; dashboard; the repo docs.
+
+### Verification
+
+1. Headless screenshot: few/no full-box borders; hairline under each header;
+   underline tabs; borderless player; kicker + new tagline render.
+2. CDP: stepper progress still fills; `:focus-visible` rings intact;
+   reduced-motion keeps opacity, drops movement.
+3. Mobile width renders without overflow.
+
+---
+
+## 2026-06-14 — Emil re-review fixes + landing-page design pass + content trim
+
+**Status: done** — branch `feat/animations`. After installing the real
+`emil-design-eng` skill (`.agents/skills/`), re-audited the animation pass against
+its actual guidance, applied the fixes to both surfaces, did a focused
+design-engineering polish on the landing page (within its terminal identity), and
+trimmed the page to a hook-and-redirect shape.
+
+**Content trim (added scope, user-approved):** the page was re-documenting the
+whole project. Cut four sections that duplicate the repo/docs — **How it works**
+(flow diagram), **Quick start** (install code), **How it took shape** (timeline),
+**Architecture** (stack list) — and replaced them with one **Dive in** band of
+GitHub links (Quick start / Architecture / Browse the repo). Kept the things you
+can't get from a README scan: hero, **Hear it** (sample player), **See it work**
+(screenshot stepper), Features. ~8 screens → ~4. Dead CSS/JS for the cut sections
+removed; no `docs/media` files dropped so `pages.yml` is untouched.
+
+**Features reformat:** the 2×2 card grid became a `readback --features` **terminal
+listing** (`.feat-term`/`.feat-list`) — green ✓, accent-aligned key column, bold
+claim + hang-indented detail, and a `5 features · 0 cloud calls · 0 API keys`
+footer. Rows print-in (opacity stagger), footer fades last. More formal + on-brand.
+
+Verified over CDP: sections are exactly `hero · sample · demo · features · dive ·
+footer`; the stepper progress bar fills via rAF; `:focus-visible` rings render;
+reduced-motion keeps opacity fades, drops movement.
+
+### Context
+
+The first animation pass (entry below) was built from general principles, not the
+actual skill file (the public page is just a promo). With the skill installed, a
+re-review surfaced concrete corrections; the user approved all of them and asked
+for a fuller design pass on the landing page (animation included).
+
+### Design — animation corrections (both surfaces)
+
+1. **Drop the bounce.** `--spring: cubic-bezier(0.34,1.56,0.64,1)` had real
+   overshoot; the skill reserves bounce for playful/drag. Replaced with Emil's
+   exact curves: `--ease-out: cubic-bezier(0.23,1,0.32,1)` for entrances/press,
+   `--ease-drawer: cubic-bezier(0.32,0.72,0,1)` for the dashboard accordion.
+2. **Gate hover movement** behind `@media (hover: hover) and (pointer: fine)` —
+   touch devices fire `:hover` on tap, leaving transforms stuck.
+3. **Gentler reduced-motion** — "fewer and gentler, not zero": keep opacity/color
+   fades (card fade, loading pulse, caret blink, scroll-reveal opacity), drop only
+   movement (slide-in translate, height accordion, press scale, drift/sway/pulse).
+4. **Tighten timing** — dashboard card entrance 400 → 280 ms (skill: UI < 300 ms).
+
+### Design — landing-page polish (terminal identity kept)
+
+5. **Hero** — soft radial accent glow behind the wordmark for depth; primary vs
+   secondary CTA distinction; press states.
+6. **"See it work" stepper** — a linear progress bar synced to the 4.5 s
+   auto-advance (rAF-driven, freezes on hover) so the timing is legible.
+7. **Detail polish** — `:focus-visible` rings, `::selection`, subtle scrollbar,
+   gated feature-card hover lift, stack-row hover.
+
+### Files
+
+- `src/dashboard/src/styles.css` — curves, accordion easing, reduced-motion, timing.
+- `src/landing-page/style.css` — curves + all of the above polish.
+- `src/landing-page/index.html` — stepper progress element + rAF auto-advance refactor.
+
+### Out of scope
+
+- Dashboard visual redesign (animation fixes only).
+- New page content/sections, copy rewrites, new screenshots.
+- Any framework/library (still pure CSS + vanilla JS / Vue transitions).
+
+### Verification
+
+1. Dashboard rebuilds; CDP confirms no `--spring` left, accordion uses drawer curve,
+   reduced-motion keeps card-fade opacity but zeroes transforms.
+2. Landing page: hero glow renders; CTA primary/secondary read distinctly; stepper
+   progress fills over 4.5 s and freezes on hover; `:focus-visible` rings show on tab.
+3. Reduced-motion: scroll-reveal still fades (opacity), no translate/drift/sway/pulse;
+   content never invisible.
+4. Both pages render with no layout breakage (headless screenshot).
+
+---
+
+## 2026-06-14 — Animation pass: dashboard + landing page (Emil Kowalski style)
+
+**Status: done** — branch `feat/animations`. Add purposeful, spring-eased animations to both surfaces: staggered list/section entrances, smooth player panel expand/collapse, delete exit, button micro-interactions, and better hero easing. Zero new dependencies.
+
+**Implementation note:** the player accordion uses the CSS `grid-template-rows: 0fr↔1fr` trick via a `<Transition>` wrapper (`.player-panel`) rather than the JS height hooks in the original design — same UX, no `transitionend`/`done()` edge cases, and reduced-motion-safe for free. The `.player`'s top spacing moved from `margin-top` to `padding-top` so it's clipped during collapse. Verified end-to-end via Chrome DevTools Protocol: card `--i` stagger 0→8 (capped), `.player-panel` grid-rows mid-interpolation on play, button `transform` press wiring, and `prefers-reduced-motion` collapsing all durations to 0s with content forced visible (fixed a specificity bug where `.reveal .feat-grid li { opacity: 0 }` outranked the reduced-motion reset — now `!important` + full selector).
+
+### Context
+
+The landing page has a solid scroll-reveal base but uses flat `ease-out` everywhere and reveals entire sections without staggering children. The dashboard has almost no animation — no card entrance, no expand/collapse for the player that pops open when you click a card, no exit on delete. Emil Kowalski's approach: spring-like cubic-bezier for organic feel, stagger lists to show structure, animate expand/collapse with real heights (not `max-height` jumps), and keep micro-interactions (`:active` scale) on every interactive surface. Only animate things that carry meaning — not the search box, not the sort toggle.
+
+### Design
+
+**Both surfaces — shared principle:**
+1. Add `--spring: cubic-bezier(0.34, 1.56, 0.64, 1)` (gentle overshoot) and `--ease-out: cubic-bezier(0.16, 1, 0.3, 1)` (snappy ease-out) as CSS variables. Replace flat `ease-out` usage.
+
+**Landing page (`style.css` + `index.html`):**
+2. Upgrade `@keyframes rise` easing to `--spring`; add `@keyframes fade-in` (opacity-only) for subtler elements.
+3. **Button hover/press** — `.btn:hover { transform: translateY(-1px) }` + `.btn:active { transform: translateY(0) scale(0.98) }`.
+4. **Stagger section children** — IntersectionObserver callback also adds staggered `--i` vars to direct children (feat-grid `li`, timeline `.tl-item`, stack-list `li`). Each child transitions `opacity + translateY` with `transition-delay: calc(var(--i) * 60ms)`.
+5. **Demo caption fade** — add a CSS opacity transition on the caption element; JS briefly toggles a class to fade out before swapping text.
+6. **Timeline dot pulse** — `.tl-item.cur .tl-dot` plays a single `scale(1) → 1.25 → 1` pulse on `.in`.
+
+**Dashboard (`styles.css` + `App.vue` + `ReadCard.vue`):**
+7. **Card list entrance** — `<TransitionGroup>` around cards. Each card gets `--i` inline style (capped at 8 to limit total delay). Enter: `opacity 0→1`, `translateY(8px)→0`, `transition-delay: calc(var(--i) * 40ms)`.
+8. **Delete exit** — `TransitionGroup` leave: `opacity 1→0`, `translateX(-6px)`, 200ms.
+9. **Player panel expand/collapse** — `<Transition>` with JS hooks (`onBeforeEnter` height 0, `onEnter` height scrollHeight, `onAfterEnter` height auto; reverse for leave). Real accordion, no `max-height` jump.
+10. **Button press feedback** — `.play:active, .skips button:active, .load-more:active { transform: scale(0.95); }`.
+11. **Active card accent border** — `transition: box-shadow 0.2s, background 0.2s` on `.card` so the `inset 2px 0 0 var(--accent)` slides in.
+12. **Loading pulse** — `.muted` gets a `pulse` animation keyed to a `.loading` CSS class toggled while `loading.value` is true.
+
+### Files
+
+- `src/landing-page/style.css` — spring vars, upgraded easing, button states, stagger child CSS, caption fade, timeline dot pulse.
+- `src/landing-page/index.html` — IntersectionObserver stagger logic for section children, demo caption fade class.
+- `src/dashboard/src/styles.css` — TransitionGroup enter/leave classes, player expand transition, button `:active`, card `transition`, loading pulse.
+- `src/dashboard/src/App.vue` — `<TransitionGroup>` wrapping cards, `--i` index on each card.
+- `src/dashboard/src/components/ReadCard.vue` — `<Transition>` with JS hooks on the `.player` div.
+
+### Out of scope
+
+- Framer Motion, GSAP, or any animation library — CSS + Vue transitions only.
+- Animating the search input, sort toggle, count label, or header.
+- Waveform or transcript animations (already solid).
+- The CLI / Python server.
+- Mobile gesture animations (drag-to-delete etc.).
+
+### Verification
+
+1. **Landing page hero** — open `src/landing-page/index.html` locally; wordmark, tagline, pitch, and CTA each rise with a subtle spring overshoot, staggered ~120ms apart.
+2. **Landing page scroll** — scroll down; feat-grid items, timeline entries, and stack-list rows each stagger in individually (not the whole section at once).
+3. **Landing page buttons** — hover `.btn` lifts 1px; click → scales down and springs back.
+4. **Dashboard card entrance** — load the dashboard; cards stagger in on initial load; "Load more" appends also stagger.
+5. **Dashboard active card** — click play; player panel accordion-expands smoothly. Click another card → old panel collapses, new opens.
+6. **Dashboard delete** — card slides left + fades out before disappearing (no layout jump).
+7. **Dashboard play button** — visible press-down scale on click.
+8. **Reduced motion** — DevTools → Rendering → "prefers-reduced-motion: reduce" → no animations on either surface.
+
+---
+
 ## 2026-06-13 — Landing page → `src/landing-page/` + a landing-page skill
 
 **Status: done** — on branch `feat/dashboard` (PR #12). Repo reorg + a new skill;

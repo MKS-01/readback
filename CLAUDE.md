@@ -45,7 +45,7 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v3.0.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
+├── pyproject.toml             # v3.1.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── .github/workflows/
@@ -75,11 +75,14 @@ readback/
     │                          # which server.py mounts at / when present. Ghost palette reused.
     ├── landing-page/          # static marketing site (mks-01.github.io/readback) —
     │                          # index.html + style.css, vanilla inline JS (waveform
-    │                          # player, screenshot crossfade, scroll reveal). NOT a web
-    │                          # client; media/ gitignored (local preview of docs/media).
+    │                          # player, screenshot stepper w/ rAF progress bar, scroll
+    │                          # reveal + staggered Features). Trimmed to hook+redirect:
+    │                          # hero · Hear it · See it work · Features · Dive-in (GitHub
+    │                          # links) — deep docs live in the repo, not duplicated here.
+    │                          # NOT a web client; media/ gitignored (preview of docs/media).
     │                          # Deployed by pages.yml; refresh via the landing-page skill.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
-    │   ├── package.json       # readback-cli 3.0.0; ink + ink-text-input
+    │   ├── package.json       # readback-cli 3.1.0; ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
     │   └── src/               # index.tsx (boot + resize repaint), app.tsx (screen
     │                          # switch), theme.ts (Ghost + BLUE accent),
@@ -326,6 +329,21 @@ readback/
   (IBM Plex Mono / Martian Mono) lifted from `src/landing-page/style.css` — visually matches
   the CLI + landing page. ⚠ Audio lives only on the Mac; the DB stores the
   absolute `audio_path` so a future Pi host can sync/proxy it (deploy deferred).
+- **Motion** (`styles.css` + `App.vue` + `ReadCard.vue`): curves per the
+  `emil-design-eng` skill — `--ease-out: cubic-bezier(0.23,1,0.32,1)` for
+  entrances/press, `--ease-drawer: cubic-bezier(0.32,0.72,0,1)` for the accordion.
+  No bounce/spring in functional UI. Cards enter via
+  `<TransitionGroup name="card" appear>` — staggered fade/slide-up (~280 ms) keyed
+  by a per-card `--i` (set inline in `App.vue`, **capped at 8** so a 20-card page
+  doesn't drag); delete is the `card-leave` (fade + slide-left, `position:
+  absolute` so survivors slide up via `.card-move`). The active card's player is a
+  `<Transition name="player">` over a `.player-panel` that animates
+  **`grid-template-rows: 0fr↔1fr`** (real-height accordion, no `max-height`
+  guess); ⚠ this needs the inner `.player` to `overflow:hidden; min-height:0` and
+  its top spacing as **`padding-top`, not `margin-top`** (margins aren't clipped by
+  the collapse). Buttons get a `:active { scale }` press. ⚠ `prefers-reduced-motion`
+  is **gentle, not zero** — keeps opacity fades (card fade, loading pulse, caret),
+  drops only movement (slide, accordion height, press scale).
 
 ## Things that look like bugs but aren't
 
@@ -371,18 +389,21 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.0.0** — library dashboard + persistence (**major**). New
-`src/readback/library.py` (SQLite read library) + paged REST routes
-(`/api/library` list/get/delete) + persist-on-read; new `src/dashboard/` web UI
-(Vue 3 + Vite + TS — search/sort/paginate/replay/delete, full player +
-CLI-synced karaoke transcript), served at `/` when built. New config
-`reader.library_db`. **Why major (not 2.1):** the browser UI returns —
-*reversing* v2.0.0's deliberate web-frontend removal (v2.0.0 was itself a major
-bump *for* that removal) — and the default on-disk layout moved out of
-`~/.readback/reader` into a sibling `readback-audio-db/{audio,library.db}` folder
-(existing installs migrate). The programmatic surface is compatible, though: WS
-protocol + CLI unchanged. (v2.1.0 was an in-flight branch version, never
-tagged/released — folded into v3.0.0.)
+Current: **v3.1.0** — UI/UX polish (**minor** — presentational only; no
+protocol/API/config change). Purposeful animations across the dashboard + landing
+page guided by the `emil-design-eng` skill (`--ease-out`/`--ease-drawer` curves,
+staggered list entrances, grid-rows accordion player, rAF stepper progress,
+*gentle* reduced-motion); landing-page redesign (de-boxed layout, trimmed to a
+hook-and-redirect shape, story-grounded hero, `--radius` 8px corners on both
+surfaces, `--features` terminal listing); refreshed landscape dashboard
+screenshot. WS protocol + CLI protocol unchanged.
+
+Previously: **v3.0.0** — library dashboard + persistence (major): new
+`src/readback/library.py` (SQLite) + paged `/api/library` REST + persist-on-read;
+new `src/dashboard/` Vue UI served at `/`; new `reader.library_db`; default
+on-disk layout moved to a sibling `readback-audio-db/{audio,library.db}` (existing
+installs migrate). The browser UI returned (reversing v2.0.0's removal); WS +
+CLI compatible. (v2.1.0 folded in.)
 (v2.0.0: CLI-only pivot — web frontend removed, package restructured to the
 `src/` layout, docs under `docs/`, TLS/`cryptography` dropped. v1.1.0: CLI
 `/model` switch with RAM-fit verdicts. v1.0.0: terminal CLI as a `/ws` client.

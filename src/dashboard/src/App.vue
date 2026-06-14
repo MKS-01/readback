@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
       <SortToggle v-model="sort" />
     </div>
 
-    <p v-if="loading" class="muted">loading…</p>
+    <p v-if="loading" class="muted loading">loading…</p>
     <p v-else-if="error" class="muted err">{{ error }}</p>
     <p v-else-if="reads.length === 0 && q" class="muted">no reads match “{{ q }}”.</p>
     <p v-else-if="reads.length === 0" class="muted">
@@ -186,10 +186,11 @@ onBeforeUnmount(() => {
       <p class="count">
         {{ reads.length === total ? `${total} read${total === 1 ? "" : "s"}` : `showing ${reads.length} of ${total}` }}
       </p>
-      <div class="cards">
+      <TransitionGroup tag="div" name="card" class="cards" appear>
         <ReadCard
-          v-for="read in reads"
+          v-for="(read, i) in reads"
           :key="read.id"
+          :style="{ '--i': Math.min(i, 8) }"
           :read="read"
           :active="activeId === read.id"
           :paused="paused"
@@ -201,7 +202,7 @@ onBeforeUnmount(() => {
           @skip="skip"
           @delete="onDelete"
         />
-      </div>
+      </TransitionGroup>
       <button v-if="reads.length < total" class="load-more" :disabled="loadingMore" @click="loadMore">
         {{ loadingMore ? "loading…" : `Load more (${total - reads.length})` }}
       </button>

@@ -123,7 +123,7 @@ any past read anytime** — no LLM, no GPU, just the saved audio.
 
 <p align="center">
   <img src="docs/media/dashboard.png" alt="readback library dashboard — searchable list of past reads with an inline player and word-synced transcript" width="820"><br>
-  <sub>The library dashboard mid-replay: search + sort, a seekable player, and the same word-by-word transcript highlight as the CLI.</sub>
+  <sub>The library dashboard: search, sort, and one-click replay of every past read — each with a seekable player and the same word-by-word transcript highlight as the CLI.</sub>
 </p>
 
 - **Search** title / summary / URL, **sort** newest↔oldest, and **paginate** —
@@ -302,9 +302,10 @@ Everything beyond this README lives in [`docs/`](docs/):
 Direction now: **audio quality and CLI performance first**, then **serving the
 dashboard from a home Pi**. New features are intentionally lower priority.
 
-_Recently shipped: the [library dashboard](#library-dashboard) + persistence
-(v3.0.0), CLI `/model` switch with RAM-fit verdicts (v1.1.0), and an audio-quality
-tuning pass (`temperature 0.6`, `fp32`, 280-char sentence-aware chunks)._
+_Recently shipped: a UI/UX polish pass — animations + a redesigned landing page
+and rounded-corner dashboard (v3.1.0); the [library dashboard](#library-dashboard)
++ persistence (v3.0.0); CLI `/model` switch with RAM-fit verdicts (v1.1.0); and an
+audio-quality tuning pass (`temperature 0.6`, `fp32`, 280-char sentence-aware chunks)._
 
 ### 🎧 Audio quality — priority
 
