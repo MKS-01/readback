@@ -1,0 +1,36 @@
+name: CI
+
+# Runs the pure-logic test suite on every push and PR. The suite deliberately
+# avoids MLX/CSM (Apple-Silicon-only), so it installs the Linux-friendly
+# requirements-pi.txt subset + pytest and runs on Ubuntu — fast and free.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-pi.txt
+
+      - name: Install test dependencies
+        # requirements-pi.txt = the Linux-installable runtime subset (no csm-mlx);
+        # covers every import the test suite touches. Plus pytest.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-pi.txt pytest
+
+      - name: Run tests
+        run: python -m pytest   # config (testpaths, pythonpath=src) lives in pyproject.toml

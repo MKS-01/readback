@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "readback"
-version = "3.1.0"
+version = "3.2.0"
 description = "Local offline article reader: URL → article → audio, via CSM-1B TTS + Ollama on Apple Silicon"
 requires-python = ">=3.10,<3.13"
 authors = [{ name = "mks" }]
@@ -28,6 +28,12 @@ dependencies = [
     "python-multipart>=0.0.9",
 ]
 
+[project.optional-dependencies]
+# Test deps only. The suite covers pure logic (chunking, silence-tidy, text
+# scrub, SQLite library, think-stripper) — no MLX/CSM, so CI runs it on Linux
+# against the requirements-pi.txt subset + pytest (see .github/workflows/ci.yml).
+test = ["pytest>=8.0"]
+
 [project.scripts]
 readback = "readback.__main__:main"
 
@@ -37,3 +43,8 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/readback"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"

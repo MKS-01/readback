@@ -45,10 +45,37 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v3.1.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
+├── pyproject.toml             # v3.2.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
+├── .env.example               # Pi deployment config template (PI_USER/PI_HOST/PI_PATH/PI_PORT etc.)
+│                              # ⚠ copy to .env (gitignored) and fill in real values — never commit .env
+├── config.pi.example.yaml     # Pi config template: built-in speaker, same relative reader paths as Mac,
+│                              # no voices section (wav files aren't on Pi). deploy-pi.sh copies to
+│                              # config.yaml on Pi on first deploy only; subsequent deploys preserve edits.
+├── requirements-pi.txt        # Pi-compatible deps — excludes csm-mlx (MLX/Metal = Apple Silicon only).
+│                              # Only what's actually imported at server startup: fastapi, uvicorn,
+│                              # pydantic, pyyaml, python-multipart, ollama, numpy. trafilatura/
+│                              # soundfile/huggingface-hub are lazy imports (never called on Pi).
+├── scripts/
+│   ├── setup.sh               # one-command first-time setup (the README "Getting started"
+│   │                          # path): platform/Python check → .venv + pip install -e . →
+│   │                          # CLI + dashboard build (Bun) → optional Ollama model pull +
+│   │                          # CSM-1B weight pre-warm. Idempotent; reads default model from
+│   │                          # config.yaml. macOS/Apple-Silicon only.
+│   ├── deploy-pi.sh           # build dashboard → rsync source+dist → venv+pip → PM2 start/restart.
+│   │                          # Excludes venv/ and config.yaml from rsync so Pi state is preserved.
+│   │                          # PM2 started with --cwd PI_PATH so relative config paths resolve.
+│   └── sync-pi.sh             # stop Pi server → rsync WAVs + SQLite DB Mac→Pi → pm2 restart.
+│                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
+├── tests/                     # pytest suite — PURE LOGIC only (no MLX/CSM/GPU): chunk_text,
+│                              # _tidy_silence, _clean_for_tts, Library (SQLite), think-stripper.
+│                              # Config in pyproject.toml ([tool.pytest.ini_options]: testpaths=tests,
+│                              # pythonpath=src). Runnable on Linux against the requirements-pi.txt subset.
 ├── .github/workflows/
+│   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10–3.12 on Ubuntu;
+│   │                          # installs requirements-pi.txt + pytest (NOT the package — csm-mlx/
+│   │                          # mlx won't install on Linux). The reason the suite avoids TTS imports.
 │   └── pages.yml              # deploys src/landing-page/ to GitHub Pages — ONLY on
 │                              # push to main (i.e. after a PR merges) AND only when
 │                              # the page or one of its exact media files changed
@@ -59,6 +86,7 @@ readback/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide
 │   ├── PLAN.md                # planning history (newest entry on top)
+│   ├── ROADMAP.md             # roadmap — planned + recently shipped (single open-item tracker)
 │   ├── JOURNEY.md             # agent-first devlog (scaffold; user fills prose)
 │   └── media/                 # README screenshots + sample WAV + wordmark.png
 │                              # (brand banner; regen: make_wordmark.py — keep in
@@ -82,7 +110,7 @@ readback/
     │                          # NOT a web client; media/ gitignored (preview of docs/media).
     │                          # Deployed by pages.yml; refresh via the landing-page skill.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
-    │   ├── package.json       # readback-cli 3.1.0; ink + ink-text-input
+    │   ├── package.json       # readback-cli 3.2.0; ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
     │   └── src/               # index.tsx (boot + resize repaint), app.tsx (screen
     │                          # switch), theme.ts (Ghost + BLUE accent),
@@ -328,7 +356,8 @@ readback/
   (the CLI splits by hand only to dodge an ink ANSI-reset bug). Palette + fonts
   (IBM Plex Mono / Martian Mono) lifted from `src/landing-page/style.css` — visually matches
   the CLI + landing page. ⚠ Audio lives only on the Mac; the DB stores the
-  absolute `audio_path` so a future Pi host can sync/proxy it (deploy deferred).
+  absolute `audio_path` so the Pi host can unlink WAVs on delete — `scripts/sync-pi.sh`
+  pushes WAVs + DB to Pi; audio is served from Pi's local copy.
 - **Motion** (`styles.css` + `App.vue` + `ReadCard.vue`): curves per the
   `emil-design-eng` skill — `--ease-out: cubic-bezier(0.23,1,0.32,1)` for
   entrances/press, `--ease-drawer: cubic-bezier(0.32,0.72,0,1)` for the accordion.
@@ -361,7 +390,7 @@ readback/
   untagged reasoning; the default `gemma4:26b` (and the lighter
   `nemotron-3-nano:4b` fallback) are clean.
 
-## Remaining cleanup candidates (tracked in README.md → Roadmap)
+## Remaining cleanup candidates (tracked in docs/ROADMAP.md)
 
 - Generated WAVs in `output_dir` (`readback-audio-db/audio/`) grow unbounded (no
   *auto*-rotation yet — the dashboard's delete removes a row + its WAV manually).
@@ -389,7 +418,19 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.1.0** — UI/UX polish (**minor** — presentational only; no
+Current: **v3.2.0** — Pi deployment (**minor** — additive deployment tooling; no
+protocol/API/config change). Split deploy: the Mac stays the generation host
+(CSM-1B + Ollama, Apple Silicon only) while a Raspberry Pi runs the lightweight
+read-only server (library REST + Vue dashboard + `/audio`), live on the home
+network under [PiZoW](https://github.com/MKS-01/pizow) (PM2-managed, reboot-safe,
+reachable from any device). New: `scripts/deploy-pi.sh` + `sync-pi.sh`,
+`requirements-pi.txt` (no csm-mlx), `config.pi.example.yaml`, `.env.example`;
+all mlx/csm-mlx imports stay lazy so the server boots on Pi without them. Plus a
+mobile-responsive dashboard, README Pi-deployment section + mobile screenshots,
+and a landing-page sync (network feature line, Pi redirect, refreshed hero).
+WS protocol + CLI protocol unchanged.
+
+Previously: **v3.1.0** — UI/UX polish (**minor** — presentational only; no
 protocol/API/config change). Purposeful animations across the dashboard + landing
 page guided by the `emil-design-eng` skill (`--ease-out`/`--ease-drawer` curves,
 staggered list entrances, grid-rows accordion player, rAF stepper progress,

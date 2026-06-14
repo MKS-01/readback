@@ -1,0 +1,16 @@
+# Pi-compatible dependencies — only what's imported at server startup.
+#
+# Excluded from Mac's pyproject.toml deps:
+#   csm-mlx       — MLX/Metal (Apple Silicon only), TTS never runs on Pi
+#   trafilatura   — lazy import inside fetch_article(), never called on Pi
+#   soundfile     — lazy import inside write_wav(), never called on Pi
+#   huggingface-hub — lazy import inside csm_engine functions, never called on Pi
+#
+# All packages below have ARM64 binary wheels — no compilation needed on Pi.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.0.0
+pyyaml>=6.0
+python-multipart>=0.0.9
+ollama>=0.6.0
+numpy>=1.24.0,<3.0.0

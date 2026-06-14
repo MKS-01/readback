@@ -3,6 +3,20 @@
 End-to-end setup for `readback` on Apple Silicon. Follow once; model weights cache
 afterwards.
 
+## Fastest path — one command
+
+First-time on a Mac (Apple Silicon)? The setup script does everything below for
+you — prerequisite checks, venv + install, CLI + dashboard build, and optional
+model/weight downloads. Safe to re-run.
+
+```bash
+git clone git@github.com:MKS-01/readback.git && cd readback
+bash scripts/setup.sh
+```
+
+The rest of this guide is the manual, step-by-step version (and the reference for
+flags, verification, and troubleshooting).
+
 ## 1. Prerequisites
 
 - macOS on Apple Silicon (M1–M5).
@@ -75,6 +89,20 @@ Voice-only smoke test from a REPL:
 import soundfile as sf, numpy as np; c=Config.load(); s=Synthesizer(c.tts); s.load(); \
 sf.write('/tmp/test.wav', np.asarray(s.synthesize('Hello from readback.'),dtype=np.float32), s.sample_rate); print('wrote /tmp/test.wav')"
 ```
+
+## Tests
+
+A `pytest` suite covers the pure logic — chunking, silence-tidy, TTS text scrub,
+the SQLite library, and the `<think>` stripper. It needs no MLX/CSM or GPU, so it
+runs anywhere (and in CI on Linux):
+
+```bash
+pip install -e '.[test]'   # or: pip install -r requirements-pi.txt pytest
+pytest                     # config (testpaths, src on path) is in pyproject.toml
+```
+
+CI (`.github/workflows/ci.yml`) runs the same suite on Python 3.10–3.12 on every
+push and PR, installing the `requirements-pi.txt` subset + pytest.
 
 ## Troubleshooting
 

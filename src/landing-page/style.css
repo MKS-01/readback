@@ -438,6 +438,7 @@ code {
 .feat-list li:nth-child(3) { --i: 2; }
 .feat-list li:nth-child(4) { --i: 3; }
 .feat-list li:nth-child(5) { --i: 4; }
+.feat-list li:nth-child(6) { --i: 5; }
 
 /* the footer summary fades in last, after the rows have printed */
 .reveal .feat-foot { opacity: 0; transition: opacity 0.4s var(--ease-out) 0.35s; }

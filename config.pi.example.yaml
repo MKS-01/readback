@@ -1,0 +1,26 @@
+# readback — Pi config template
+# Pi runs the library REST + dashboard only; TTS and Ollama are not invoked.
+# Deploy script copies this to config.yaml on Pi on first deploy.
+# Edit /home/<you>/readback/config.yaml on Pi to customise.
+
+ollama:
+  model: "gemma4:26b"
+  host: "http://localhost:11434"
+
+tts:
+  engine: "csm"
+  csm:
+    # Built-in voice — no wav file required (TTS never runs on Pi anyway).
+    speaker: "conversational_a"
+    precision: "fp32"
+    temperature: 0.6
+    # No clone voices on Pi (wav files aren't synced).
+
+reader:
+  # Relative to this file → resolves to ../readback-audio-db/{audio,library.db}
+  # (sibling of the repo, same layout as Mac). Change only if you moved the dirs.
+  output_dir: "../readback-audio-db/audio"
+  library_db: "../readback-audio-db/library.db"
+  default_mode: "full"
+  gap_sec: 0.18
+  summary_max_chars: 16000

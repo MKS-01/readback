@@ -16,11 +16,19 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/Bun-Ink_CLI-fbf0df?style=flat-square&logo=bun&logoColor=black" alt="Bun + Ink">
-  <img src="https://img.shields.io/badge/FastAPI-WebSocket-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/License-MIT-22c55e?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/Built_with-Claude_Code-D97757?style=flat-square&logo=claude&logoColor=white" alt="Built with Claude Code">
+  <a href="https://github.com/MKS-01/readback/actions/workflows/ci.yml"><img src="https://github.com/MKS-01/readback/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Bun-fbf0df?style=for-the-badge&logo=bun&logoColor=black" alt="Bun">
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Vue.js-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white" alt="Vue 3">
+  <img src="https://img.shields.io/badge/Raspberry%20Pi-C51A4A?style=for-the-badge&logo=Raspberry-Pi&logoColor=white" alt="Raspberry Pi">
+  <img src="https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white" alt="Ubuntu">
+  <img src="https://img.shields.io/badge/PM2-2B037A?style=for-the-badge&logo=pm2&logoColor=white" alt="PM2">
+  <img src="https://img.shields.io/badge/MIT-22c55e?style=for-the-badge" alt="MIT License">
+  <img src="https://img.shields.io/badge/Built_with-Claude_Code-D97757?style=for-the-badge&logo=claude&logoColor=white" alt="Built with Claude Code">
 </p>
 
 <p align="center">
@@ -29,12 +37,12 @@
 
 <p align="center">
   <a href="https://mks-01.github.io/readback/">Landing page</a> ·
-  <a href="#quick-start">Quick start</a> ·
+  <a href="#getting-started">Getting started</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#voices">Voices</a> ·
   <a href="#configuration">Config</a> ·
   <a href="#documentation">Docs</a> ·
-  <a href="#roadmap">Roadmap</a>
+  <a href="docs/ROADMAP.md">Roadmap</a>
 </p>
 
 <p align="center">
@@ -59,17 +67,63 @@ readback is that same itch leveled up — a local LLM and a neural voice (CSM-1B
 all on-device, no accounts, nothing phoning home. It lives in the terminal,
 where it always felt most at home. Made to make reading interesting again.
 
+> **It's also my workbench.** I'm a builder getting back into it after a long
+> break, and readback is where I'm brushing up the whole stack — built
+> **agent-first with Claude Code**. The breadth is deliberate: each slice
+> exercises a different muscle. And it's **end-to-end mine** — I don't just wire
+> up the engineering, I **design it too**: the look, the motion, the feel are my
+> own taste, here and across the full-stack projects I build.
+>
+> | Slice | What it exercises |
+> |---|---|
+> | `src/readback/` package + `pyproject.toml` | Python packaging, src-layout, dependencies |
+> | FastAPI + `/ws` + background tasks | async server, protocol design, cancellation |
+> | Terminal CLI (Bun + Ink) | React model for CLIs, process supervision, TTY quirks |
+> | Web dashboard (Vue 3 + Vite) | modern frontend + build tooling |
+> | SQLite library | data modeling, search, pagination |
+> | csm-mlx / LoRA | on-device ML, MLX/Metal, fine-tuning |
+> | deploy/sync scripts + Pi | shell, devops, real deployment |
+> | `pytest` suite + GitHub Actions CI | testing pure logic, CI matrices, fast feedback |
+> | **design system + UX** (Ghost palette, motion, CLI ↔ web ↔ landing parity) | product design, interaction & motion, visual taste |
+> | docs / versioning / reviews | the unglamorous senior-engineer hygiene |
+
 ---
 
-## Quick start
+## Getting started
 
-readback is **terminal-first** — paste a URL, watch it synthesize, and audio
-plays in your shell. The steps below get you running in under 5 minutes.
+> **readback runs on macOS — Apple Silicon (M1–M5).** The CSM-1B voice needs
+> MLX/Metal, so an M-series Mac is required. Developed on an **M5 Pro — 18-core
+> CPU, 20-core GPU, 48 GB**; synthesis speed scales with your GPU and unified
+> memory.
 
-You need **macOS on Apple Silicon**, **Python 3.10–3.12**, [Bun](https://bun.sh/),
-and [Ollama](https://ollama.ai/) (only for Summary mode). Developed on an **M5 Pro
-— 18-core CPU, 20-core GPU, 48 GB**; synthesis speed scales with your GPU and
-unified memory.
+**First time? One command sets it all up:**
+
+```bash
+git clone https://github.com/MKS-01/readback.git && cd readback
+bash scripts/setup.sh
+```
+
+`scripts/setup.sh` is the single setup script — safe to re-run, it skips whatever
+is already done. It will:
+
+- check macOS / Apple Silicon and find a **Python 3.10–3.12**,
+- create `.venv` and install readback (pulls the `csm-mlx` git dependency),
+- build + install the **terminal CLI** (`~/.local/bin/readback-cli`) and the **web dashboard**,
+- offer to pull the **Ollama summary model** (for Summary mode) and to pre-download the **CSM-1B voice weights** (~6 GB) so your first read is instant.
+
+It still needs [Bun](https://bun.sh/) (for the CLI + dashboard) and, for Summary
+mode, [Ollama](https://ollama.ai/) — the script tells you if either is missing.
+Then read something:
+
+```bash
+readback-cli            # from anywhere; auto-starts the server
+```
+
+That's it — paste a URL, watch the progress, and the audio plays right in your
+shell via `afplay`.
+
+<details>
+<summary><strong>Prefer to set it up by hand?</strong></summary>
 
 ```bash
 # 1. Ollama for Summary mode (skip if you only want Full mode)
@@ -87,9 +141,7 @@ cd src/cli && ./install.sh && cd ..
 # 4. Read something
 readback-cli                            # from anywhere; auto-starts the server
 ```
-
-That's it — paste a URL, watch the progress, and the audio plays right in your
-shell via `afplay`.
+</details>
 
 <p align="center">
   <img src="docs/media/cli-home.png" alt="readback CLI — home screen" width="820">
@@ -161,10 +213,9 @@ splits the two halves:
 - **Replay anywhere**, from the dashboard — which never touches the LLM or TTS; it
   only lists rows and serves a finished WAV, so it stays tiny and fast.
 
-That separation is also what keeps a future split deploy clean: the audio lives
-on the Mac (the DB stores each WAV's absolute path), so a home-server /
-[Pi](https://github.com/MKS-01/pizow) can host the lightweight UI while the Mac
-stays the generation brain. Details: [`src/dashboard/README.md`](src/dashboard/README.md).
+That separation also makes a split deploy clean: the Mac generates and writes WAVs;
+a home Pi hosts the lightweight UI and serves the audio. See
+[Pi deployment](#pi-deployment) below. Details: [`src/dashboard/README.md`](src/dashboard/README.md).
 
 ---
 
@@ -280,6 +331,44 @@ Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
 ---
 
+## Pi deployment
+
+The Mac stays the generation host (CSM-1B + Ollama require Apple Silicon). A Raspberry Pi runs the lightweight read-only server — library REST + Vue dashboard + audio file serving — so your read history is accessible on the local network from **any browser, on any device**.
+
+The Pi runs readback alongside [PiZoW](https://github.com/MKS-01/pizow) — a home server management layer that keeps readback (and other services) running under PM2, survives reboots, and exposes a real-time system monitor. Readback shows up as an `online` PM2 process in the PiZoW dashboard, sitting at ~68 MB — just light enough to share the Pi with everything else.
+
+<p align="center">
+  <img src="docs/media/dashboard-mobile.jpg" alt="readback library dashboard on mobile" width="340">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/media/server-mobile.jpg" alt="PiZoW Monitor showing readback online" width="340">
+</p>
+<p align="center">
+  <sub>Left: the readback library dashboard on a phone — fully mobile-responsive. Right: PiZoW Monitor showing <strong>Readback online</strong> at 68 MB alongside the other Pi services.</sub>
+</p>
+
+**One-time setup:**
+
+```bash
+cp .env.example .env          # fill in PI_USER, PI_HOST, PI_PATH
+bash scripts/deploy-pi.sh     # build dashboard → rsync → venv + pip → PM2
+```
+
+Then on the Pi once (so readback survives reboots):
+
+```bash
+ssh PI_USER@PI_HOST "pm2 startup && pm2 save"
+```
+
+**After each new read on Mac:**
+
+```bash
+bash scripts/sync-pi.sh       # rsync WAVs + SQLite DB to Pi
+```
+
+The dashboard is then live at `http://<PI_HOST>:8090`. The Pi never runs TTS or Ollama — generation stays on the Mac. `scripts/sync-pi.sh` stops the Pi server briefly to avoid a SQLite lock during the DB copy, then restarts it.
+
+---
+
 ## Documentation
 
 Everything beyond this README lives in [`docs/`](docs/):
@@ -289,55 +378,11 @@ Everything beyond this README lives in [`docs/`](docs/):
 | [`docs/SETUP.md`](docs/SETUP.md) | End-to-end setup, flags, verification, troubleshooting |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System view — pipeline, concurrency model, WS protocol, extension points |
 | [`docs/PLAN.md`](docs/PLAN.md) | Planning history — every feature/refactor plan with status, newest first |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Roadmap — what's planned and recently shipped (the single open-item tracker) |
 | [`docs/JOURNEY.md`](docs/JOURNEY.md) | Devlog — how readback was built agent-first (the pivots, decisions, gotchas) |
 | [`src/cli/README.md`](src/cli/README.md) | Terminal client — keys, slash commands, player internals |
 | [`src/dashboard/README.md`](src/dashboard/README.md) | Web dashboard — library UI (Vue 3), dev/build/deploy |
 | [`src/finetune/README.md`](src/finetune/README.md) | LoRA voice fine-tune pipeline (data prep → training → config) |
-
----
-
-## Roadmap
-
-
-Direction now: **audio quality and CLI performance first**, then **serving the
-dashboard from a home Pi**. New features are intentionally lower priority.
-
-_Recently shipped: a UI/UX polish pass — animations + a redesigned landing page
-and rounded-corner dashboard (v3.1.0); the [library dashboard](#library-dashboard)
-+ persistence (v3.0.0); CLI `/model` switch with RAM-fit verdicts (v1.1.0); and an
-audio-quality tuning pass (`temperature 0.6`, `fp32`, 280-char sentence-aware chunks)._
-
-### 🎧 Audio quality — priority
-
-- [ ] Loudness-normalize the final WAV to a consistent target (e.g. −1 dBFS) — levels vary with voice and chunk
-- [ ] Light crossfade at chunk joins to remove residual seams (chunks join with a flat 0.18 s gap)
-- [ ] Degenerate-chunk guard — an all-silence chunk is silently dropped (`_tidy_silence` → empty); detect + retry once
-- [ ] LoRA fine-tune for higher fidelity (pipeline in [`src/finetune/`](src/finetune/README.md))
-- [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `kay`; eventually clone a new voice from the CLI instead of editing `config.yaml`
-
-### ⚡ CLI — tuning & performance — priority
-
-- [ ] Faster synthesis — tune the controllable knobs (precision, chunking, warm-up); ultimately bounded by your Mac's GPU / unified memory
-- [ ] Cache by (url, mode, voice) so re-reading is instant
-- [ ] Trim startup / model warm-up and surface clearer progress (% + ETA, not just per-chunk)
-
-### 🍓 Serve from a home Pi — next
-
-- [ ] Host the dashboard on the local Pi network ([pizow](https://github.com/MKS-01/pizow))
-- [ ] A **lite, read-only server** on the Pi — library REST (`/api/library`) + `/audio` + the static dashboard, **no LLM/TTS** (generation stays on the Mac)
-- [ ] Sync job / skill — push new reads (DB rows + WAVs) Mac → Pi on a schedule
-- [ ] Generated-WAV rotation so the synced store doesn't grow unbounded (the dashboard already supports manual delete)
-
-### 📄 More input sources
-
-- [ ] Read **local documents**, not just URLs — `.txt` and `.pdf` → voice
-- [ ] Paste raw text directly as a source
-
-### 🔭 Later
-
-- [ ] Automation + testing — CI, unit / integration coverage
-- [ ] Chunked summarization for very long articles (Summary mode truncates to `summary_max_chars`)
-- [ ] UX niceties (lower priority): extracted-article preview before synth, download filename = article title, nicer error states for paywalled / JS-only pages
 
 ---
 
