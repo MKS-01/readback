@@ -67,7 +67,7 @@ skill whenever the user wants to change *who* the reader sounds like.
    ref = Segment(speaker=0, text="<exact transcript>", audio=read_audio("src/voice/CLIP.wav", 24000))
    a = generate(csm, text="Some article-style sentence to read.", speaker=0,
                 context=[ref], max_audio_length_ms=15000, sampler=make_sampler(temp=0.6, top_k=50))
-   sf.write("/Users/mks/Downloads/voicetest.wav", np.asarray(a,dtype=np.float32), 24000)
+   sf.write("/tmp/voicetest.wav", np.asarray(a,dtype=np.float32), 24000)
    ```
    Or, once registered, go through the real path: `Synthesizer(cfg.tts).synthesize(...)`.
 
