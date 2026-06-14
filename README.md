@@ -16,11 +16,15 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/Bun-Ink_CLI-fbf0df?style=flat-square&logo=bun&logoColor=black" alt="Bun + Ink">
-  <img src="https://img.shields.io/badge/FastAPI-WebSocket-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/License-MIT-22c55e?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/Built_with-Claude_Code-D97757?style=flat-square&logo=claude&logoColor=white" alt="Built with Claude Code">
+  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Bun-fbf0df?style=for-the-badge&logo=bun&logoColor=black" alt="Bun">
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Vue.js-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white" alt="Vue 3">
+  <img src="https://img.shields.io/badge/Raspberry%20Pi-C51A4A?style=for-the-badge&logo=Raspberry-Pi&logoColor=white" alt="Raspberry Pi">
+  <img src="https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white" alt="Ubuntu">
+  <img src="https://img.shields.io/badge/PM2-2B037A?style=for-the-badge&logo=pm2&logoColor=white" alt="PM2">
+  <img src="https://img.shields.io/badge/MIT-22c55e?style=for-the-badge" alt="MIT License">
+  <img src="https://img.shields.io/badge/Built_with-Claude_Code-D97757?style=for-the-badge&logo=claude&logoColor=white" alt="Built with Claude Code">
 </p>
 
 <p align="center">
@@ -281,7 +285,18 @@ Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
 ## Pi deployment
 
-The Mac stays the generation host (CSM-1B + Ollama require Apple Silicon). A Raspberry Pi runs the lightweight read-only server — library REST + Vue dashboard + audio file serving — so your read history is accessible on the local network from any browser.
+The Mac stays the generation host (CSM-1B + Ollama require Apple Silicon). A Raspberry Pi runs the lightweight read-only server — library REST + Vue dashboard + audio file serving — so your read history is accessible on the local network from **any browser, on any device**.
+
+The Pi runs readback alongside [PiZoW](https://github.com/MKS-01/pizow) — a home server management layer that keeps readback (and other services) running under PM2, survives reboots, and exposes a real-time system monitor. Readback shows up as an `online` PM2 process in the PiZoW dashboard, sitting at ~68 MB — just light enough to share the Pi with everything else.
+
+<p align="center">
+  <img src="docs/media/dashboard-mobile.jpg" alt="readback library dashboard on mobile" width="340">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/media/server-mobile.jpg" alt="PiZoW Monitor showing readback online" width="340">
+</p>
+<p align="center">
+  <sub>Left: the readback library dashboard on a phone — fully mobile-responsive. Right: PiZoW Monitor showing <strong>Readback online</strong> at 68 MB alongside the other Pi services.</sub>
+</p>
 
 **One-time setup:**
 
@@ -325,10 +340,9 @@ Everything beyond this README lives in [`docs/`](docs/):
 ## Roadmap
 
 
-Direction now: **audio quality and CLI performance first**, then **serving the
-dashboard from a home Pi**. New features are intentionally lower priority.
+Direction now: **audio quality and CLI performance first**. New features are intentionally lower priority.
 
-_Recently shipped: **Pi deployment** — `scripts/deploy-pi.sh` + `sync-pi.sh` push the dashboard + library to a home Pi (no TTS/LLM on Pi); a UI/UX polish pass — animations + a redesigned landing page and rounded-corner dashboard (v3.1.0); the [library dashboard](#library-dashboard) + persistence (v3.0.0); CLI `/model` switch with RAM-fit verdicts (v1.1.0); and an audio-quality tuning pass (`temperature 0.6`, `fp32`, 280-char sentence-aware chunks)._
+_Recently shipped: **Pi + PiZoW integration** — readback is live on a home Pi under [PiZoW](https://github.com/MKS-01/pizow), accessible from any device on the local network; the dashboard is fully mobile-responsive; **Pi deployment** — `scripts/deploy-pi.sh` + `sync-pi.sh`; a UI/UX polish pass — animations + a redesigned landing page and rounded-corner dashboard (v3.1.0); the [library dashboard](#library-dashboard) + persistence (v3.0.0); CLI `/model` switch with RAM-fit verdicts (v1.1.0); and an audio-quality tuning pass (`temperature 0.6`, `fp32`, 280-char sentence-aware chunks)._
 
 ### 🎧 Audio quality — priority
 
@@ -349,6 +363,7 @@ _Recently shipped: **Pi deployment** — `scripts/deploy-pi.sh` + `sync-pi.sh` p
 - [x] Host the dashboard on the local Pi network (`scripts/deploy-pi.sh`)
 - [x] Lite, read-only server on the Pi — library REST + `/audio` + static dashboard, no LLM/TTS
 - [x] Sync script — push new reads (DB rows + WAVs) Mac → Pi (`scripts/sync-pi.sh`)
+- [x] Live on home network via [PiZoW](https://github.com/MKS-01/pizow) — PM2-managed, survives reboots, accessible from any device
 - [ ] Generated-WAV rotation so the synced store doesn't grow unbounded (dashboard delete handles it manually today)
 
 ### 📄 More input sources
