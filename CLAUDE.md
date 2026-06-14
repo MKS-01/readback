@@ -74,6 +74,7 @@ readback/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide
 │   ├── PLAN.md                # planning history (newest entry on top)
+│   ├── ROADMAP.md             # roadmap — planned + recently shipped (single open-item tracker)
 │   ├── JOURNEY.md             # agent-first devlog (scaffold; user fills prose)
 │   └── media/                 # README screenshots + sample WAV + wordmark.png
 │                              # (brand banner; regen: make_wordmark.py — keep in
@@ -377,7 +378,7 @@ readback/
   untagged reasoning; the default `gemma4:26b` (and the lighter
   `nemotron-3-nano:4b` fallback) are clean.
 
-## Remaining cleanup candidates (tracked in README.md → Roadmap)
+## Remaining cleanup candidates (tracked in docs/ROADMAP.md)
 
 - Generated WAVs in `output_dir` (`readback-audio-db/audio/`) grow unbounded (no
   *auto*-rotation yet — the dashboard's delete removes a row + its WAV manually).
