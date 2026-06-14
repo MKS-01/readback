@@ -70,7 +70,9 @@ where it always felt most at home. Made to make reading interesting again.
 > **It's also my workbench.** I'm a builder getting back into it after a long
 > break, and readback is where I'm brushing up the whole stack — built
 > **agent-first with Claude Code**. The breadth is deliberate: each slice
-> exercises a different muscle.
+> exercises a different muscle. And it's **end-to-end mine** — I don't just wire
+> up the engineering, I **design it too**: the look, the motion, the feel are my
+> own taste, here and across the full-stack projects I build.
 >
 > | Slice | What it exercises |
 > |---|---|
@@ -82,6 +84,7 @@ where it always felt most at home. Made to make reading interesting again.
 > | csm-mlx / LoRA | on-device ML, MLX/Metal, fine-tuning |
 > | deploy/sync scripts + Pi | shell, devops, real deployment |
 > | `pytest` suite + GitHub Actions CI | testing pure logic, CI matrices, fast feedback |
+> | **design system + UX** (Ghost palette, motion, CLI ↔ web ↔ landing parity) | product design, interaction & motion, visual taste |
 > | docs / versioning / reviews | the unglamorous senior-engineer hygiene |
 
 ---
