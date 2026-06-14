@@ -63,6 +63,22 @@ readback is that same itch leveled up — a local LLM and a neural voice (CSM-1B
 all on-device, no accounts, nothing phoning home. It lives in the terminal,
 where it always felt most at home. Made to make reading interesting again.
 
+> **It's also my workbench.** I'm a builder getting back into it after a long
+> break, and readback is where I'm brushing up the whole stack — built
+> **agent-first with Claude Code**. The breadth is deliberate: each slice
+> exercises a different muscle.
+>
+> | Slice | What it exercises |
+> |---|---|
+> | `src/readback/` package + `pyproject.toml` | Python packaging, src-layout, dependencies |
+> | FastAPI + `/ws` + background tasks | async server, protocol design, cancellation |
+> | Terminal CLI (Bun + Ink) | React model for CLIs, process supervision, TTY quirks |
+> | Web dashboard (Vue 3 + Vite) | modern frontend + build tooling |
+> | SQLite library | data modeling, search, pagination |
+> | csm-mlx / LoRA | on-device ML, MLX/Metal, fine-tuning |
+> | deploy/sync scripts + Pi | shell, devops, real deployment |
+> | docs / versioning / reviews | the unglamorous senior-engineer hygiene |
+
 ---
 
 ## Getting started
