@@ -3,6 +3,20 @@
 End-to-end setup for `readback` on Apple Silicon. Follow once; model weights cache
 afterwards.
 
+## Fastest path — one command
+
+First-time on a Mac (Apple Silicon)? The setup script does everything below for
+you — prerequisite checks, venv + install, CLI + dashboard build, and optional
+model/weight downloads. Safe to re-run.
+
+```bash
+git clone git@github.com:MKS-01/readback.git && cd readback
+bash scripts/setup.sh
+```
+
+The rest of this guide is the manual, step-by-step version (and the reference for
+flags, verification, and troubleshooting).
+
 ## 1. Prerequisites
 
 - macOS on Apple Silicon (M1–M5).

@@ -33,7 +33,7 @@
 
 <p align="center">
   <a href="https://mks-01.github.io/readback/">Landing page</a> ·
-  <a href="#quick-start">Quick start</a> ·
+  <a href="#getting-started">Getting started</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#voices">Voices</a> ·
   <a href="#configuration">Config</a> ·
@@ -65,15 +65,41 @@ where it always felt most at home. Made to make reading interesting again.
 
 ---
 
-## Quick start
+## Getting started
 
-readback is **terminal-first** — paste a URL, watch it synthesize, and audio
-plays in your shell. The steps below get you running in under 5 minutes.
+> **readback runs on macOS — Apple Silicon (M1–M5).** The CSM-1B voice needs
+> MLX/Metal, so an M-series Mac is required. Developed on an **M5 Pro — 18-core
+> CPU, 20-core GPU, 48 GB**; synthesis speed scales with your GPU and unified
+> memory.
 
-You need **macOS on Apple Silicon**, **Python 3.10–3.12**, [Bun](https://bun.sh/),
-and [Ollama](https://ollama.ai/) (only for Summary mode). Developed on an **M5 Pro
-— 18-core CPU, 20-core GPU, 48 GB**; synthesis speed scales with your GPU and
-unified memory.
+**First time? One command sets it all up:**
+
+```bash
+git clone https://github.com/MKS-01/readback.git && cd readback
+bash scripts/setup.sh
+```
+
+`scripts/setup.sh` is the single setup script — safe to re-run, it skips whatever
+is already done. It will:
+
+- check macOS / Apple Silicon and find a **Python 3.10–3.12**,
+- create `.venv` and install readback (pulls the `csm-mlx` git dependency),
+- build + install the **terminal CLI** (`~/.local/bin/readback-cli`) and the **web dashboard**,
+- offer to pull the **Ollama summary model** (for Summary mode) and to pre-download the **CSM-1B voice weights** (~6 GB) so your first read is instant.
+
+It still needs [Bun](https://bun.sh/) (for the CLI + dashboard) and, for Summary
+mode, [Ollama](https://ollama.ai/) — the script tells you if either is missing.
+Then read something:
+
+```bash
+readback-cli            # from anywhere; auto-starts the server
+```
+
+That's it — paste a URL, watch the progress, and the audio plays right in your
+shell via `afplay`.
+
+<details>
+<summary><strong>Prefer to set it up by hand?</strong></summary>
 
 ```bash
 # 1. Ollama for Summary mode (skip if you only want Full mode)
@@ -91,9 +117,7 @@ cd src/cli && ./install.sh && cd ..
 # 4. Read something
 readback-cli                            # from anywhere; auto-starts the server
 ```
-
-That's it — paste a URL, watch the progress, and the audio plays right in your
-shell via `afplay`.
+</details>
 
 <p align="center">
   <img src="docs/media/cli-home.png" alt="readback CLI — home screen" width="820">

@@ -57,6 +57,11 @@ readback/
 │                              # pydantic, pyyaml, python-multipart, ollama, numpy. trafilatura/
 │                              # soundfile/huggingface-hub are lazy imports (never called on Pi).
 ├── scripts/
+│   ├── setup.sh               # one-command first-time setup (the README "Getting started"
+│   │                          # path): platform/Python check → .venv + pip install -e . →
+│   │                          # CLI + dashboard build (Bun) → optional Ollama model pull +
+│   │                          # CSM-1B weight pre-warm. Idempotent; reads default model from
+│   │                          # config.yaml. macOS/Apple-Silicon only.
 │   ├── deploy-pi.sh           # build dashboard → rsync source+dist → venv+pip → PM2 start/restart.
 │   │                          # Excludes venv/ and config.yaml from rsync so Pi state is preserved.
 │   │                          # PM2 started with --cwd PI_PATH so relative config paths resolve.
