@@ -75,7 +75,8 @@ readback/
     │                          # which server.py mounts at / when present. Ghost palette reused.
     ├── landing-page/          # static marketing site (mks-01.github.io/readback) —
     │                          # index.html + style.css, vanilla inline JS (waveform
-    │                          # player, screenshot crossfade, scroll reveal). NOT a web
+    │                          # player, screenshot crossfade, scroll reveal w/ staggered
+    │                          # children + spring easing). NOT a web
     │                          # client; media/ gitignored (local preview of docs/media).
     │                          # Deployed by pages.yml; refresh via the landing-page skill.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
@@ -326,6 +327,18 @@ readback/
   (IBM Plex Mono / Martian Mono) lifted from `src/landing-page/style.css` — visually matches
   the CLI + landing page. ⚠ Audio lives only on the Mac; the DB stores the
   absolute `audio_path` so a future Pi host can sync/proxy it (deploy deferred).
+- **Motion** (`styles.css` + `App.vue` + `ReadCard.vue`): two shared curves —
+  `--spring` (gentle overshoot, for press/expand) + `--ease-out` (snappy settle).
+  Cards enter via `<TransitionGroup name="card" appear>` — staggered fade/slide-up
+  keyed by a per-card `--i` (set inline in `App.vue`, **capped at 8** so a 20-card
+  page doesn't drag); delete is the `card-leave` (fade + slide-left, `position:
+  absolute` so survivors slide up via `.card-move`). The active card's player is a
+  `<Transition name="player">` over a `.player-panel` that animates
+  **`grid-template-rows: 0fr↔1fr`** (real-height accordion, no `max-height`
+  guess); ⚠ this needs the inner `.player` to `overflow:hidden; min-height:0` and
+  its top spacing as **`padding-top`, not `margin-top`** (margins aren't clipped by
+  the collapse). Buttons get a `:active { scale }` press. All disabled under
+  `prefers-reduced-motion` (existing block kills animation+transition).
 
 ## Things that look like bugs but aren't
 

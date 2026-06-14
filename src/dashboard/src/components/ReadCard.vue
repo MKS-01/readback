@@ -114,20 +114,25 @@ function onDelete() {
         <p v-if="active && isSummary" class="transcript"><span class="spoken">{{ spokenText }}</span>{{ joiner }}{{ restText }}</p>
         <p v-else-if="snippet" class="snippet" :class="{ clamp: !showMore }">{{ snippet }}</p>
 
-        <!-- Player controls (only while this card is active). -->
-        <div v-if="active" class="player">
-          <span class="t">{{ fmt(elapsed) }}</span>
-          <div class="track" @click="onBarClick" role="slider" aria-label="Seek">
-            <div class="fill" :style="{ width: progress * 100 + '%' }">
-              <span class="knob"></span>
+        <!-- Player controls (only while this card is active). The grid-rows
+             wrapper lets it accordion open/closed in pure CSS (see styles.css). -->
+        <Transition name="player">
+          <div v-if="active" class="player-panel">
+            <div class="player">
+              <span class="t">{{ fmt(elapsed) }}</span>
+              <div class="track" @click="onBarClick" role="slider" aria-label="Seek">
+                <div class="fill" :style="{ width: progress * 100 + '%' }">
+                  <span class="knob"></span>
+                </div>
+              </div>
+              <span class="t dim">{{ fmt(total) }}</span>
+              <div class="skips">
+                <button @click="emit('skip', -5)" aria-label="Back 5 seconds">« 5s</button>
+                <button @click="emit('skip', 5)" aria-label="Forward 5 seconds">5s »</button>
+              </div>
             </div>
           </div>
-          <span class="t dim">{{ fmt(total) }}</span>
-          <div class="skips">
-            <button @click="emit('skip', -5)" aria-label="Back 5 seconds">« 5s</button>
-            <button @click="emit('skip', 5)" aria-label="Forward 5 seconds">5s »</button>
-          </div>
-        </div>
+        </Transition>
 
         <div class="actions">
           <button v-if="!active && canExpand" @click="showMore = !showMore">

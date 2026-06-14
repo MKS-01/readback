@@ -6,6 +6,65 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-14 — Animation pass: dashboard + landing page (Emil Kowalski style)
+
+**Status: done** — branch `feat/animations`. Add purposeful, spring-eased animations to both surfaces: staggered list/section entrances, smooth player panel expand/collapse, delete exit, button micro-interactions, and better hero easing. Zero new dependencies.
+
+**Implementation note:** the player accordion uses the CSS `grid-template-rows: 0fr↔1fr` trick via a `<Transition>` wrapper (`.player-panel`) rather than the JS height hooks in the original design — same UX, no `transitionend`/`done()` edge cases, and reduced-motion-safe for free. The `.player`'s top spacing moved from `margin-top` to `padding-top` so it's clipped during collapse. Verified end-to-end via Chrome DevTools Protocol: card `--i` stagger 0→8 (capped), `.player-panel` grid-rows mid-interpolation on play, button `transform` press wiring, and `prefers-reduced-motion` collapsing all durations to 0s with content forced visible (fixed a specificity bug where `.reveal .feat-grid li { opacity: 0 }` outranked the reduced-motion reset — now `!important` + full selector).
+
+### Context
+
+The landing page has a solid scroll-reveal base but uses flat `ease-out` everywhere and reveals entire sections without staggering children. The dashboard has almost no animation — no card entrance, no expand/collapse for the player that pops open when you click a card, no exit on delete. Emil Kowalski's approach: spring-like cubic-bezier for organic feel, stagger lists to show structure, animate expand/collapse with real heights (not `max-height` jumps), and keep micro-interactions (`:active` scale) on every interactive surface. Only animate things that carry meaning — not the search box, not the sort toggle.
+
+### Design
+
+**Both surfaces — shared principle:**
+1. Add `--spring: cubic-bezier(0.34, 1.56, 0.64, 1)` (gentle overshoot) and `--ease-out: cubic-bezier(0.16, 1, 0.3, 1)` (snappy ease-out) as CSS variables. Replace flat `ease-out` usage.
+
+**Landing page (`style.css` + `index.html`):**
+2. Upgrade `@keyframes rise` easing to `--spring`; add `@keyframes fade-in` (opacity-only) for subtler elements.
+3. **Button hover/press** — `.btn:hover { transform: translateY(-1px) }` + `.btn:active { transform: translateY(0) scale(0.98) }`.
+4. **Stagger section children** — IntersectionObserver callback also adds staggered `--i` vars to direct children (feat-grid `li`, timeline `.tl-item`, stack-list `li`). Each child transitions `opacity + translateY` with `transition-delay: calc(var(--i) * 60ms)`.
+5. **Demo caption fade** — add a CSS opacity transition on the caption element; JS briefly toggles a class to fade out before swapping text.
+6. **Timeline dot pulse** — `.tl-item.cur .tl-dot` plays a single `scale(1) → 1.25 → 1` pulse on `.in`.
+
+**Dashboard (`styles.css` + `App.vue` + `ReadCard.vue`):**
+7. **Card list entrance** — `<TransitionGroup>` around cards. Each card gets `--i` inline style (capped at 8 to limit total delay). Enter: `opacity 0→1`, `translateY(8px)→0`, `transition-delay: calc(var(--i) * 40ms)`.
+8. **Delete exit** — `TransitionGroup` leave: `opacity 1→0`, `translateX(-6px)`, 200ms.
+9. **Player panel expand/collapse** — `<Transition>` with JS hooks (`onBeforeEnter` height 0, `onEnter` height scrollHeight, `onAfterEnter` height auto; reverse for leave). Real accordion, no `max-height` jump.
+10. **Button press feedback** — `.play:active, .skips button:active, .load-more:active { transform: scale(0.95); }`.
+11. **Active card accent border** — `transition: box-shadow 0.2s, background 0.2s` on `.card` so the `inset 2px 0 0 var(--accent)` slides in.
+12. **Loading pulse** — `.muted` gets a `pulse` animation keyed to a `.loading` CSS class toggled while `loading.value` is true.
+
+### Files
+
+- `src/landing-page/style.css` — spring vars, upgraded easing, button states, stagger child CSS, caption fade, timeline dot pulse.
+- `src/landing-page/index.html` — IntersectionObserver stagger logic for section children, demo caption fade class.
+- `src/dashboard/src/styles.css` — TransitionGroup enter/leave classes, player expand transition, button `:active`, card `transition`, loading pulse.
+- `src/dashboard/src/App.vue` — `<TransitionGroup>` wrapping cards, `--i` index on each card.
+- `src/dashboard/src/components/ReadCard.vue` — `<Transition>` with JS hooks on the `.player` div.
+
+### Out of scope
+
+- Framer Motion, GSAP, or any animation library — CSS + Vue transitions only.
+- Animating the search input, sort toggle, count label, or header.
+- Waveform or transcript animations (already solid).
+- The CLI / Python server.
+- Mobile gesture animations (drag-to-delete etc.).
+
+### Verification
+
+1. **Landing page hero** — open `src/landing-page/index.html` locally; wordmark, tagline, pitch, and CTA each rise with a subtle spring overshoot, staggered ~120ms apart.
+2. **Landing page scroll** — scroll down; feat-grid items, timeline entries, and stack-list rows each stagger in individually (not the whole section at once).
+3. **Landing page buttons** — hover `.btn` lifts 1px; click → scales down and springs back.
+4. **Dashboard card entrance** — load the dashboard; cards stagger in on initial load; "Load more" appends also stagger.
+5. **Dashboard active card** — click play; player panel accordion-expands smoothly. Click another card → old panel collapses, new opens.
+6. **Dashboard delete** — card slides left + fades out before disappearing (no layout jump).
+7. **Dashboard play button** — visible press-down scale on click.
+8. **Reduced motion** — DevTools → Rendering → "prefers-reduced-motion: reduce" → no animations on either surface.
+
+---
+
 ## 2026-06-13 — Landing page → `src/landing-page/` + a landing-page skill
 
 **Status: done** — on branch `feat/dashboard` (PR #12). Repo reorg + a new skill;

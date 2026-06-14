@@ -10,6 +10,9 @@
   --accent: #4da3ff; /* Xcode blue — wordmark "BACK", caret, fills */
   --green: #5dd17a;
   --red: #ff5d5d;
+  /* motion curves: spring = gentle overshoot (press/expand), ease-out = snappy settle */
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -143,6 +146,8 @@ button { font: inherit; cursor: pointer; }
 }
 
 .muted.err { color: var(--red); }
+.muted.loading { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.4; } }
 
 .count { color: var(--dim); font-size: 12.5px; margin-bottom: 16px; }
 
@@ -155,19 +160,40 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--line);
   color: var(--dim);
   font-size: 13px;
-  transition: border-color 0.15s, color 0.15s;
+  transition: border-color 0.15s, color 0.15s, transform 0.12s var(--spring);
 }
 
 .load-more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.load-more:active:not(:disabled) { transform: scale(0.99); }
 .load-more:disabled { opacity: 0.6; cursor: default; }
 
 /* ── read cards ──────────────────────────────────────────── */
 
-.cards { display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.cards { display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); position: relative; }
+
+/* list entrance + delete (TransitionGroup):
+   enter — staggered fade/slide-up (--i set per card, capped at 8 in App.vue);
+   leave — fade + slide left, pulled out of flow so survivors slide up via .card-move. */
+.card-enter-active {
+  transition: opacity 0.4s var(--ease-out), transform 0.4s var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 40ms);
+}
+.card-enter-from { opacity: 0; transform: translateY(8px); }
+
+.card-leave-active {
+  transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.card-leave-to { opacity: 0; transform: translateX(-6px); }
+
+.card-move { transition: transform 0.3s var(--ease-out); }
 
 .card {
   background: var(--bg);
   padding: 20px 22px;
+  transition: background 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 
 .card-top {
@@ -184,10 +210,11 @@ button { font: inherit; cursor: pointer; }
   height: 40px;
   flex-shrink: 0;
   font-size: 14px;
-  transition: background 0.15s;
+  transition: background 0.15s, transform 0.12s var(--spring);
 }
 
 .play:hover { background: rgba(77, 163, 255, 0.08); }
+.play:active { transform: scale(0.95); }
 .play.on { background: var(--accent); color: var(--bg); }
 
 .card-body { flex: 1; min-width: 0; }
@@ -256,11 +283,33 @@ button { font: inherit; cursor: pointer; }
 .transcript .spoken { color: var(--accent); }
 
 /* ── player controls (active card only) ──────────────────── */
+/* grid-rows accordion: the panel animates 0fr↔1fr so the player slides open/shut
+   at its real height — no max-height guesswork. The inner .player must clip
+   (overflow:hidden, min-height:0) for the collapse to read cleanly; its top
+   spacing is padding (not margin) so it's clipped along with the content. */
+.player-panel {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.player-panel > .player { overflow: hidden; min-height: 0; }
+
+.player-enter-active,
+.player-leave-active {
+  transition: grid-template-rows 0.28s var(--spring), opacity 0.22s var(--ease-out);
+}
+
+.player-enter-from,
+.player-leave-to {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
 .player {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 14px;
+  padding-top: 14px;
 }
 
 .player .t {
@@ -322,10 +371,11 @@ button { font: inherit; cursor: pointer; }
   color: var(--dim);
   font-size: 11.5px;
   padding: 3px 8px;
-  transition: border-color 0.15s, color 0.15s;
+  transition: border-color 0.15s, color 0.15s, transform 0.12s var(--spring);
 }
 
 .skips button:hover { border-color: var(--accent); color: var(--accent); }
+.skips button:active { transform: scale(0.95); }
 
 /* ── footer ──────────────────────────────────────────────── */
 

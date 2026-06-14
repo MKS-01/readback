@@ -285,13 +285,19 @@ readback-cli</code></pre>
   const steps = [...document.querySelectorAll(".demo-step")];
   const caption = document.querySelector(".demo-cap");
   const demo = document.querySelector(".demo");
-  let cur = 0, timer = null;
+  let cur = 0, timer = null, capTimer = null;
 
   function show(i) {
     cur = i;
     slides.forEach((s, n) => s.classList.toggle("on", n === i));
     steps.forEach((s, n) => s.classList.toggle("on", n === i));
-    caption.textContent = slides[i].dataset.cap;
+    // fade the caption out, swap text, fade back in (in step with the slide crossfade)
+    caption.classList.add("fading");
+    clearTimeout(capTimer);
+    capTimer = setTimeout(() => {
+      caption.textContent = slides[i].dataset.cap;
+      caption.classList.remove("fading");
+    }, 180);
   }
 
   function start() {
