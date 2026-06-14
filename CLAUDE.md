@@ -45,7 +45,7 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v3.1.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
+├── pyproject.toml             # v3.2.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
 ├── .env.example               # Pi deployment config template (PI_USER/PI_HOST/PI_PATH/PI_PORT etc.)
 │                              # ⚠ copy to .env (gitignored) and fill in real values — never commit .env
@@ -97,7 +97,7 @@ readback/
     │                          # NOT a web client; media/ gitignored (preview of docs/media).
     │                          # Deployed by pages.yml; refresh via the landing-page skill.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
-    │   ├── package.json       # readback-cli 3.1.0; ink + ink-text-input
+    │   ├── package.json       # readback-cli 3.2.0; ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
     │   └── src/               # index.tsx (boot + resize repaint), app.tsx (screen
     │                          # switch), theme.ts (Ghost + BLUE accent),
@@ -405,7 +405,19 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.1.0** — UI/UX polish (**minor** — presentational only; no
+Current: **v3.2.0** — Pi deployment (**minor** — additive deployment tooling; no
+protocol/API/config change). Split deploy: the Mac stays the generation host
+(CSM-1B + Ollama, Apple Silicon only) while a Raspberry Pi runs the lightweight
+read-only server (library REST + Vue dashboard + `/audio`), live on the home
+network under [PiZoW](https://github.com/MKS-01/pizow) (PM2-managed, reboot-safe,
+reachable from any device). New: `scripts/deploy-pi.sh` + `sync-pi.sh`,
+`requirements-pi.txt` (no csm-mlx), `config.pi.example.yaml`, `.env.example`;
+all mlx/csm-mlx imports stay lazy so the server boots on Pi without them. Plus a
+mobile-responsive dashboard, README Pi-deployment section + mobile screenshots,
+and a landing-page sync (network feature line, Pi redirect, refreshed hero).
+WS protocol + CLI protocol unchanged.
+
+Previously: **v3.1.0** — UI/UX polish (**minor** — presentational only; no
 protocol/API/config change). Purposeful animations across the dashboard + landing
 page guided by the `emil-design-eng` skill (`--ease-out`/`--ease-drawer` curves,
 staggered list entrances, grid-rows accordion player, rAF stepper progress,
