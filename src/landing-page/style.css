@@ -8,11 +8,14 @@
   --text: #f0f0f0;
   --dim: #808080;
   --accent: #4da3ff;   /* Xcode blue — wordmark "BACK", caret, fills */
+  --accent-hi: #6cb4ff; /* brighter accent for hover/glow */
   --green: #5dd17a;
   --red: #ff5d5d;
-  /* motion curves: spring = gentle overshoot (entrances/press), ease-out = snappy settle */
-  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* motion curves (per emil-design-eng): strong ease-out for entrances/press,
+     iOS-style drawer curve for slides. No bounce in functional UI. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --radius: 8px;       /* soften the boxy sharp corners */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -36,14 +39,17 @@ body {
   padding: 64px 24px 48px;
 }
 
-section, footer { margin-top: 88px; }
+section, footer { margin-top: 104px; }
 
+/* section headers: a single hairline rule does the separating — no boxes */
 h2 {
   font-family: "Martian Mono", "IBM Plex Mono", monospace;
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  margin-bottom: 16px;
+  letter-spacing: 0.03em;
+  padding-bottom: 14px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
 }
 
 h3 {
@@ -55,6 +61,16 @@ h3 {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+/* invisible-correctness details: clear focus rings, on-brand selection, a
+   scrollbar that doesn't fight the dark theme. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 1px; }
+::selection { background: rgba(77, 163, 255, 0.28); color: var(--text); }
+
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border: 3px solid var(--bg); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #333; }
+
 .dim    { color: var(--dim); }
 .bright { color: var(--text); font-weight: 500; }
 .accent { color: var(--accent); }
@@ -63,7 +79,21 @@ a:hover { text-decoration: underline; }
 
 /* ── hero ─────────────────────────────────────────────── */
 
-.hero { text-align: center; }
+.hero { text-align: center; position: relative; }
+
+/* soft accent glow behind the wordmark — depth without breaking the flat look */
+.hero::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 70px;
+  width: min(560px, 96%);
+  height: 280px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, rgba(77, 163, 255, 0.13), transparent 68%);
+  pointer-events: none;
+  z-index: -1;
+}
 
 .prompt-line {
   text-align: left;
@@ -83,25 +113,35 @@ a:hover { text-decoration: underline; }
 
 @keyframes blink { 50% { opacity: 0; } }
 
+.kicker {
+  font-family: "Martian Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  color: var(--dim);
+  margin-bottom: 26px;
+  animation: rise 0.6s var(--ease-out) both;
+}
+
 .wordmark {
   max-width: min(487px, 100%);
   height: auto;
-  animation: rise 0.7s var(--spring) both;
+  animation: rise 0.6s var(--ease-out) 0.08s both;
 }
 
 .tagline {
   font-family: "Martian Mono", monospace;
-  font-weight: 500;
-  font-size: 16px;
-  margin-top: 28px;
-  animation: rise 0.7s var(--spring) 0.12s both;
+  font-weight: 700;
+  font-size: 23px;
+  line-height: 1.3;
+  margin-top: 26px;
+  animation: rise 0.6s var(--ease-out) 0.16s both;
 }
 
 .pitch {
   color: var(--dim);
-  max-width: 560px;
-  margin: 14px auto 0;
-  animation: rise 0.7s var(--spring) 0.22s both;
+  max-width: 540px;
+  margin: 16px auto 0;
+  animation: rise 0.6s var(--ease-out) 0.24s both;
 }
 
 @keyframes rise {
@@ -115,35 +155,44 @@ a:hover { text-decoration: underline; }
   gap: 14px;
   justify-content: center;
   flex-wrap: wrap;
-  animation: rise 0.7s var(--spring) 0.32s both;
+  animation: rise 0.6s var(--ease-out) 0.26s both;
 }
+
+/* dive-in band: a left-aligned closing CTA (variety vs the centered hero);
+   the parent .reveal handles its entrance, so no per-element rise here */
+.dive .cta { justify-content: flex-start; margin-top: 22px; animation: none; }
 
 .btn {
   display: inline-block;
-  padding: 9px 22px;
+  padding: 10px 22px;
   border: 1px solid var(--line);
+  border-radius: var(--radius);
   color: var(--text);
   font-size: 14px;
-  transition: border-color 0.15s, color 0.15s,
-              transform 0.18s var(--spring), background 0.15s;
+  transition: border-color 0.15s, color 0.15s, transform 0.14s var(--ease-out), background 0.15s;
 }
 
-.btn:hover { border-color: var(--dim); text-decoration: none; transform: translateY(-1px); }
-.btn:active { transform: translateY(0) scale(0.98); }
+.btn:active { transform: scale(0.97); }
 
-.btn-accent { border-color: var(--accent); color: var(--accent); }
-.btn-accent:hover { background: rgba(77, 163, 255, 0.08); border-color: var(--accent); }
+/* primary CTA carries a faint accent fill so it reads above the ghost secondary */
+.btn-accent { border-color: var(--accent); color: var(--accent); background: rgba(77, 163, 255, 0.07); }
+
+/* hover movement only where a real pointer exists (touch fires :hover on tap) */
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover { border-color: var(--dim); text-decoration: none; transform: translateY(-1px); }
+  .btn:active { transform: translateY(0) scale(0.97); }
+  .btn-accent:hover { background: rgba(77, 163, 255, 0.14); border-color: var(--accent-hi); color: var(--accent-hi); }
+}
 
 /* ── sample player (styled like the CLI's) ────────────── */
 
+/* de-boxed: the waveform floats on the page, only the play control is framed */
 .player {
-  margin-top: 18px;
+  margin-top: 20px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 18px 20px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  gap: 18px;
+  padding: 6px 0;
 }
 
 .play {
@@ -154,11 +203,16 @@ a:hover { text-decoration: underline; }
   font-size: 13px;
   width: 42px;
   height: 42px;
+  border-radius: var(--radius);
   cursor: pointer;
   flex-shrink: 0;
+  transition: background 0.15s, transform 0.14s var(--ease-out);
 }
 
-.play:hover { background: rgba(77, 163, 255, 0.08); }
+.play:active { transform: scale(0.95); }
+@media (hover: hover) and (pointer: fine) {
+  .play:hover { background: rgba(77, 163, 255, 0.08); }
+}
 
 .wave {
   flex: 1;
@@ -173,10 +227,15 @@ a:hover { text-decoration: underline; }
   flex: 1;
   height: var(--h);
   background: var(--line);
-  transition: background 0.2s;
+  transition: background 0.2s var(--ease-out);
 }
 
 .wave i.on { background: var(--accent); }
+/* un-played bars lift toward accent on hover — signals the whole bar is seekable */
+@media (hover: hover) and (pointer: fine) {
+  .wave:hover i { background: #2f3a47; }
+  .wave:hover i.on { background: var(--accent-hi); }
+}
 
 /* played bars sway while audio runs */
 .playing .wave i.on {
@@ -204,6 +263,7 @@ a:hover { text-decoration: underline; }
   margin-top: 6px;
   background: var(--panel);
   border: 1px solid var(--line);
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
@@ -213,30 +273,47 @@ a:hover { text-decoration: underline; }
   height: 100%;
   object-fit: contain;
   opacity: 0;
-  transition: opacity 0.5s ease;
+  transition: opacity 0.5s var(--ease-out);
   pointer-events: none;
 }
 
 .demo-slide.on { opacity: 1; }
 
-/* the labelled step rail (replaces plain dots) */
+/* auto-advance progress: a thin accent bar that fills over the 4.5 s timer,
+   flush under the frame (rAF-driven, transform-only, freezes on hover). */
+.demo-progress {
+  height: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.demo-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+/* step rail = underline tabs (no boxes); active tab carries an accent underline
+   on a shared baseline rule */
 .demo-steps {
   display: flex;
-  gap: 1px;
-  margin-top: 14px;
-  background: var(--line);
-  border: 1px solid var(--line);
+  gap: 30px;
+  margin-top: 20px;
+  border-bottom: 1px solid var(--line);
 }
 
 .demo-step {
-  flex: 1;
-  background: var(--bg);
+  background: none;
   border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   text-align: left;
-  padding: 11px 13px;
+  padding: 10px 0;
   cursor: pointer;
   font: inherit;
-  transition: background 0.2s;
+  transition: border-color 0.2s var(--ease-out);
 }
 
 .demo-step .k {
@@ -250,145 +327,69 @@ a:hover { text-decoration: underline; }
 .demo-step .t { display: block; font-size: 12.5px; color: var(--dim); margin-top: 3px; }
 .demo-step .num { color: var(--accent); opacity: 0.5; }
 
-.demo-step.on { background: var(--panel); }
+.demo-step.on { border-bottom-color: var(--accent); }
 .demo-step.on .k, .demo-step.on .num { color: var(--accent); opacity: 1; }
 .demo-step.on .t { color: var(--text); }
 .demo-step:hover .t { color: var(--text); }
 
-.demo-cap { margin-top: 12px; min-height: 1.6em; transition: opacity 0.2s var(--ease-out); }
+.demo-cap { margin-top: 14px; min-height: 1.6em; text-align: left; transition: opacity 0.2s var(--ease-out); }
 .demo-cap.fading { opacity: 0; }
 
 @media (max-width: 600px) {
   .demo-frame { height: 300px; }
-  .demo-steps { flex-wrap: wrap; }
-  .demo-step { flex: 1 1 50%; }
+  .demo-steps { gap: 18px; flex-wrap: wrap; }
   .demo-step .t { display: none; }   /* labels only on small screens */
 }
 
-/* ── features ─────────────────────────────────────────── */
+/* ── features — a `readback --features` terminal listing ── */
 
-.feat-grid {
-  list-style: none;
+.feat-term {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  font-size: 13.5px;
+}
+
+.feat-cmd { font-size: 13px; margin-bottom: 16px; }
+.feat-cmd .caret { margin-left: 4px; }
+
+.feat-list { list-style: none; display: flex; flex-direction: column; gap: 13px; }
+
+/* ✓ │ key │ description — keys align in a fixed column, descriptions hang-indent */
+.feat-list li {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
+  grid-template-columns: auto 82px 1fr;
+  gap: 0 12px;
+  align-items: baseline;
 }
 
-.feat-grid li {
-  background: var(--bg);
-  padding: 24px 22px;
+.feat-list .ok { color: var(--green); }
+
+.feat-list .fkey {
+  font-family: "Martian Mono", monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--accent);
 }
 
-.feat-grid p { color: var(--dim); font-size: 13.5px; }
-.feat-grid .bright { color: var(--text); }
+.feat-list .fdesc { color: var(--dim); line-height: 1.6; }
+.feat-list .fdesc .bright { color: var(--text); }
 
-/* ── how it works / code ──────────────────────────────── */
-
-pre {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  padding: 22px;
-  overflow-x: auto;
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.55;
+.feat-foot {
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--green);
 }
 
-.code { color: var(--text); }
-
-/* ── flow chart (HTML boxes — box-drawing chars break in webfonts) ── */
-
-.flow {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  font-size: 13px;
-  text-align: center;
+@media (max-width: 600px) {
+  .feat-list li { grid-template-columns: auto 1fr; }
+  .feat-list .ok { grid-row: 1; }
+  .feat-list .fkey { grid-column: 2; }
+  .feat-list .fdesc { grid-column: 2; }
 }
-
-.node {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  padding: 12px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 200px;
-}
-
-.node strong { font-weight: 600; }
-
-.node-wide { min-width: min(440px, 100%); }
-
-/* connector: a vertical accent line with an arrowhead */
-.link {
-  position: relative;
-  height: 44px;
-  width: 1px;
-  background: var(--accent);
-  margin: 0 auto;
-}
-
-.link::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top: 6px solid var(--accent);
-}
-
-.link-label {
-  position: absolute;
-  top: 50%;
-  left: 12px;
-  transform: translateY(-50%);
-  white-space: nowrap;
-}
-
-/* split connector: two parallel drops feeding the bottom pair */
-.link-split {
-  background: none;
-  width: min(440px, 80%);
-  height: 36px;
-}
-
-.link-split::after { content: none; }
-
-.link-split > span {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--accent);
-}
-
-.link-split > span::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top: 6px solid var(--accent);
-}
-
-.link-split > span:first-child { left: 25%; }
-.link-split > span:last-child  { right: 25%; }
-
-.flow-pair {
-  display: flex;
-  gap: 16px;
-  justify-content: center;
-  width: 100%;
-}
-
-.flow-pair .node { flex: 1; min-width: 0; }
-
-.quick > .small:last-child { margin-top: 14px; color: var(--dim); }
 
 /* ── footer ───────────────────────────────────────────── */
 
@@ -403,81 +404,14 @@ footer .prompt-line {
   margin: 26px 0 0;
 }
 
-/* ── timeline ─────────────────────────────────────────── */
-
-.timeline {
-  list-style: none;
-  position: relative;
-  margin-top: 26px;
-  padding-left: 26px;
-}
-
-.timeline::before {
-  content: "";
-  position: absolute;
-  left: 6px;
-  top: 6px;
-  bottom: 6px;
-  width: 1px;
-  background: var(--line);
-}
-
-.tl-item { position: relative; padding-bottom: 26px; }
-.tl-item:last-child { padding-bottom: 0; }
-
-.tl-dot {
-  position: absolute;
-  left: -25px;
-  top: 5px;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
+/* inline code (used in the Features listing) */
+code {
   background: var(--bg);
-  border: 1.5px solid var(--accent);
-}
-
-.tl-item.cur .tl-dot {
-  background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(77, 163, 255, 0.15);
-}
-
-.tl-tag {
-  font-family: "Martian Mono", monospace;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-}
-
-.tl-body h3 { font-size: 14.5px; font-weight: 600; margin: 5px 0; }
-.tl-body p { color: var(--dim); font-size: 13px; }
-
-/* ── stack ────────────────────────────────────────────── */
-
-.stack-list { list-style: none; border-top: 1px solid var(--line); }
-
-.stack-list li {
-  display: flex;
-  gap: 20px;
-  padding: 12px 4px;
-  border-bottom: 1px solid var(--line);
-  font-size: 13.5px;
-}
-
-.stack-k {
-  color: var(--dim);
-  flex: 0 0 130px;
-}
-
-p code {
-  background: var(--panel);
   border: 1px solid var(--line);
+  border-radius: 4px;
   padding: 0 5px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-family: inherit;
-}
-
-@media (max-width: 600px) {
-  .stack-list li { flex-direction: column; gap: 2px; }
 }
 
 /* ── motion ───────────────────────────────────────────── */
@@ -491,72 +425,38 @@ p code {
 
 .reveal.in { opacity: 1; transform: none; }
 
-/* staggered children: once a section reveals, its items cascade in one by one.
-   feat-grid uses opacity-only (its 1px gap-background trick flashes under a
-   translate); stack rows also drift up. --i set per item via :nth-child below. */
-.reveal .feat-grid li,
-.reveal .stack-list li {
+/* staggered children: once the Features panel reveals, each line "prints" in
+   one after the next, like terminal output. Opacity-only; --i set per row. */
+.reveal .feat-list li {
   opacity: 0;
-  transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
+  transition: opacity 0.4s var(--ease-out);
   transition-delay: calc(var(--i, 0) * 70ms);
 }
-.reveal .stack-list li { transform: translateY(10px); }
-.reveal.in .feat-grid li,
-.reveal.in .stack-list li { opacity: 1; transform: none; }
+.reveal.in .feat-list li { opacity: 1; }
 
-.feat-grid li:nth-child(2), .stack-list li:nth-child(2) { --i: 1; }
-.feat-grid li:nth-child(3), .stack-list li:nth-child(3) { --i: 2; }
-.feat-grid li:nth-child(4), .stack-list li:nth-child(4) { --i: 3; }
-.stack-list li:nth-child(5) { --i: 4; }
-.stack-list li:nth-child(6) { --i: 5; }
-.stack-list li:nth-child(7) { --i: 6; }
+.feat-list li:nth-child(2) { --i: 1; }
+.feat-list li:nth-child(3) { --i: 2; }
+.feat-list li:nth-child(4) { --i: 3; }
+.feat-list li:nth-child(5) { --i: 4; }
 
-/* current-milestone timeline dot gives a single welcoming pulse on reveal */
-.tl-item.cur.in .tl-dot { animation: dot-pulse 1s var(--ease-out) 0.15s; }
-@keyframes dot-pulse {
-  0%, 100% { transform: scale(1); }
-  50%      { transform: scale(1.3); }
-}
-
-/* flow connectors: dashes drift downward, like data moving through */
-.link, .link-split > span {
-  background: repeating-linear-gradient(
-    180deg, var(--accent) 0 5px, transparent 5px 9px);
-  background-size: 1px 9px;
-  animation: drift 0.9s linear infinite;
-}
-
-.link-split { background: none; animation: none; }
-
-@keyframes drift { to { background-position: 0 9px; } }
-
-/* feature markers breathe gently */
-.feat-grid h3 .accent {
-  display: inline-block;
-  animation: breathe 3s ease-in-out infinite;
-}
-
-.feat-grid li:nth-child(2) h3 .accent { animation-delay: 0.7s; }
-.feat-grid li:nth-child(3) h3 .accent { animation-delay: 1.4s; }
-.feat-grid li:nth-child(4) h3 .accent { animation-delay: 2.1s; }
-
-@keyframes breathe { 50% { opacity: 0.35; } }
+/* the footer summary fades in last, after the rows have printed */
+.reveal .feat-foot { opacity: 0; transition: opacity 0.4s var(--ease-out) 0.35s; }
+.reveal.in .feat-foot { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-  .reveal { opacity: 1; transform: none; }
-  /* transitions are killed above, so reset the staggered start state explicitly
-     or these stay invisible. !important + the full `.reveal …` selector is
-     required to outrank `.reveal .feat-grid li { opacity: 0 }` (media queries
-     add no specificity). */
-  .reveal .feat-grid li,
-  .reveal .stack-list li { opacity: 1 !important; transform: none !important; }
+  /* "fewer and gentler, not zero": keep opacity/color fades that aid
+     comprehension (scroll-reveal fade, feature print-in, caret blink,
+     caption/slide crossfade) — drop only movement. */
+  .reveal { transform: none; }                     /* fade in place, no slide */
+  .wordmark, .tagline, .pitch, .cta { animation-name: fade-in; } /* opacity, no translate */
+  .playing .wave i.on { animation: none; }         /* no sway */
 }
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* ── small screens ────────────────────────────────────── */
 
 @media (max-width: 600px) {
   .term { padding-top: 44px; }
   section, footer { margin-top: 64px; }
-  .feat-grid { grid-template-columns: 1fr; }
 }

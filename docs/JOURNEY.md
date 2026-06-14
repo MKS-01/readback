@@ -65,11 +65,16 @@ URL in, audio out, two clients reading from the same on-device store.
 - **v1.1.0** — CLI `/model` switch with RAM-fit verdicts.
 - **v2.0.0** — **CLI-only pivot**: web frontend removed, package restructured to
   the `src/` layout, TLS/`cryptography` dropped.
-- **v3.0.0** — the **library dashboard + persistence** (this milestone): persist
+- **v3.0.0** — the **library dashboard + persistence**: persist
   every read to SQLite + a Vue 3 replay UI. The web UI came *back* — reversing
   v2.0.0's removal — but as a separate, model-free replay client, not the thing
   that was deleted. A major bump: the on-disk layout moved out of `~/.readback/`
   into a sibling `readback-audio-db/` folder.
+- **v3.1.0** — **UI/UX polish** (this milestone): purposeful animations across the
+  dashboard + landing page (guided by the `emil-design-eng` skill), a de-boxed
+  landing-page redesign trimmed to a hook-and-redirect shape with a story-grounded
+  hero, and rounded corners across both surfaces. Presentational only — no
+  protocol/API change.
 - **By the numbers:** ~95 commits; tags `v1.0.0`, `v1.1.0`, `v2.0.0`.
 
 > ✍️ **The two pivots are the heart of the story.** Why kill the real-time

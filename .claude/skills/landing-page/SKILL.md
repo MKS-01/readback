@@ -22,37 +22,29 @@ do and why is it nice" — only update sections the change actually affects.
 
 ## 2. Map changes → page sections
 
+⚠ **The page is hook-and-redirect** (trimmed 2026-06-14): hero · **Hear it** ·
+**See it work** · **Features** · **Dive in** · footer. Deep detail — install
+steps, the pipeline, the architecture, the build story — lives in the **repo**,
+not on the page. Do **not** re-add the cut sections (How it works / Quick start /
+Architecture / the story timeline); if such a thing changed, update the
+README/`docs/` and let the **Dive in** band link to it.
+
 `src/landing-page/index.html`, in order. Touch only what's relevant:
 
 | Section | Update when… |
 |---|---|
 | `<head>` `og:` meta + `<title>`/description | the one-line pitch changed, or a better `og:image` exists (`media/<x>.png`) |
-| **hero** (tagline, pitch, CTA) | the core value prop changed |
+| **hero** (kicker, tagline, pitch, CTA) | the core value prop changed (copy is mined from `docs/JOURNEY.md` — see CLAUDE/memory, not generic) |
 | **sample player** (`#player`) | the sample WAV changed (`media/sample-read.wav`) |
-| **screenshots** (`#shots` crossfade) | a new screenshot is worth showing — see §3 |
-| **Features** grid (`.feat-grid`, 4 cells) | a headline capability was added/removed |
-| **How it works** (`.flow`) | the pipeline or client set changed (e.g. a second client) |
-| **Quick start** (`pre.code`) | install/run steps changed |
-| **The story** / **Architecture** (`.stack-list`) | the narrative or a core design fact changed |
+| **screenshot stepper** (`#shots`) | a new screenshot is worth showing — see §3 |
+| **Features** (`.feat-term` — a `readback --features` terminal listing) | a headline capability was added/removed |
+| **Dive in** (`.dive` — GitHub redirect links) | a deep-detail destination moved (README / `docs/ARCHITECTURE.md` anchors) |
 | **footer** | links changed |
 
-Keep the voice: terminal-first, lowercase headings prefixed `##`, Ghost palette,
-concise. Match the surrounding markup exactly — this page has no framework.
-
-### The timeline (`.timeline`, "How it took shape")
-
-This section is **derived from [JOURNEY.md](../../../docs/JOURNEY.md) §1's version
-timeline** — the canonical source. Keep it in sync:
-
-- **On a version bump / big milestone:** add a `.tl-item` (or update the last one)
-  mirroring the JOURNEY §1 bullet — `<span class="tl-tag">vX.Y · short</span>`, a
-  one-line `<h3>`, one `<p>`. Move `.cur` (filled dot) to the newest item.
-- **Milestones only** — big features + decisions/pivots, not commits. If it isn't
-  in JOURNEY §1, it probably doesn't belong here either.
-- Each `<li>` is `class="tl-item reveal"` so it scroll-animates via the existing
-  `IntersectionObserver`. No image; the `.tl-dot` is a CSS dot on the rail.
-- It **replaced** the old "The story" prose — fold any narrative into the first
-  one or two entries (the origin), don't re-add a separate story section.
+Keep the voice: terminal-first, Ghost palette, concise. Section headers are
+**plain titles** (no `##` prefix — it read as broken markdown), separated by a
+hairline rule under each `h2`. Corners are softened via `--radius` (8px). Match
+the surrounding markup exactly — this page has no framework.
 
 ## 3. Screenshots — pull from `docs/media/`
 
@@ -62,9 +54,11 @@ page references images as `media/<file>` (served flat by the Pages workflow).
 - Pick the most representative shots already in `docs/media/` (e.g.
   `dashboard.png`, `cli-player.png`, `cli-home.png`, `cli-model.png`). Don't
   invent files — if a shot doesn't exist, capture one into `docs/media/` first.
-- The crossfade (`#shots`) is **slide count–sensitive**: each `<img class="slide">`
-  needs a matching `.dot` button *and* a `data-caption`. Add/remove all three
-  together or the dots desync (the JS maps `slides[i]` ↔ `dots[i]`).
+- The stepper (`#shots`) is **slide count–sensitive**: each `<img class="demo-slide">`
+  needs a matching `.demo-step` tab (underline tabs) *and* a `data-cap` caption.
+  Add/remove all three together or they desync (the JS maps `slides[i]` ↔
+  `steps[i]` ↔ caption). The `#demo-progress` bar is rAF-driven over `STEP_MS`
+  (auto-advance) — no per-slide config; it freezes on hover.
 - ⚠ **Add every newly-referenced `media/<file>` to `.github/workflows/pages.yml`
   in TWO places**: (1) the `paths:` trigger (so a change to it actually fires a
   deploy) and (2) the `cp` copy list (so it lands in `_site/media/`). Miss the
@@ -74,13 +68,19 @@ page references images as `media/<file>` (served flat by the Pages workflow).
 ## 4. Keep the aesthetic + gotchas
 
 - **Ghost palette** is the single source of truth in `src/landing-page/style.css`
-  `:root` (mirrors the CLI `theme.ts`). Don't hardcode hexes inline.
-- **Flow chart is HTML/CSS boxes, not ASCII** — box-drawing glyphs shatter in the
-  IBM Plex Mono webfont (fallback widths differ). Build flow nodes as `.node`
-  divs (see the existing `.flow`).
-- **`prefers-reduced-motion`** is respected — any new animation must no-op under it.
-- Inline JS patterns already there: waveform player, screenshot crossfade, scroll
-  reveal (`IntersectionObserver`). Reuse them; don't add libraries or a build.
+  `:root` (mirrors the CLI `theme.ts`). Don't hardcode hexes inline. `--radius`
+  (8px) softens corners; `--ease-out` / `--ease-drawer` are the motion curves
+  (no spring/bounce in functional UI).
+- **De-boxed by design** — structure with whitespace + a hairline rule under each
+  header, not full borders. Only the screenshot frame (`.demo-frame`) and the
+  features panel (`.feat-term`) stay framed. Don't reintroduce a box per section.
+- **Features is a terminal listing** (`.feat-term` / `.feat-list`: ✓ + key +
+  hang-indented detail), not a card grid — match that markup when editing it.
+- **`prefers-reduced-motion`** is respected — *gentle, not zero*: keep opacity
+  fades, drop movement (no slide/sway/drift). Any new animation must follow suit.
+- Inline JS patterns already there: waveform player, screenshot **stepper** (rAF
+  auto-advance + progress bar + caption fade), scroll reveal
+  (`IntersectionObserver`). Reuse them; don't add libraries or a build.
 
 ## 5. Review locally (always, before pushing)
 
@@ -120,7 +120,7 @@ deploys — that's intended.)
 ## 7. Done check
 
 - Every `media/<file>` referenced in `index.html` is in the pages.yml copy list.
-- Slides ↔ dots ↔ captions counts all match.
+- Slides ↔ steps ↔ captions counts all match.
 - No stale claims (old version, removed feature, dead screenshot) — grep the page
   for the thing you changed.
 - Local screenshot looks right; then push to `main` and confirm the deploy.

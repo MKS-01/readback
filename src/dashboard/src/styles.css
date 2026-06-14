@@ -10,9 +10,11 @@
   --accent: #4da3ff; /* Xcode blue — wordmark "BACK", caret, fills */
   --green: #5dd17a;
   --red: #ff5d5d;
-  /* motion curves: spring = gentle overshoot (press/expand), ease-out = snappy settle */
-  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* motion curves (per emil-design-eng): strong ease-out for entrances/press,
+     iOS-style drawer curve for the accordion. No bounce in functional UI. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --radius: 8px;       /* soften the boxy sharp corners — matches the landing page */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -100,6 +102,7 @@ button { font: inherit; cursor: pointer; }
   padding: 9px 14px;
   background: var(--panel);
   border: 1px solid var(--line);
+  border-radius: var(--radius);
 }
 
 .search:focus-within { border-color: var(--accent); }
@@ -121,6 +124,8 @@ button { font: inherit; cursor: pointer; }
 .sort {
   display: flex;
   border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
   flex-shrink: 0;
 }
 
@@ -158,9 +163,10 @@ button { font: inherit; cursor: pointer; }
   padding: 11px;
   background: none;
   border: 1px solid var(--line);
+  border-radius: var(--radius);
   color: var(--dim);
   font-size: 13px;
-  transition: border-color 0.15s, color 0.15s, transform 0.12s var(--spring);
+  transition: border-color 0.15s, color 0.15s, transform 0.12s var(--ease-out);
 }
 
 .load-more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
@@ -169,13 +175,13 @@ button { font: inherit; cursor: pointer; }
 
 /* ── read cards ──────────────────────────────────────────── */
 
-.cards { display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); position: relative; }
+.cards { display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; position: relative; }
 
 /* list entrance + delete (TransitionGroup):
    enter — staggered fade/slide-up (--i set per card, capped at 8 in App.vue);
    leave — fade + slide left, pulled out of flow so survivors slide up via .card-move. */
 .card-enter-active {
-  transition: opacity 0.4s var(--ease-out), transform 0.4s var(--ease-out);
+  transition: opacity 0.28s var(--ease-out), transform 0.28s var(--ease-out);
   transition-delay: calc(var(--i, 0) * 40ms);
 }
 .card-enter-from { opacity: 0; transform: translateY(8px); }
@@ -208,9 +214,10 @@ button { font: inherit; cursor: pointer; }
   color: var(--accent);
   width: 40px;
   height: 40px;
+  border-radius: var(--radius);
   flex-shrink: 0;
   font-size: 14px;
-  transition: background 0.15s, transform 0.12s var(--spring);
+  transition: background 0.15s, transform 0.12s var(--ease-out);
 }
 
 .play:hover { background: rgba(77, 163, 255, 0.08); }
@@ -296,7 +303,7 @@ button { font: inherit; cursor: pointer; }
 
 .player-enter-active,
 .player-leave-active {
-  transition: grid-template-rows 0.28s var(--spring), opacity 0.22s var(--ease-out);
+  transition: grid-template-rows 0.28s var(--ease-drawer), opacity 0.22s var(--ease-out);
 }
 
 .player-enter-from,
@@ -368,10 +375,11 @@ button { font: inherit; cursor: pointer; }
 .skips button {
   background: none;
   border: 1px solid var(--line);
+  border-radius: 6px;
   color: var(--dim);
   font-size: 11.5px;
   padding: 3px 8px;
-  transition: border-color 0.15s, color 0.15s, transform 0.12s var(--spring);
+  transition: border-color 0.15s, color 0.15s, transform 0.12s var(--ease-out);
 }
 
 .skips button:hover { border-color: var(--accent); color: var(--accent); }
@@ -389,7 +397,13 @@ button { font: inherit; cursor: pointer; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  /* "fewer and gentler, not zero" — keep opacity/color fades that aid
+     comprehension (card fade, loading pulse, caret); drop movement: no
+     slide-in, no height accordion, no press scale. */
+  .card-enter-from, .card-leave-to { transform: none; }
+  .card-move { transition: none; }
+  .player-enter-from, .player-leave-to { grid-template-rows: 1fr; } /* fade only, full height */
+  .play:active, .skips button:active, .load-more:active { transform: none; }
 }
 
 @media (max-width: 560px) {
