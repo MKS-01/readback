@@ -68,7 +68,14 @@ readback/
 │   └── sync-pi.sh             # stop Pi server → rsync WAVs + SQLite DB Mac→Pi → pm2 restart.
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
+├── tests/                     # pytest suite — PURE LOGIC only (no MLX/CSM/GPU): chunk_text,
+│                              # _tidy_silence, _clean_for_tts, Library (SQLite), think-stripper.
+│                              # Config in pyproject.toml ([tool.pytest.ini_options]: testpaths=tests,
+│                              # pythonpath=src). Runnable on Linux against the requirements-pi.txt subset.
 ├── .github/workflows/
+│   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10–3.12 on Ubuntu;
+│   │                          # installs requirements-pi.txt + pytest (NOT the package — csm-mlx/
+│   │                          # mlx won't install on Linux). The reason the suite avoids TTS imports.
 │   └── pages.yml              # deploys src/landing-page/ to GitHub Pages — ONLY on
 │                              # push to main (i.e. after a PR merges) AND only when
 │                              # the page or one of its exact media files changed

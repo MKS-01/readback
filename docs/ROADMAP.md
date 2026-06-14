@@ -55,6 +55,7 @@ intentionally lower priority.
 
 ## 🔭 Later
 
-- [ ] Automation + testing — CI, unit / integration coverage
+- [x] Automation + testing — `pytest` suite (pure logic: chunking, silence-tidy, text scrub, library, think-stripper) + GitHub Actions CI on Python 3.10–3.12
+- [ ] Broaden coverage — server/WS integration tests, an end-to-end synth smoke test on a macOS runner
 - [ ] Chunked summarization for very long articles (Summary mode truncates to `summary_max_chars`)
 - [ ] UX niceties (lower priority): extracted-article preview before synth, download filename = article title, nicer error states for paywalled / JS-only pages

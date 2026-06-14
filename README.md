@@ -16,6 +16,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/MKS-01/readback/actions/workflows/ci.yml"><img src="https://github.com/MKS-01/readback/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/Bun-fbf0df?style=for-the-badge&logo=bun&logoColor=black" alt="Bun">
   <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
@@ -77,6 +81,7 @@ where it always felt most at home. Made to make reading interesting again.
 > | SQLite library | data modeling, search, pagination |
 > | csm-mlx / LoRA | on-device ML, MLX/Metal, fine-tuning |
 > | deploy/sync scripts + Pi | shell, devops, real deployment |
+> | `pytest` suite + GitHub Actions CI | testing pure logic, CI matrices, fast feedback |
 > | docs / versioning / reviews | the unglamorous senior-engineer hygiene |
 
 ---
