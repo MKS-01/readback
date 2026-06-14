@@ -459,4 +459,9 @@ code {
 @media (max-width: 600px) {
   .term { padding-top: 44px; }
   section, footer { margin-top: 64px; }
+
+  /* player: stack waveform to full width below play + time row */
+  .player { flex-wrap: wrap; row-gap: 10px; }
+  .wave { width: 100%; order: 2; gap: 1px; }   /* full-width row; tighter bar gaps */
+  .time { margin-left: auto; }                  /* push time to the right in row 1 */
 }
