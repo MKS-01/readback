@@ -161,10 +161,9 @@ splits the two halves:
 - **Replay anywhere**, from the dashboard — which never touches the LLM or TTS; it
   only lists rows and serves a finished WAV, so it stays tiny and fast.
 
-That separation is also what keeps a future split deploy clean: the audio lives
-on the Mac (the DB stores each WAV's absolute path), so a home-server /
-[Pi](https://github.com/MKS-01/pizow) can host the lightweight UI while the Mac
-stays the generation brain. Details: [`src/dashboard/README.md`](src/dashboard/README.md).
+That separation also makes a split deploy clean: the Mac generates and writes WAVs;
+a home Pi hosts the lightweight UI and serves the audio. See
+[Pi deployment](#pi-deployment) below. Details: [`src/dashboard/README.md`](src/dashboard/README.md).
 
 ---
 
@@ -280,6 +279,33 @@ Server flags: `readback --model <ollama-model>`, `--host`, `--port`, `--config`.
 
 ---
 
+## Pi deployment
+
+The Mac stays the generation host (CSM-1B + Ollama require Apple Silicon). A Raspberry Pi runs the lightweight read-only server — library REST + Vue dashboard + audio file serving — so your read history is accessible on the local network from any browser.
+
+**One-time setup:**
+
+```bash
+cp .env.example .env          # fill in PI_USER, PI_HOST, PI_PATH
+bash scripts/deploy-pi.sh     # build dashboard → rsync → venv + pip → PM2
+```
+
+Then on the Pi once (so readback survives reboots):
+
+```bash
+ssh PI_USER@PI_HOST "pm2 startup && pm2 save"
+```
+
+**After each new read on Mac:**
+
+```bash
+bash scripts/sync-pi.sh       # rsync WAVs + SQLite DB to Pi
+```
+
+The dashboard is then live at `http://<PI_HOST>:8090`. The Pi never runs TTS or Ollama — generation stays on the Mac. `scripts/sync-pi.sh` stops the Pi server briefly to avoid a SQLite lock during the DB copy, then restarts it.
+
+---
+
 ## Documentation
 
 Everything beyond this README lives in [`docs/`](docs/):
@@ -302,10 +328,7 @@ Everything beyond this README lives in [`docs/`](docs/):
 Direction now: **audio quality and CLI performance first**, then **serving the
 dashboard from a home Pi**. New features are intentionally lower priority.
 
-_Recently shipped: a UI/UX polish pass — animations + a redesigned landing page
-and rounded-corner dashboard (v3.1.0); the [library dashboard](#library-dashboard)
-+ persistence (v3.0.0); CLI `/model` switch with RAM-fit verdicts (v1.1.0); and an
-audio-quality tuning pass (`temperature 0.6`, `fp32`, 280-char sentence-aware chunks)._
+_Recently shipped: **Pi deployment** — `scripts/deploy-pi.sh` + `sync-pi.sh` push the dashboard + library to a home Pi (no TTS/LLM on Pi); a UI/UX polish pass — animations + a redesigned landing page and rounded-corner dashboard (v3.1.0); the [library dashboard](#library-dashboard) + persistence (v3.0.0); CLI `/model` switch with RAM-fit verdicts (v1.1.0); and an audio-quality tuning pass (`temperature 0.6`, `fp32`, 280-char sentence-aware chunks)._
 
 ### 🎧 Audio quality — priority
 
@@ -321,12 +344,12 @@ audio-quality tuning pass (`temperature 0.6`, `fp32`, 280-char sentence-aware ch
 - [ ] Cache by (url, mode, voice) so re-reading is instant
 - [ ] Trim startup / model warm-up and surface clearer progress (% + ETA, not just per-chunk)
 
-### 🍓 Serve from a home Pi — next
+### 🍓 Pi — shipped
 
-- [ ] Host the dashboard on the local Pi network ([pizow](https://github.com/MKS-01/pizow))
-- [ ] A **lite, read-only server** on the Pi — library REST (`/api/library`) + `/audio` + the static dashboard, **no LLM/TTS** (generation stays on the Mac)
-- [ ] Sync job / skill — push new reads (DB rows + WAVs) Mac → Pi on a schedule
-- [ ] Generated-WAV rotation so the synced store doesn't grow unbounded (the dashboard already supports manual delete)
+- [x] Host the dashboard on the local Pi network (`scripts/deploy-pi.sh`)
+- [x] Lite, read-only server on the Pi — library REST + `/audio` + static dashboard, no LLM/TTS
+- [x] Sync script — push new reads (DB rows + WAVs) Mac → Pi (`scripts/sync-pi.sh`)
+- [ ] Generated-WAV rotation so the synced store doesn't grow unbounded (dashboard delete handles it manually today)
 
 ### 📄 More input sources
 

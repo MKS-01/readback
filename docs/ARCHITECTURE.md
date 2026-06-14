@@ -32,9 +32,9 @@ new read — not every time you want to hear an old one. So readback splits the
 two halves deliberately. **Generation** is on-demand from the terminal (LLM + CSM
 on the Mac); **replay** is a separate, model-free path that only lists library
 rows and serves a finished WAV. This is why the dashboard can stay tiny (no
-WebSocket, no models) and why a future split deploy is clean — a home-server / Pi
-can host the lightweight UI while the Mac remains the only thing that needs the
-GPU (see §6).
+WebSocket, no models) and why the split deploy is clean — a home Pi hosts the
+lightweight UI + audio while the Mac remains the only thing that needs the GPU
+(see §6).
 
 ## 2. Process & concurrency model
 
@@ -145,7 +145,31 @@ reload. The switch is process-wide and not written back to `config.yaml`.
 - **Web dashboard** (`src/dashboard/`) — Vue 3 + Vite + TS; a *second*, separate
   client that speaks **REST only** (not WS): lists/searches/sorts the read
   library, replays each WAV via an HTML5 `<audio>`, and can delete reads. Built
-  to static files (served by the server at `/`, or by a future Pi host).
+  to static files (served by the server at `/`, or by a Pi host — see §9).
+
+## 9. Pi deployment (`scripts/`)
+
+The Mac is the sole generation host (CSM-1B + Ollama require MLX/Metal). A
+Raspberry Pi can serve as a network-accessible replay host:
+
+- **What runs on Pi** — the same FastAPI server, but TTS + LLM are never
+  invoked (no CLI connects to Pi). Pi serves: library REST
+  (`/api/library`, `/audio`), and the Vue dashboard (static `dist/`).
+- **Why no code changes** — all mlx/csm-mlx imports in `csm_engine.py` are lazy
+  (inside function bodies, not module-level), so the server imports and starts
+  cleanly on Pi with only `requirements-pi.txt` (excludes `csm-mlx`).
+- **`scripts/deploy-pi.sh`** — builds the dashboard on Mac, rsyncs source +
+  `dist/` to Pi (excludes `venv/`, `config.yaml`, CLI/finetune/voice dirs), sets
+  up a venv with Pi-compatible deps, and starts/restarts the server via PM2.
+  PM2 is launched with `--cwd PI_PATH` so `config.yaml`'s relative reader paths
+  (`../readback-audio-db/`) resolve correctly regardless of PM2's default cwd.
+- **`scripts/sync-pi.sh`** — stops the Pi server (avoids SQLite lock), rsyncs
+  WAVs + the library DB from `readback-audio-db/` on Mac to Pi, then restarts.
+  Uses SSH keep-alive flags to survive large transfers over Wi-Fi.
+- **Config on Pi** — `config.pi.example.yaml` is copied to `config.yaml` on
+  first deploy only. Uses the same relative reader paths as Mac; no voices
+  section (wav files aren't synced). Pi config edits survive redeployment.
+- **Port** — Pi defaults to `:8090`; set `PI_PORT` in `.env` to change.
 
 ## 7. Entry point (`src/readback/__main__.py`)
 

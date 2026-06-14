@@ -6,6 +6,53 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-15 — Pi deployment: library dashboard + audio sync
+
+**Status: done** — branch `deployment`. Deploy readback library REST + dashboard to a Raspberry Pi as a network-accessible read-history viewer. Mac stays the generation host (CSM-1B + Ollama); Pi is display/playback only.
+
+### Context
+
+CSM-1B (MLX/Metal) and Ollama are Apple Silicon–only. Pi serves the FastAPI library REST endpoints, the Vue dashboard (static `dist/`), and WAV files rsynced from Mac. A sync script pushes audio + DB on demand. The `../readback-audio-db/` relative paths in `config.yaml` resolve correctly on Pi (same directory layout as Mac).
+
+### Design
+
+1. **No server.py changes** — all mlx/csm-mlx imports in `csm_engine.py` are lazy (inside function bodies), so the server starts on Pi without csm-mlx installed. TTS only fails if a read job is triggered, which Pi never does.
+2. **`requirements-pi.txt`** — all pyproject.toml deps except `csm-mlx` (MLX is Apple Silicon only).
+3. **`.env.example`** — documents `PI_USER`, `PI_HOST`, `PI_PATH`, `PI_AUDIO_DIR`, `PI_DB_PATH`, `PI_PORT`.
+4. **`config.pi.example.yaml`** — Pi-safe config template: built-in speaker (no wav), same relative reader paths as Mac (resolve to `~/readback-audio-db/`). Deploy script copies on first deploy only.
+5. **`scripts/deploy-pi.sh`** — build dashboard → rsync source + dist → venv + pip → PM2 start/restart. `config.yaml` on Pi is never overwritten after first deploy.
+6. **`scripts/sync-pi.sh`** — stop Pi server → rsync audio + DB → restart. Stops server to avoid SQLite lock during DB copy.
+7. **PYTHONPATH** — `PYTHONPATH=${PI_PATH}/src` set before PM2 start (captured in PM2's saved env); `--update-env` on restart picks up changes.
+
+### Files
+
+- `requirements-pi.txt` (new): Pi deps, no csm-mlx
+- `.env.example` (new): Pi connection + path template
+- `config.pi.example.yaml` (new): Pi config template
+- `scripts/deploy-pi.sh` (new): build + rsync + PM2 deploy
+- `scripts/sync-pi.sh` (new): rsync audio + DB Mac → Pi
+
+### Out of scope
+
+- Nginx / reverse proxy / SSL
+- Auto-sync on new read
+- Two-way sync (Pi → Mac)
+- `--remote` mode (git pull on Pi)
+- Pi initial OS / SSH key setup (assumed working)
+- Running TTS or Ollama on Pi
+
+### Verification
+
+1. `cp .env.example .env` → fill in PI_USER, PI_HOST, PI_PATH
+2. `bash scripts/deploy-pi.sh` → completes; `pm2 list` shows `readback` online
+3. `curl http://<PI_HOST>:8080/api/config` → returns JSON
+4. Open `http://<PI_HOST>:8080` → dashboard loads
+5. `bash scripts/sync-pi.sh` → audio + DB rsynced
+6. Refresh dashboard → past reads appear, audio plays in browser
+7. Pi reboot → `pm2 startup && pm2 save` (run once manually on Pi)
+
+---
+
 ## 2026-06-14 — Landing page layout rework (de-box + catchier hero)
 
 **Status: done** — branch `feat/animations`. The page read as a rigid stack
@@ -251,7 +298,7 @@ there was no repeatable way to keep it current — so add a skill for that.
 
 **Status: done** — branch `feat/dashboard`, PR #12. A SQLite library that records
 every synthesized read, plus a Vue 3 web dashboard to search, sort, and replay
-the audio anytime. Local env only; Pi/remote deploy deferred.
+the audio anytime. Local env only; Pi deploy shipped separately (see 2026-06-15 entry).
 
 Original concept sketch (the brief that kicked this off):
 
@@ -311,8 +358,8 @@ removed the old browser read-UI on purpose — `GET /` returns 404). This featur
 adds a **new, separate read-only library UI**, not a resurrection of that client.
 
 Key constraint from the flow sketch: **audio files stay in the local Mac
-directory only**; the DB stores their absolute path so a future Pi host can sync
-or proxy them. Must stay lightweight (Pi-friendly): a built SPA is static files,
+directory only**; the DB stores their absolute path so the Pi host can sync and
+serve them (shipped: `scripts/sync-pi.sh`). Must stay lightweight (Pi-friendly): a built SPA is static files,
 so runtime cost is just FastAPI + SQLite (stdlib, near-zero RAM).
 
 Decisions (confirmed with user): **Vue 3 + Vite + TS**; **delete capability

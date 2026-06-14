@@ -47,6 +47,21 @@ gotchas, and exact knobs.
 readback/
 ├── pyproject.toml             # v3.1.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
 ├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
+├── .env.example               # Pi deployment config template (PI_USER/PI_HOST/PI_PATH/PI_PORT etc.)
+│                              # ⚠ copy to .env (gitignored) and fill in real values — never commit .env
+├── config.pi.example.yaml     # Pi config template: built-in speaker, same relative reader paths as Mac,
+│                              # no voices section (wav files aren't on Pi). deploy-pi.sh copies to
+│                              # config.yaml on Pi on first deploy only; subsequent deploys preserve edits.
+├── requirements-pi.txt        # Pi-compatible deps — excludes csm-mlx (MLX/Metal = Apple Silicon only).
+│                              # Only what's actually imported at server startup: fastapi, uvicorn,
+│                              # pydantic, pyyaml, python-multipart, ollama, numpy. trafilatura/
+│                              # soundfile/huggingface-hub are lazy imports (never called on Pi).
+├── scripts/
+│   ├── deploy-pi.sh           # build dashboard → rsync source+dist → venv+pip → PM2 start/restart.
+│   │                          # Excludes venv/ and config.yaml from rsync so Pi state is preserved.
+│   │                          # PM2 started with --cwd PI_PATH so relative config paths resolve.
+│   └── sync-pi.sh             # stop Pi server → rsync WAVs + SQLite DB Mac→Pi → pm2 restart.
+│                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── .github/workflows/
 │   └── pages.yml              # deploys src/landing-page/ to GitHub Pages — ONLY on
@@ -328,7 +343,8 @@ readback/
   (the CLI splits by hand only to dodge an ink ANSI-reset bug). Palette + fonts
   (IBM Plex Mono / Martian Mono) lifted from `src/landing-page/style.css` — visually matches
   the CLI + landing page. ⚠ Audio lives only on the Mac; the DB stores the
-  absolute `audio_path` so a future Pi host can sync/proxy it (deploy deferred).
+  absolute `audio_path` so the Pi host can unlink WAVs on delete — `scripts/sync-pi.sh`
+  pushes WAVs + DB to Pi; audio is served from Pi's local copy.
 - **Motion** (`styles.css` + `App.vue` + `ReadCard.vue`): curves per the
   `emil-design-eng` skill — `--ease-out: cubic-bezier(0.23,1,0.32,1)` for
   entrances/press, `--ease-drawer: cubic-bezier(0.32,0.72,0,1)` for the accordion.
