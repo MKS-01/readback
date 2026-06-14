@@ -6,6 +6,20 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-15 — Landing-page sync: "run it on your network"
+
+**Status: done** — branch `deployment`. Surface the shipped Pi / home-network deployment on the marketing site without breaking its hook-and-redirect shape.
+
+### Design
+
+Pure copy + redirect, no new images (per request — the README Pi-deployment section already carries the mobile screenshots).
+
+1. **Features** (`.feat-term`) — add a 6th line `network`: "Run it on your network — deploy the dashboard to a Raspberry Pi (built on my [PiZoW](https://github.com/MKS-01/pizow) setup) and replay from any device at home." Bumped the footer count 5 → 6, extended the `.feat-term` `aria-label`, and added the `:nth-child(6)` stagger rule in `style.css`.
+2. **Dive in** (`.dive`) — new redirect button "Run it on a Pi ↗" → `README#pi-deployment`.
+3. Hero / Hear it / See it work left untouched — the on-device pitch still holds.
+
+Reviewed via local headless screenshot before push. Deploys on merge to `main` (Pages workflow); no `pages.yml` change needed (no new media referenced).
+
 ## 2026-06-15 — Pi deployment: library dashboard + audio sync
 
 **Status: done** — branch `deployment`. Deploy readback library REST + dashboard to a Raspberry Pi as a network-accessible read-history viewer. Mac stays the generation host (CSM-1B + Ollama); Pi is display/playback only.
