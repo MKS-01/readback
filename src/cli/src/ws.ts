@@ -27,6 +27,15 @@ export type ServerMsg =
 
 type Handler = (msg: ServerMsg) => void;
 
+// The live socket, tracked module-side so the process-exit path (index.tsx
+// shutdown / signal handlers) can close it BEFORE killing the spawned server —
+// uvicorn's graceful shutdown hangs on an open websocket, so closing it first
+// lets the server exit in milliseconds instead of waiting out the SIGKILL timer.
+let active: ReadbackSocket | null = null;
+export function closeActiveSocket(): void {
+  active?.close();
+}
+
 export class ReadbackSocket {
   private ws: WebSocket | null = null;
   private url: string;
@@ -44,6 +53,7 @@ export class ReadbackSocket {
     return new Promise((resolvePromise, reject) => {
       const ws = new WebSocket(this.url);
       this.ws = ws;
+      active = this;
       ws.onopen = () => resolvePromise();
       ws.onerror = () => reject(new Error("websocket connection failed"));
       ws.onmessage = (ev) => {
@@ -81,5 +91,6 @@ export class ReadbackSocket {
   close(): void {
     this.closed = true;
     this.ws?.close();
+    if (active === this) active = null;
   }
 }

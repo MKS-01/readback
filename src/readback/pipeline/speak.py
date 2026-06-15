@@ -85,6 +85,20 @@ def _tidy_silence(audio: np.ndarray, sr: int, *, thresh_db: float = -40.0,
     return np.concatenate(pieces) if pieces else audio
 
 
+def _peak_normalize(audio: np.ndarray, target: float = 0.95) -> np.ndarray:
+    """Scale the whole buffer so its peak hits `target`. CSM matches the energy
+    of its reference clip, so clone voices (quiet references) come out ~18 dB
+    softer than the near-full-scale built-in prompts; normalizing the final buffer
+    levels every voice to the same loudness. CSM output is clean speech with no
+    stray transients, so a single peak scale is safe (no limiter needed)."""
+    if audio.size == 0:
+        return audio
+    peak = float(np.max(np.abs(audio)))
+    if peak <= 0.0:
+        return audio
+    return (audio * (target / peak)).astype(np.float32)
+
+
 def synthesize_article(
     synth,
     text: str,
@@ -119,7 +133,7 @@ def synthesize_article(
             progress(i + 1, len(chunks))
     if not out:
         return np.zeros(0, dtype=np.float32)
-    return np.concatenate(out)
+    return _peak_normalize(np.concatenate(out))
 
 
 def write_wav(path: str, audio: np.ndarray, sample_rate: int) -> None:

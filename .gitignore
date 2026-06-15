@@ -40,8 +40,7 @@ config.local.yaml
 *.mp3
 # Exception: committed reference clips that config.yaml voices depend on
 # (the clone-condition voice must travel with the repo to be reproducible).
-!src/voice/voice_kay_default.wav
-!src/voice/voice_kay_long.wav
+!src/voice/voice_codeword.wav
 # Exception: README demo media
 !docs/media/sample-read.wav
 

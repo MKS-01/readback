@@ -41,12 +41,12 @@ skill whenever the user wants to change *who* the reader sounds like.
    ```yaml
    tts:
      csm:
-       speaker: "kay"          # the voice's `name`
-       temperature: 0.6
+       speaker: "codeword"     # the voice's `name`
+       temperature: 0.7
        voices:
-         - name: "kay"
-           label: "Kay ★"
-           wav: "src/voice/voice_kay_long.wav"   # relative to config.yaml
+         - name: "codeword"
+           label: "Codeword ★"
+           wav: "src/voice/voice_codeword.wav"   # relative to config.yaml
            speaker: 0
            ref_text: "Exact transcript of the clip — MUST match the audio."
    ```

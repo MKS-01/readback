@@ -70,7 +70,10 @@ responsive while a read job runs because all heavy work is pushed off it:
    **silence-tidies** it (`_tidy_silence`: trim leading/trailing silence and cap
    internal pauses to ~300 ms — CSM sprinkles long mid-utterance pauses that
    otherwise sound halting), and joins chunks with a uniform `reader.gap_sec`
-   gap. `progress(done, total)` fires per chunk; `should_stop()` aborts early.
+   gap. The joined buffer is **peak-normalized** (`_peak_normalize`) so every
+   voice lands at the same loudness — clone voices inherit their reference clip's
+   level and would otherwise read far quieter than the built-ins.
+   `progress(done, total)` fires per chunk; `should_stop()` aborts early.
 4. **Serve** — the concatenated float32 buffer is written to
    `reader.output_dir` (a `readback-audio-db/audio/<uuid>.wav` folder beside the
    repo by default — kept next to the library DB, not in a hidden `~/.readback`

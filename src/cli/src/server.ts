@@ -91,13 +91,13 @@ export async function ensureServer(
 export function stopServer(handle: ServerHandle | null): void {
   const proc = handle?.origin === "spawned" ? handle.proc : null;
   if (!proc || proc.exitCode !== null) return;
-  proc.kill("SIGTERM");
-  // uvicorn's graceful shutdown can wait forever on an open websocket;
-  // we're exiting, so give it a moment and then force it
-  const deadline = Date.now() + 1500;
-  while (proc.exitCode === null && Date.now() < deadline) {
-    Bun.sleepSync(50);
-  }
-  if (proc.exitCode === null) proc.kill("SIGKILL");
+  // SIGKILL outright and return — no wait. uvicorn's graceful (SIGTERM) shutdown
+  // hangs on the open /ws, so the old code SIGTERM'd then busy-waited up to 1.5 s
+  // for SIGKILL. But the synchronous busy-wait blocks the very event loop Bun
+  // needs to reap the child, so exitCode never updated and the loop ALWAYS ran
+  // its full deadline — that wait was the entire quit delay. This server is an
+  // ephemeral, stateless process we spawned, so SIGKILL (uncatchable, ~instant,
+  // no orphan) is the right tool; the kernel kills it even as we exit.
+  proc.kill("SIGKILL");
 }
 

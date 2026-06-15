@@ -14,23 +14,23 @@ tts:
   engine: "csm"
   csm:
     # Active voice. Built-ins: conversational_a / conversational_b. Clone voices
-    # under `voices:` add their own timbre/tone — "kay" (young female) is default.
-    speaker: "kay"
+    # under `voices:` add their own timbre/tone — "codeword" (young female) is default.
+    speaker: "codeword"
     # fp32 = max quality (offline, RTF ~1.4 is fine); "bf16" is the fast option.
     precision: "fp32"
-    # Lower = steadier/more composed; higher = livelier. 0.6 reads measured (good
-    # for a lecture feel); short (<5 s) reference clips get unstable below ~0.55.
-    temperature: 0.6
+    # Lower = steadier/more composed; higher = livelier. 0.7 matches the codeword
+    # voice tuning; short (<5 s) reference clips get unstable below ~0.55.
+    temperature: 0.7
     # Clone-condition voices: each clip's timbre + tone is reproduced in the read.
     # `wav` is relative to this file; `ref_text` MUST be the clip's exact transcript.
     voices:
-      - name: "kay"
-        label: "Kay ★"
-        # 11 s bootstrapped ref (CSM self-generated from the original 3.2 s clip);
-        # longer refs condition far more reliably than the short original.
-        wav: "src/voice/voice_kay_long.wav"
+      - name: "codeword"
+        label: "Codeword ★"
+        # 12 s CSM-bootstrapped reference (self-generated from the original clone),
+        # so no source-video audio is retained. Exact transcript → reliable conditioning.
+        wav: "src/voice/voice_codeword.wav"
         speaker: 0
-        ref_text: "Welcome back, everyone. Today we're going to look at how large language models actually process text, and why that matters for the tools you use every day. Let's start with a simple example before we get into the details."
+        ref_text: "Welcome back everyone. Today we are going to look at how large language models actually process text and why that matters for the tools you use every day. Let's start with a simple example before we get into the details."
     # Fine-tuned voice: point at a `csm-mlx finetune lora` run dir (adapters.safetensors
     # + adapter_config.json). Loaded over the base weights; generation then uses
     # empty context per the FINETUNING preset. See src/finetune/README.md.
