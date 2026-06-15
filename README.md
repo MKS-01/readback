@@ -338,9 +338,9 @@ The Mac stays the generation host (CSM-1B + Ollama require Apple Silicon). A Ras
 The Pi runs readback alongside [PiZoW](https://github.com/MKS-01/pizow) — a home server management layer that keeps readback (and other services) running under PM2, survives reboots, and exposes a real-time system monitor. Readback shows up as an `online` PM2 process in the PiZoW dashboard, sitting at ~68 MB — just light enough to share the Pi with everything else.
 
 <p align="center">
-  <img src="docs/media/dashboard-mobile.jpg" alt="readback library dashboard on mobile" width="340">
+  <img src="docs/media/dashboard-mobile.jpg" alt="readback library dashboard on mobile" width="260">
   &nbsp;&nbsp;&nbsp;
-  <img src="docs/media/server-mobile.jpg" alt="PiZoW Monitor showing readback online" width="340">
+  <img src="docs/media/server-mobile.jpg" alt="PiZoW Monitor showing readback online" width="260">
 </p>
 <p align="center">
   <sub>Left: the readback library dashboard on a phone — fully mobile-responsive. Right: PiZoW Monitor showing <strong>Readback online</strong> at 68 MB alongside the other Pi services.</sub>
