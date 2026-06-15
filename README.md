@@ -52,7 +52,7 @@
 
 <p align="center">
   <strong>🔊 <a href="docs/media/sample-read.wav">Hear a sample read</a></strong><br>
-  <sub>A real Summary-mode read (local LLM + CSM-1B) in a <strong>custom-tuned clone voice</strong></sub>
+  <sub>A real Summary-mode read (local LLM + CSM-1B) in <strong>codeword</strong> — a custom-tuned clone voice</sub>
 </p>
 
 ---
