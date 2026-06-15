@@ -46,7 +46,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/cli-player.png" alt="readback CLI — terminal player with the word-synced transcript highlight" width="820"><br>
+  <img src="docs/media/cli-player.png" alt="readback CLI — terminal player with the word-synced transcript highlight" width="640"><br>
   <sub>The terminal client mid-read: seekable player, live word-by-word transcript sync.</sub>
 </p>
 
@@ -144,7 +144,7 @@ readback-cli                            # from anywhere; auto-starts the server
 </details>
 
 <p align="center">
-  <img src="docs/media/cli-home.png" alt="readback CLI — home screen" width="820">
+  <img src="docs/media/cli-home.png" alt="readback CLI — home screen" width="640">
 </p>
 
 The CLI auto-starts the `readback` server if one isn't already running, and
@@ -156,7 +156,7 @@ check), `/mode`, `/help`, `/quit`. Same Ghost look, plus an Xcode-blue accent. m
 only. Details: [`src/cli/README.md`](src/cli/README.md).
 
 <p align="center">
-  <img src="docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts and a recommendation" width="820"><br>
+  <img src="docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts and a recommendation" width="640"><br>
   <sub><code>/model</code> — every local Ollama model, sized up against your Mac's RAM before you commit.</sub>
 </p>
 
@@ -174,7 +174,7 @@ is recorded in a small local SQLite library, and the dashboard lets you **replay
 any past read anytime** — no LLM, no GPU, just the saved audio.
 
 <p align="center">
-  <img src="docs/media/dashboard.png" alt="readback library dashboard — searchable list of past reads with an inline player and word-synced transcript" width="820"><br>
+  <img src="docs/media/dashboard.png" alt="readback library dashboard — searchable list of past reads with an inline player and word-synced transcript" width="720"><br>
   <sub>The library dashboard: search, sort, and one-click replay of every past read — each with a seekable player and the same word-by-word transcript highlight as the CLI.</sub>
 </p>
 
