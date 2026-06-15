@@ -106,8 +106,9 @@ Prefs (voice/mode/model) persist to `~/.readback/cli.json`.
 
 ## Caveats
 
-- **SIGKILL can orphan a spawned server.** Normal exits (q, ctrl-c) shut the
-  spawned `readback` down (SIGTERM, then SIGKILL after 1.5 s), but if the CLI
+- **SIGKILL can orphan a spawned server.** Normal exits (q, ctrl-c) SIGKILL the
+  spawned `readback` outright (uvicorn's graceful shutdown hangs on the open
+  `/ws`, so a wait-then-force just stalled quit — see `server.ts`), but if the CLI
   itself is SIGKILLed the server keeps running — kill it manually
   (`pkill -f readback`).
 - Playback is `afplay`, so macOS only.

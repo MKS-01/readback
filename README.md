@@ -52,7 +52,7 @@
 
 <p align="center">
   <strong>🔊 <a href="docs/media/sample-read.wav">Hear a sample read</a></strong><br>
-  <sub>A real Summary-mode read (local LLM + CSM-1B) in <strong>kay</strong> — a custom-tuned clone voice</sub>
+  <sub>A real Summary-mode read (local LLM + CSM-1B) in a <strong>custom-tuned clone voice</strong></sub>
 </p>
 
 ---
@@ -277,17 +277,17 @@ readback's voice comes from a short **reference clip** that CSM conditions on �
 the clip's timbre, age, and accent are what you hear.
 
 - **Built-in** — `conversational_a` (female ★) / `conversational_b` (male), an even literary reading tone. English-best.
-- **Clone** — drop a clean 5–8 s mono clip into `src/voice/` and register it under `tts.csm.voices` (the bundled config ships a sample `kay` voice):
+- **Clone** — drop a clean 5–8 s mono clip into `src/voice/` and register it under `tts.csm.voices` (the bundled config ships a sample `codeword` voice):
 
   ```yaml
   tts:
     csm:
-      speaker: "kay"          # default voice = the name below
-      temperature: 0.6        # delivery: lower = composed, higher = livelier
+      speaker: "codeword"     # default voice = the name below
+      temperature: 0.7        # delivery: lower = composed, higher = livelier
       voices:
-        - name: "kay"
-          label: "Kay ★"
-          wav: "src/voice/voice_kay_long.wav"             # relative to config.yaml
+        - name: "codeword"
+          label: "Codeword ★"
+          wav: "src/voice/voice_codeword.wav"            # relative to config.yaml
           speaker: 0
           ref_text: "Exact transcript of the clip."   # MUST match the audio
   ```
@@ -309,10 +309,10 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 |---|---|---|
 | `ollama.model` | Ollama model for Summary mode | `gemma4:26b` |
 | `ollama.host` | Ollama endpoint | `http://localhost:11434` |
-| `tts.csm.speaker` | Active voice (`conversational_a`/`_b` or a clone `name`) | `kay` |
+| `tts.csm.speaker` | Active voice (`conversational_a`/`_b` or a clone `name`) | `codeword` |
 | `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `fp32` |
-| `tts.csm.temperature` | Delivery: lower = composed, higher = livelier | `0.6` |
-| `tts.csm.voices` | Clone voices (`name`, `label`, `wav`, `ref_text`, `speaker`) | sample `kay` |
+| `tts.csm.temperature` | Delivery: lower = composed, higher = livelier | `0.7` |
+| `tts.csm.voices` | Clone voices (`name`, `label`, `wav`, `ref_text`, `speaker`) | sample `codeword` |
 | `tts.csm.lora_path` | LoRA adapter dir from a `csm-mlx finetune` run | `null` |
 | `reader.default_mode` | `full` (verbatim) or `summary` (LLM) | `full` |
 | `reader.output_dir` | Where generated WAVs are written/served (a `readback-audio-db/` folder beside the repo) | `../readback-audio-db/audio` |

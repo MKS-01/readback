@@ -95,8 +95,8 @@ readback/
 └── src/
     ├── finetune/              # LoRA fine-tune pipeline (README + transcribe.py + data/)
     ├── voice/                 # reference clips for clone voices; *.wav gitignored
-    │                          # (exceptions: committed voice_kay_default.wav +
-    │                          # voice_kay_long.wav, the active kay reference)
+    │                          # (exception: committed voice_codeword.wav,
+    │                          # the active codeword reference)
     ├── dashboard/             # web library UI (Vue 3 + Vite + TS); REST + static client
     │                          # (search/sort/replay/delete past reads), NOT a /ws client.
     │                          # src/{App,api,styles}.* + components/; build → dist/ (gitignored),
@@ -129,7 +129,7 @@ readback/
         ├── pipeline/
         │   ├── extract.py     # fetch_article: trafilatura + UA fallback; TTS-prep scrub
         │   ├── summarize.py   # summarize_article: LLM oneshot → spoken explanation
-        │   └── speak.py       # chunk_text + synthesize_article + _tidy_silence + write_wav
+        │   └── speak.py       # chunk_text + synthesize_article + _tidy_silence + _peak_normalize + write_wav
         ├── tts/
         │   ├── csm_engine.py  # CsmEngine (csm-mlx); single-thread MLX executor; _ref_for
         │   │                  # (built-in prompt / clone clip / empty-for-LoRA); voices_for
@@ -190,6 +190,11 @@ readback/
   - `synthesize_article` — synth each chunk, tidy, join with `reader.gap_sec`
     (0.18 s) gaps; `progress`/`should_stop` hooks; a chunk that throws is skipped,
     not fatal.
+  - `_peak_normalize` — ⚠ **levels every voice to the same loudness.** CSM matches
+    the energy of its reference clip, so clone voices (quiet refs) came out ~18 dB
+    softer than the near-full-scale built-in prompts. The concatenated buffer is
+    peak-normalized to **0.95** before return (no limiter — CSM output has no stray
+    transients). Applied unconditionally; clean speech so it's safe.
 
 ### TTS — CSM-1B (`tts/csm_engine.py`, `tts/synthesizer.py`)
 
@@ -224,10 +229,11 @@ readback/
 - **Clone-condition** (`tts.csm.voices`, `CsmVoicePrompt`): a local clip's timbre +
   tone are reproduced. Fields: `name`, `label`, `wav` (resolved relative to
   `config.yaml`), `ref_text` (the clip's **exact** transcript), `speaker`. The
-  bundled config ships a sample `kay` voice. Its active reference is
-  `src/voice/voice_kay_long.wav` — an 11 s clip CSM-bootstrapped (2026-06-10) from
-  the original 3.2 s `voice_kay_default.wav` to fix short-ref instability; both
-  are committed past the gitignore.
+  bundled config ships a sample `codeword` voice (default; `temperature` 0.7). Its
+  active reference is `src/voice/voice_codeword.wav` — a 12 s clip CSM-bootstrapped
+  (2026-06-16) from a one-off clone, so **no source audio is retained** and the
+  `ref_text` exactly matches what's spoken (reliable conditioning). Committed past
+  the gitignore.
 - **The reusable procedure lives in `.claude/skills/csm-voice`** — clone, tune
   delivery, or LoRA fine-tune. Read it before any voice work.
 - **LoRA fine-tune** pipeline in `src/finetune/` (`README.md`): `transcribe.py` →
@@ -277,8 +283,15 @@ readback/
 - **Auto-spawn lifecycle** (`server.ts`): health-check `GET /api/config`; if no
   server, spawn `readback` (prefers `.venv/bin/readback`, cwd = repo root so
   `config.yaml` resolves), wait up to 60 s; on exit kill it **only if we spawned
-  it** — SIGTERM, then **SIGKILL after 1.5 s** because uvicorn's graceful
-  shutdown can hang on the open websocket. A SIGKILL of the CLI itself orphans
+  it** — `stopServer` **SIGKILLs outright** (no busy-wait). ⚠ uvicorn's graceful
+  SIGTERM hangs on the open `/ws`, and the old SIGTERM-then-busy-wait-1.5 s-then-
+  SIGKILL was self-defeating: the synchronous `Bun.sleepSync` busy-wait blocks the
+  very event loop Bun needs to reap the child, so `exitCode` never updated and the
+  loop always ran its full deadline — that wait was the entire quit delay. SIGKILL
+  (uncatchable, ~instant, no orphan) is right for our ephemeral, stateless server.
+  `shutdown` (`index.tsx`) calls `closeActiveSocket()` (a `ws.ts` module singleton)
+  first so the client `/ws` tears down cleanly on every exit path, including signal
+  handlers where ink's unmount doesn't run. A SIGKILL of the CLI itself orphans
   the spawned server.
 - **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
   (`input` | `busy` | `player`), so key handlers only land on the active screen.

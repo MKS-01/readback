@@ -11,6 +11,11 @@ intentionally lower priority.
 
 ## Recently shipped
 
+- **Loudness normalization** — every read is peak-normalized to 0.95 so clone
+  voices no longer come out ~18 dB quieter than the built-ins (`_peak_normalize`
+  in `speak.py`).
+- **Instant CLI quit** — `stopServer` SIGKILLs the spawned server outright; the
+  old SIGTERM-then-busy-wait stalled every quit ~1.5 s.
 - **Pi + PiZoW integration** — readback is live on a home Pi under
   [PiZoW](https://github.com/MKS-01/pizow), accessible from any device on the
   local network; the dashboard is fully mobile-responsive (v3.2.0).
@@ -28,11 +33,11 @@ intentionally lower priority.
 
 ## 🎧 Audio quality — priority
 
-- [ ] Loudness-normalize the final WAV to a consistent target (e.g. −1 dBFS) — levels vary with voice and chunk
+- [x] Loudness-normalize the final WAV to a consistent target — peak-normalized to 0.95 (`_peak_normalize`), so clone voices match the built-ins
 - [ ] Light crossfade at chunk joins to remove residual seams (chunks join with a flat 0.18 s gap)
 - [ ] Degenerate-chunk guard — an all-silence chunk is silently dropped (`_tidy_silence` → empty); detect + retry once
 - [ ] LoRA fine-tune for higher fidelity (pipeline in [`../src/finetune/`](../src/finetune/README.md))
-- [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `kay`; eventually clone a new voice from the CLI instead of editing `config.yaml`
+- [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `codeword`; eventually clone a new voice from the CLI instead of editing `config.yaml`
 
 ## ⚡ CLI — tuning & performance — priority
 
