@@ -2,6 +2,7 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./app";
 import { ensureServer, stopServer, type ServerHandle } from "./server";
+import { closeActiveSocket } from "./ws";
 import { loadPrefs } from "./prefs";
 import * as player from "./player";
 
@@ -33,6 +34,10 @@ function shutdown() {
   if (shutdownDone) return;
   shutdownDone = true;
   player.stop();
+  // Close the /ws first: uvicorn's graceful shutdown hangs on an open socket,
+  // so this lets the spawned server exit immediately instead of waiting out
+  // stopServer's SIGKILL timer.
+  closeActiveSocket();
   stopServer(handle);
 }
 
