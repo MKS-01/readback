@@ -431,16 +431,23 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.2.0** — Pi deployment (**minor** — additive deployment tooling; no
+Current: **v3.3.0** — voice tuning + audio/CLI fixes (**minor** — additive
+behavior + a default-config change; no protocol/API change). New `codeword`
+clone voice replaces `kay` (CSM-bootstrapped reference — no source audio kept;
+default `temperature` 0.7). Loudness normalization: `_peak_normalize` scales every
+read to 0.95 so clone voices no longer read ~18 dB quieter than the built-ins.
+Instant CLI quit: `stopServer` SIGKILLs the spawned server outright (the old
+SIGTERM-then-busy-wait stalled every quit ~1.5 s — the synchronous busy-wait
+blocked the loop Bun needs to reap the child). Landing page + README demo
+regenerated with the codeword voice. WS protocol + CLI protocol unchanged.
+
+Previously: **v3.2.0** — Pi deployment (**minor** — additive deployment tooling; no
 protocol/API/config change). Split deploy: the Mac stays the generation host
 (CSM-1B + Ollama, Apple Silicon only) while a Raspberry Pi runs the lightweight
-read-only server (library REST + Vue dashboard + `/audio`), live on the home
-network under [PiZoW](https://github.com/MKS-01/pizow) (PM2-managed, reboot-safe,
-reachable from any device). New: `scripts/deploy-pi.sh` + `sync-pi.sh`,
-`requirements-pi.txt` (no csm-mlx), `config.pi.example.yaml`, `.env.example`;
-all mlx/csm-mlx imports stay lazy so the server boots on Pi without them. Plus a
-mobile-responsive dashboard, README Pi-deployment section + mobile screenshots,
-and a landing-page sync (network feature line, Pi redirect, refreshed hero).
+read-only server (library REST + Vue dashboard + `/audio`) under
+[PiZoW](https://github.com/MKS-01/pizow); `scripts/deploy-pi.sh` + `sync-pi.sh`,
+`requirements-pi.txt`, `config.pi.example.yaml`, `.env.example`; mlx/csm-mlx imports
+stay lazy so the server boots on Pi. Mobile-responsive dashboard + landing sync.
 WS protocol + CLI protocol unchanged.
 
 Previously: **v3.1.0** — UI/UX polish (**minor** — presentational only; no
