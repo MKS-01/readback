@@ -137,6 +137,12 @@ class CsmEngine:
         self.cfg.speaker = voice
         return voice
 
+    def set_temperature(self, temp: float) -> None:
+        """Set the sampling temperature for subsequent synth calls. `_make_sampler`
+        reads `self.cfg.temperature` fresh per call, so this takes effect on the
+        next `synthesize` with no reload."""
+        self.cfg.temperature = float(temp)
+
     def synthesize(self, text: str) -> np.ndarray:
         text = text.strip()
         if not text:

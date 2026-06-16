@@ -15,6 +15,8 @@ WS protocol (/ws):
             "model"?: str}   # model: swap the summary LLM (validated vs Ollama)
            {"type":"cancel"}   # abort the in-flight read job (stops synthesis)
   server → {"type":"phase",    "value":"loading"|"fetching"|"summarizing"|"synthesizing"}
+           # value is a free-form display string; multi-page OCR streams
+           # "reading page N / M" and long-doc summaries "summarizing section N / M"
            {"type":"progress", "done": int, "total": int}
            {"type":"done", "title","audio_url","duration_sec","word_count","mode",
                            "text": str|None (summary text for transcript; None in full mode)}
@@ -46,6 +48,8 @@ from readback.library import Library, ReadRecord
 from readback.llm.client import LLMClient
 from readback.llm.models import installed_model_names, list_models
 from readback.pipeline import ExtractError, fetch_article
+from readback.pipeline.extract import _is_multi_page, classify_source, fetch_multi_page
+from readback.pipeline.tones import tone_for
 from readback.pipeline.speak import synthesize_article, write_wav
 from readback.pipeline.summarize import summarize_article
 from readback.tts.csm_engine import voices_for
@@ -112,7 +116,7 @@ async def _run_read_job(
     mode = payload.get("mode") if payload.get("mode") in ("full", "summary") else "full"
     voice = (payload.get("voice") or "").strip()
     if not url:
-        await send({"type": "error", "message": "Please enter a URL."})
+        await send({"type": "error", "message": "Please enter a URL or image path."})
         return
 
     # Load models on first use (downloads the CSM checkpoint the very first time).
@@ -122,37 +126,81 @@ async def _run_read_job(
     synth, llm = models.synth, models.llm
     assert synth is not None and llm is not None
 
-    # 1) Fetch + extract.
-    await send({"type": "phase", "value": "fetching"})
-    try:
-        article = await asyncio.to_thread(fetch_article, url)
-    except ExtractError as e:
-        await send({"type": "error", "message": str(e)})
-        return
-    except Exception as e:
-        log.exception("fetch failed")
-        await send({"type": "error", "message": f"Couldn't read that page: {e}"})
-        return
-
-    # 2) Optional LLM summary/explainer.
+    # Optional model switch before fetch (affects which LLM summarizes the content).
     model = (payload.get("model") or "").strip()
     if model and model != cfg.ollama.model:
         installed = await asyncio.to_thread(installed_model_names, cfg.ollama)
         if model in installed:
-            cfg.ollama.model = model   # oneshot() reads cfg.model per call
+            cfg.ollama.model = model
             log.info("summary model → %s", model)
         else:
             log.warning("ignoring unknown model %r", model)
+
+    # 1) Fetch + extract (URL, single image, or multi-page folder/glob).
+    await send({"type": "phase", "value": "fetching"})
+    if _is_multi_page(url):
+        def _page_progress(pi: int, tot: int):
+            if not state["alive"]:
+                return
+            msg = {"type": "phase", "value": f"reading page {pi + 1} / {tot}"}
+            loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(send(msg))
+            )
+        try:
+            article = await asyncio.to_thread(
+                fetch_multi_page, url, cfg.ollama, _page_progress,
+            )
+        except ExtractError as e:
+            await send({"type": "error", "message": str(e)})
+            return
+        except Exception as e:
+            log.exception("multi-page fetch failed")
+            await send({"type": "error", "message": f"Couldn't read those pages: {e}"})
+            return
+    else:
+        try:
+            article = await asyncio.to_thread(fetch_article, url, cfg.ollama)
+        except ExtractError as e:
+            await send({"type": "error", "message": str(e)})
+            return
+        except Exception as e:
+            log.exception("fetch failed")
+            await send({"type": "error", "message": f"Couldn't read that page: {e}"})
+            return
+
+    # Reading tone, auto-picked from the source: URL → article (livelier), image /
+    # folder → book (measured, opens by naming the chapter/topic). A tone bundles
+    # the summary framing with the CSM delivery temperature.
+    tone = tone_for(classify_source(url))
+    log.info("reading tone: %s", tone.name)
+
+    # 2) Optional LLM summary/explainer — uniform across URL / image / multi-page.
+    # Multi-page is now a single continuous document, so it summarizes exactly like
+    # a long article (map-reduced when it's a big scan).
     if mode == "summary":
         await send({"type": "phase", "value": "summarizing"})
+
+        # Long inputs (book scans) map-reduce across several LLM calls; report
+        # which section is in flight so a multi-minute summary isn't a silent wait.
+        def _summary_progress(done: int, total: int):
+            if not state["alive"] or total <= 1:
+                return
+            msg = {"type": "phase", "value": f"summarizing section {min(done + 1, total)} / {total}"}
+            loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(send(msg))
+            )
+
         text = await asyncio.to_thread(
             summarize_article, llm, article, cfg.reader.summary_max_chars,
+            _summary_progress, tone.summary_system,
         )
     else:
         text = article.text
 
-    # 3) Synthesize (offline, with progress).
+    # 3) Synthesize (offline, with progress). Apply the tone's delivery temperature
+    # (the user's chosen voice is untouched — tone shifts pacing, not the voice).
     await send({"type": "phase", "value": "synthesizing"})
+    await asyncio.to_thread(synth.set_temperature, tone.temperature)
     if voice and voice != synth.current_voice:
         try:
             await asyncio.to_thread(synth.swap_voice, voice)

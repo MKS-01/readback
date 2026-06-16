@@ -5,9 +5,10 @@ import { BLUE, DIM } from "../theme";
 
 interface Props {
   onSubmit: (value: string) => void;
+  onQuit?: () => void;
 }
 
-export function UrlInput({ onSubmit }: Props) {
+export function UrlInput({ onSubmit, onQuit }: Props) {
   const [value, setValue] = useState("");
 
   const submit = (v: string) => {
@@ -25,10 +26,12 @@ export function UrlInput({ onSubmit }: Props) {
         onChange={(v) => {
           // a paste with a trailing newline should submit, not insert
           if (/[\r\n]/.test(v)) submit(v.replace(/[\r\n]+/g, " "));
+          // 'q' when the field is empty → quit shortcut
+          else if (v === "q" && value === "") onQuit?.();
           else setValue(v);
         }}
         onSubmit={submit}
-        placeholder="Paste an article URL…  (/help for commands)"
+        placeholder="Paste a URL or image path…  (/help for commands)"
       />
     </Box>
   );

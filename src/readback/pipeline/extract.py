@@ -1,14 +1,25 @@
-"""Article extraction: URL → clean {title, text} suitable for TTS.
+"""Article extraction: URL or local image -> clean {title, text} suitable for TTS.
 
-Uses trafilatura (best-in-class boilerplate removal) to pull the main article
+For URLs: trafilatura (best-in-class boilerplate removal) pulls the main article
 body out of arbitrary blog/news HTML, then lightly normalizes the text so the
 TTS doesn't read URLs, citation markers, or stray markup aloud.
+
+For images (.png/.jpg/.jpeg/.heic/.webp/.tiff/.bmp): the file is converted to
+JPEG via sips (macOS built-in, no deps) if needed, then base64-encoded and sent
+to the best available Ollama vision model (auto-selected via pick_vision_model)
+with a verbatim-extraction prompt.
 """
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from readback.config import OllamaConfig
+    from readback.llm.client import LLMClient
 
 log = logging.getLogger("readback.pipeline")
 
@@ -45,13 +56,252 @@ def _clean_for_tts(text: str) -> str:
     return "\n".join(ln for ln in lines if ln).strip()
 
 
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".tiff", ".tif", ".bmp"}
+# Formats Ollama vision can't load natively — convert to JPEG first via sips.
+_NEEDS_CONVERT = {".heic", ".tiff", ".tif", ".bmp", ".webp"}
+
+def _natural_sort_key(name: str):
+    return [int(c) if c.isdigit() else c.lower() for c in re.split(r"(\d+)", name)]
+
+
+def _is_multi_page(source: str) -> bool:
+    """True if source is a folder path or glob pattern (not a URL or single image)."""
+    s = source.strip()
+    if re.match(r"^https?://", s):
+        return False
+    if "*" in s or "?" in s:
+        return True
+    p = Path(s.replace("\\ ", " ")).expanduser()
+    return p.is_dir()
+
+
+def _collect_images(source: str) -> list[Path]:
+    """Resolve a directory or glob pattern to a naturally-sorted list of image paths."""
+    import glob as _glob
+
+    s = source.strip().replace("\\ ", " ")
+    if "*" in s or "?" in s:
+        expanded = str(Path(s).expanduser()) if s.startswith("~") else s
+        candidates = [Path(p) for p in _glob.glob(expanded)]
+    else:
+        candidates = list(Path(s).expanduser().iterdir())
+
+    images = sorted(
+        [c for c in candidates if c.suffix.lower() in _IMAGE_EXTS],
+        key=lambda p: _natural_sort_key(p.name),
+    )
+    if not images:
+        raise ExtractError(f"\U0001f5bc️ no images found in {source}")
+    return images
+
+
+def _is_image_path(source: str) -> bool:
+    return Path(source).suffix.lower() in _IMAGE_EXTS
+
+
+def _resolve_image_path(path: str) -> Path:
+    """Unescape shell backslash-spaces only. U+202F stays as-is — macOS names files with it."""
+    return Path(path.replace("\\ ", " ")).expanduser().resolve()
+
+
+def _image_to_jpeg(src: Path) -> bytes:
+    """Convert image to JPEG bytes using macOS sips (built-in, no extra deps)."""
+    import os
+    import subprocess
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        result = subprocess.run(
+            ["sips", "-s", "format", "jpeg", str(src), "--out", tmp_path],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise ExtractError(
+                f"\U0001f5bc️ couldn't convert {src.suffix.upper()} to JPEG: "
+                f"{result.stderr.decode().strip()}"
+            )
+        return Path(tmp_path).read_bytes()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def _ocr_via_ollama(path: str, ollama_cfg: "OllamaConfig", model: str | None = None) -> str:
+    """Resolve, convert if needed, then OCR an image via an Ollama vision model.
+
+    Pass `model` to skip the model-discovery call (important for multi-page batches).
+    """
+    import base64
+
+    import ollama as _ollama
+
+    abs_path = _resolve_image_path(path)
+    if not abs_path.exists():
+        raise ExtractError(f"\U0001f5bc️ image not found: {abs_path}")
+
+    if model is None:
+        from readback.llm.models import pick_vision_model
+        model = pick_vision_model(ollama_cfg)
+    if not model:
+        raise ExtractError(
+            "\U0001f916 no vision-capable model found in Ollama — try: ollama pull qwen3.5:4b"
+        )
+
+    log.info("OCR %s via %s", abs_path.name, model)
+
+    # Ollama vision accepts JPEG and PNG natively; convert everything else via sips.
+    if abs_path.suffix.lower() in _NEEDS_CONVERT:
+        log.info("converting %s to JPEG for Ollama", abs_path.suffix)
+        img_bytes = _image_to_jpeg(abs_path)
+    else:
+        img_bytes = abs_path.read_bytes()
+
+    img_b64 = base64.b64encode(img_bytes).decode()
+
+    try:
+        client = _ollama.Client(host=ollama_cfg.host)
+        response = client.chat(
+            model=model,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Extract all text from this image verbatim. "
+                    "Preserve line breaks and structure. Output only the text, no commentary."
+                ),
+                "images": [img_b64],
+            }],
+            stream=False,
+            # ⚠ Qwen3 vision models default to thinking mode and will loop into
+            # thousands of reasoning tokens on a dense screenshot (looks like a
+            # hang). Disable thinking, pin temperature to 0 for deterministic OCR,
+            # and cap output as a hard safety net so a runaway can never wedge a read.
+            think=False,
+            options={"temperature": 0, "num_predict": 4096},
+        )
+    except Exception as e:
+        raise ExtractError(f"\U0001f916 OCR failed ({model}): {e}") from e
+
+    from readback.llm.client import strip_think
+    text = strip_think(response.message.content or "").strip()
+    if not text:
+        raise ExtractError("\U0001f5bc️ no text found in the image")
+    return text
+
+
+def _title_from_text(text: str, ollama_cfg: "OllamaConfig") -> str:
+    """Ask the LLM for a short title based on the OCR'd text. Falls back to 'Image'."""
+    from readback.llm.client import LLMClient
+    try:
+        raw = LLMClient(ollama_cfg).oneshot(
+            "You generate short titles. Output only the title, nothing else. Max 6 words.",
+            f"Give a title for this text:\n\n{text[:400]}",
+        )
+        title = raw.strip().strip('"').strip("'").strip()
+        return title or "Image"
+    except Exception:
+        log.debug("title generation failed, using fallback", exc_info=True)
+        return "Image"
+
+
+def _book_title_from_text(text: str, ollama_cfg: "OllamaConfig") -> str:
+    """Distill a book page's chapter/topic from its opening lines. Falls back to 'Book'.
+
+    Books usually carry the chapter heading or topic in the first lines, so we feed
+    just those — the book reading tone then opens the summary by naming it.
+    """
+    from readback.llm.client import LLMClient
+    head = "\n".join(text.strip().splitlines()[:3])[:600]
+    try:
+        raw = LLMClient(ollama_cfg).oneshot(
+            "You identify the chapter or topic of a book page from its opening lines. "
+            "Reply with ONLY the chapter name or topic, at most 8 words. No quotes, no commentary.",
+            f"Opening lines:\n\n{head}",
+        )
+        title = raw.strip().strip('"').strip("'").strip()
+        return title or "Book"
+    except Exception:
+        log.debug("book title generation failed, using fallback", exc_info=True)
+        return "Book"
+
+
+def classify_source(source: str) -> str:
+    """Reading-tone source kind: 'book' for an image / folder / glob, else 'article'.
+
+    Images are (mostly) book scans in this tool, so any local image path or
+    multi-page folder/glob reads as a book; URLs read as articles.
+    """
+    s = (source or "").strip()
+    if _is_multi_page(s) or _is_image_path(s):
+        return "book"
+    return "article"
+
+
+def fetch_multi_page(
+    source: str,
+    ollama_cfg: "OllamaConfig",
+    progress_cb=None,
+) -> Article:
+    """OCR every image in a folder/glob and stitch them into one continuous Article.
+
+    Pages are read in natural filename order and concatenated as a single flowing
+    document — a scanned page is a *page*, not a chapter, so there are no synthetic
+    chapter headers. The result feeds the normal full/summary pipeline unchanged
+    (the caller summarizes via `summarize_article` just like a URL article).
+    `progress_cb(page_index, total)` fires before each page is OCR'd.
+    """
+    from readback.llm.models import pick_vision_model
+
+    images = _collect_images(source)
+    total = len(images)
+
+    # Resolve the vision model once — pick_vision_model calls client.show() per
+    # installed model, so running it per-image multiplies that cost by page count.
+    vision_model = pick_vision_model(ollama_cfg)
+    if not vision_model:
+        raise ExtractError(
+            "\U0001f916 no vision-capable model found in Ollama — try: ollama pull qwen3.5:4b"
+        )
+    log.info("multi-page OCR via %s (%d pages)", vision_model, total)
+
+    pages: list[str] = []
+    for i, img_path in enumerate(images):
+        if progress_cb:
+            progress_cb(i, total)
+        log.info("OCR page %d/%d: %s", i + 1, total, img_path.name)
+        try:
+            pages.append(_ocr_via_ollama(str(img_path), ollama_cfg, model=vision_model))
+        except ExtractError:
+            log.warning("skipping page %d (%s): OCR failed", i + 1, img_path.name, exc_info=True)
+
+    if progress_cb:
+        progress_cb(total, total)
+
+    if not pages:
+        raise ExtractError("\U0001f5bc️ no text found in any of the pages")
+
+    # Stitch as one continuous document: a single space at each page seam so a
+    # sentence running across a page break flows naturally (books break pages
+    # mid-sentence). Within-page paragraph breaks survive untouched.
+    full_text = " ".join(p.strip() for p in pages if p.strip())
+    # Title = the chapter/topic from the first page's opening lines (book tone).
+    title = _book_title_from_text(pages[0], ollama_cfg)
+
+    article = Article(title=title, text=_clean_for_tts(full_text), url=source)
+    log.info("multi-page: %d pages, %d words, title=%r", len(pages), article.word_count, title)
+    return article
+
+
 def _fallback_title(url: str) -> str:
     tail = url.rstrip("/").rsplit("/", 1)[-1]
     tail = re.sub(r"[-_]+", " ", tail).strip()
     return tail or "Article"
 
 
-# A realistic browser UA — trafilatura's default UA is blocked by many sites.
+# A realistic browser UA -- trafilatura's default UA is blocked by many sites.
 _BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -74,14 +324,30 @@ def _download(url: str) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def fetch_article(url: str) -> Article:
-    """Fetch `url` and return the extracted, TTS-ready article. Raises
-    ExtractError on a failed fetch or when no article text is found."""
+def fetch_article(source: str, ollama_cfg: "OllamaConfig | None" = None) -> Article:
+    """Fetch `source` and return the extracted, TTS-ready article.
+
+    `source` may be a URL (http/https) or a local image path. Raises
+    ExtractError on a failed fetch or when no article text is found.
+    """
+    source = (source or "").strip()
+    if not source:
+        raise ExtractError("no source provided")
+
+    # --- local image (a book page, in this tool) ---
+    if _is_image_path(source):
+        if ollama_cfg is None:
+            raise ExtractError("\U0001f5bc️ image OCR requires an Ollama config")
+        text = _ocr_via_ollama(source, ollama_cfg)
+        title = _book_title_from_text(text, ollama_cfg)
+        article = Article(title=title, text=_clean_for_tts(text), url=source)
+        log.info("OCR extracted %r (%d words) from %s", title, article.word_count, source)
+        return article
+
+    # --- URL ---
     import trafilatura
 
-    url = (url or "").strip()
-    if not url:
-        raise ExtractError("empty URL")
+    url = source
     if not re.match(r"^https?://", url):
         url = "https://" + url
 

@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>readback — offline article reader for your terminal</title>
-  <meta name="description" content="Paste a URL, get a clean natural-voice reading of the whole article, right in your terminal. 100% on-device on Apple Silicon. No cloud, no API keys.">
-  <meta property="og:title" content="readback — offline article reader for your terminal">
-  <meta property="og:description" content="Paste a URL, get a natural-voice reading of any article. Local LLM + CSM-1B neural TTS, all on-device. Open source, MIT.">
+  <title>readback — offline article & book reader for your terminal</title>
+  <meta name="description" content="Paste a URL or snap a book — get a clean natural-voice reading of the whole thing, right in your terminal. 100% on-device on Apple Silicon. No cloud, no API keys.">
+  <meta property="og:title" content="readback — offline article & book reader for your terminal">
+  <meta property="og:description" content="Paste a URL or photograph a book — get a natural-voice reading of any article or chapter. Local LLM + CSM-1B neural TTS, all on-device. Open source, MIT.">
   <meta property="og:image" content="https://mks-01.github.io/readback/media/cli-player.png">
   <meta property="og:url" content="https://mks-01.github.io/readback/">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,8 +24,8 @@
     <img class="wordmark" src="media/wordmark.png" alt="readback" width="487">
     <h1 class="tagline">Make reading interesting again.</h1>
     <p class="pitch">
-      A natural neural voice reads whole articles aloud — right in your terminal,
-      entirely on-device. <span class="bright">Nothing leaves your Mac.</span>
+      A natural neural voice reads whole articles — and book scans — aloud, right
+      in your terminal, entirely on-device. <span class="bright">Nothing leaves your Mac.</span>
     </p>
     <div class="cta">
       <a class="btn btn-accent" href="https://github.com/MKS-01/readback">GitHub ↗</a>
@@ -69,17 +69,18 @@
   <section class="reveal features">
     <h2>Features</h2>
     <div class="feat-term" role="img"
-         aria-label="readback --features: offline (100% on-device — extraction, summary and speech run on Apple Silicon, no cloud or API keys); voice (CSM-1B neural TTS, clone any voice from a short clip or LoRA fine-tune); modes (Full verbatim or Summary via a local Ollama LLM, /model fits your RAM); player (pause, seek ±5s, word-synced transcript, in your shell or the web dashboard); library (every read saved to a searchable SQLite library to replay anytime); network (deploy the dashboard to a Raspberry Pi via PiZoW and replay from any device on your home network)">
+         aria-label="readback --features: offline (100% on-device — extraction, summary and speech run on Apple Silicon, no cloud or API keys); sources (read a URL, an image, or a folder of book-page photos; a local vision model OCRs them into one continuous read, and the tone adapts to the source); voice (CSM-1B neural TTS, clone any voice from a short clip or LoRA fine-tune); modes (Full verbatim or Summary via a local Ollama LLM, /model fits your RAM); player (pause, seek ±5s, word-synced transcript, in your shell or the web dashboard); library (every read saved to a searchable SQLite library to replay anytime); network (deploy the dashboard to a Raspberry Pi via PiZoW and replay from any device on your home network)">
       <p class="feat-cmd" aria-hidden="true"><span class="dim">~ $</span> readback <span class="accent">--features</span><span class="caret"></span></p>
       <ul class="feat-list" aria-hidden="true">
         <li><span class="ok">✓</span><span class="fkey">offline</span><span class="fdesc"><span class="bright">100% on-device</span> — extraction, summary &amp; speech run on Apple Silicon. No cloud, no API keys.</span></li>
+        <li><span class="ok">✓</span><span class="fkey">sources</span><span class="fdesc"><span class="bright">Snap a book, hear the chapter</span> — read a URL, an image, or a folder of page photos; a local vision model OCRs them into one continuous read, and the tone adapts — a link sounds like an article, a book scan like a book.</span></li>
         <li><span class="ok">✓</span><span class="fkey">voice</span><span class="fdesc"><span class="bright">A voice worth listening to</span> — CSM-1B neural TTS (Sesame); clone any voice from a short clip, or LoRA fine-tune.</span></li>
         <li><span class="ok">✓</span><span class="fkey">modes</span><span class="fdesc"><span class="bright">Full or Summary</span> — verbatim, or a local Ollama LLM rewrites it as a spoken explanation; <code>/model</code> fits your RAM.</span></li>
         <li><span class="ok">✓</span><span class="fkey">player</span><span class="fdesc"><span class="bright">A real player</span> — pause, seek ±5 s, and a transcript that highlights word by word — in your shell or the web dashboard.</span></li>
         <li><span class="ok">✓</span><span class="fkey">library</span><span class="fdesc"><span class="bright">Replay anytime</span> — every read saved to a searchable SQLite library.</span></li>
         <li><span class="ok">✓</span><span class="fkey">network</span><span class="fdesc"><span class="bright">Run it on your network</span> — deploy the dashboard to a Raspberry Pi (built on my <a href="https://github.com/MKS-01/pizow">PiZoW</a> setup) and replay from any device at home.</span></li>
       </ul>
-      <p class="feat-foot" aria-hidden="true">6 features <span class="dim">·</span> 0 cloud calls <span class="dim">·</span> 0 API keys</p>
+      <p class="feat-foot" aria-hidden="true">7 features <span class="dim">·</span> 0 cloud calls <span class="dim">·</span> 0 API keys</p>
     </div>
   </section>
 

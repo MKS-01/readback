@@ -9,6 +9,7 @@ export interface ModelInfo {
   quant: string | null;
   fit: "good" | "tight" | "no";
   chat: boolean;
+  vision: boolean;
 }
 
 export interface ModelsResp {
@@ -52,14 +53,14 @@ export function ModelList({ resp, active }: Props) {
               {String(m.size_gb).padStart(5)} GB · {m.params ?? "—"} ·{" "}
             </Text>
             <Text color={fit.color}>{fit.text}</Text>
+            {m.vision && <Text color={BLUE}> · 🖼️ OCR</Text>}
             {isRec && <Text color={BLUE}> — recommended for summaries</Text>}
           </Box>
         );
       })}
       <Box marginTop={1}>
         <Text color={DIM}>
-          <Text color={BLUE}>/model {"<name>"}</Text> to switch · used by Summary
-          mode only
+          <Text color={BLUE}>/model {"<name>"}</Text> to switch · used by Summary mode only · <Text color={BLUE}>🖼️ OCR</Text> = supports image input
         </Text>
       </Box>
     </Box>

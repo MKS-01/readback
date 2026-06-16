@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Make reading interesting again.</strong><br>
-  Paste a URL — get a clean, natural-voice reading of the whole article,<br>
+  Paste a URL or drop a book scan — get a clean, natural-voice reading of the whole piece,<br>
   right in your terminal. Runs entirely on your Mac.<br>
   No cloud. No API keys. Nothing leaves your machine.
 </p>
@@ -152,7 +152,8 @@ shuts it down on exit if it started it. A real terminal player: space = pause,
 **←/→ = seek ±5 s**, t = transcript in Summary mode — with the spoken summary
 **highlighting word by word in sync with the voice**. Slash commands `/voice`,
 `/model` (pick the summary LLM from your local Ollama models, with a RAM-fit
-check), `/mode`, `/help`, `/quit`. Same Ghost look, plus an Xcode-blue accent. macOS
+check), `/mode`, `/library` (browse + replay past reads), `/help`, `/quit` — or
+press `q` when the input field is empty. Same Ghost look, plus an Xcode-blue accent. macOS
 only. Details: [`src/cli/README.md`](src/cli/README.md).
 
 <p align="center">
@@ -228,11 +229,11 @@ reads, over REST) — the same pipeline whether you're reading a news piece or a
 
 ```mermaid
 flowchart LR
-    U["Article URL"] --> P
+    U["URL · image · book scan"] --> P
 
     subgraph P["readback server · 100% on-device"]
         direction LR
-        E["extract<br/>trafilatura"] --> L["summarize<br/>local LLM · optional"] --> T["synthesize<br/>CSM-1B neural TTS"]
+        E["extract<br/>trafilatura · vision OCR"] --> L["summarize<br/>local LLM · optional"] --> T["synthesize<br/>CSM-1B neural TTS"]
     end
 
     T --> DB[("readback-audio-db<br/>WAV files + SQLite")]
@@ -242,10 +243,17 @@ flowchart LR
 
 The read pipeline, left to right:
 
-1. **Extract** — `trafilatura` pulls the article body (browser-UA fallback for sites that 403), then light scrubbing removes URLs and citation markers so they aren't read aloud.
-2. **Summarize** (Summary mode only) — one call to the local LLM via Ollama rewrites the article as a spoken explanation. Full mode skips this entirely — no LLM involved.
+1. **Extract** — `trafilatura` pulls the article body (browser-UA fallback for sites that 403), then light scrubbing removes URLs and citation markers so they aren't read aloud. Local images (`.png`, `.jpg`, `.heic`, …) are OCR'd via an Ollama vision model instead. A folder path or glob (`~/scan/` or `~/page*.png`) is read as multi-page: every page is OCR'd in filename order and stitched into one continuous document — ideal for book scans.
+2. **Summarize** (Summary mode only) — one call to the local LLM via Ollama rewrites the article (or stitched book pages) as a spoken explanation. Full mode skips this entirely — no LLM involved.
 3. **Chunk + synthesize** — the text is split into sentence-aware chunks, each synthesized with CSM-1B, silence-trimmed, and joined with small gaps.
 4. **Serve** — the finished WAV is served over HTTP to whichever client asked; progress streams live over the WebSocket while it's being made.
+
+**Source-aware tone.** readback adapts to what you give it: a URL reads as a livelier
+article explainer, while an image or book scan reads as a measured *book* — narrated
+a touch calmer, and (in Summary mode) opening by naming the chapter or topic pulled
+from the page's first lines. Automatic, picked from the source — nothing to set.
+Long book scans aren't truncated, either: the summary **map-reduces** across the
+whole document so the tail isn't dropped.
 
 CSM runs on one MLX/Metal thread (MLX binds its GPU stream to the first thread
 that touches it), so read jobs queue naturally. The CLI is a pure client — it
@@ -261,7 +269,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system view.
 
 | Layer | Technology |
 |---|---|
-| **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback) |
+| **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback); **Ollama vision OCR** for images / book scans |
 | **Summary (optional)** | [Ollama](https://ollama.ai/) — default `gemma4:26b`; any pulled chat model works |
 | **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, fp32 |
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
@@ -317,7 +325,7 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `reader.default_mode` | `full` (verbatim) or `summary` (LLM) | `full` |
 | `reader.output_dir` | Where generated WAVs are written/served (a `readback-audio-db/` folder beside the repo) | `../readback-audio-db/audio` |
 | `reader.gap_sec` | Silence inserted between synthesized chunks | `0.18` |
-| `reader.summary_max_chars` | Cap article text fed to the LLM in Summary mode | `16000` |
+| `reader.summary_max_chars` | Per-pass chunk size for Summary mode — longer inputs (book scans) are map-reduced across batches of this size, not truncated | `16000` |
 | `reader.library_db` | SQLite library of past reads (powers the dashboard) | `../readback-audio-db/library.db` |
 
 Audio + the library DB live together in a **`readback-audio-db/` folder next to

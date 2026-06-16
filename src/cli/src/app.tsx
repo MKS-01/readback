@@ -1,4 +1,4 @@
-import React, { useEffect, useReducer, useRef } from "react";
+import React, { useEffect, useReducer, useRef, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +15,7 @@ import { StatusLine } from "./components/StatusLine";
 import { BusyView } from "./components/BusyView";
 import { PlayerView } from "./components/PlayerView";
 import { ModelList, type ModelsResp } from "./components/ModelList";
+import { LibraryView, type LibraryItem } from "./components/LibraryView";
 
 const HELP = `/voice            list voices
 /voice <id>       switch voice
@@ -23,12 +24,13 @@ const HELP = `/voice            list voices
 /mode             show mode
 /mode full        read the whole article
 /mode summary     spoken summary (local LLM)
+/library (/lib)   browse past reads
 /quit             exit
 
 player keys: space pause/resume · ←/→ seek ±5s · t transcript · q back`;
 
 interface State {
-  screen: "input" | "busy" | "player";
+  screen: "input" | "busy" | "player" | "library" | "quitting";
   error: string | null;
   notice: string | null;
   modelList: ModelsResp | null;
@@ -41,6 +43,11 @@ interface State {
   voice: string;
   mode: "full" | "summary";
   model: string;
+  libraryItems: LibraryItem[];
+  libraryTotal: number;
+  libraryOffset: number;
+  libraryCursor: number;
+  confirmDelete: boolean;
 }
 
 type Action =
@@ -56,7 +63,14 @@ type Action =
   | { type: "setMode"; mode: "full" | "summary" }
   | { type: "setModel"; model: string }
   | { type: "notice"; text: string | null }
-  | { type: "modelList"; resp: ModelsResp };
+  | { type: "modelList"; resp: ModelsResp }
+  | { type: "openLibrary"; items: LibraryItem[]; total: number }
+  | { type: "libraryLoaded"; items: LibraryItem[]; total: number; offset: number }
+  | { type: "libraryMove"; delta: number }
+  | { type: "libraryDeleteItem"; id: string }
+  | { type: "libraryConfirmDelete" }
+  | { type: "libraryClearConfirm" }
+  | { type: "quitting" };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -101,7 +115,60 @@ function reducer(state: State, action: Action): State {
       return { ...state, notice: action.text, error: null, modelList: null };
     case "modelList":
       return { ...state, modelList: action.resp, notice: null, error: null };
+    case "openLibrary":
+      return {
+        ...state,
+        screen: "library",
+        libraryItems: action.items,
+        libraryTotal: action.total,
+        libraryOffset: action.items.length,
+        libraryCursor: 0,
+        confirmDelete: false,
+        error: null,
+        notice: null,
+        modelList: null,
+      };
+    case "libraryLoaded":
+      return {
+        ...state,
+        libraryItems: [...state.libraryItems, ...action.items],
+        libraryTotal: action.total,
+        libraryOffset: action.offset,
+      };
+    case "libraryMove": {
+      const next = Math.max(0, Math.min(state.libraryCursor + action.delta, state.libraryItems.length - 1));
+      return { ...state, libraryCursor: next, confirmDelete: false };
+    }
+    case "libraryDeleteItem":
+      return {
+        ...state,
+        libraryItems: state.libraryItems.filter((i) => i.id !== action.id),
+        libraryTotal: Math.max(0, state.libraryTotal - 1),
+        libraryCursor: Math.min(state.libraryCursor, Math.max(0, state.libraryItems.length - 2)),
+        confirmDelete: false,
+      };
+    case "libraryConfirmDelete":
+      return { ...state, confirmDelete: true };
+    case "libraryClearConfirm":
+      return { ...state, confirmDelete: false };
+    case "quitting":
+      return { ...state, screen: "quitting" };
   }
+}
+
+const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function QuittingView() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setFrame((f) => (f + 1) % SPIN_FRAMES.length), 80);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <Box paddingX={1} marginY={1}>
+      <Text color={DIM}>{SPIN_FRAMES[frame]} quitting…</Text>
+    </Box>
+  );
 }
 
 async function resolveWav(base: string, audioUrl: string, audioDir?: string): Promise<string> {
@@ -148,6 +215,11 @@ export function App({ handle, prefs, onQuit }: Props) {
     voice: prefs.voice && voiceIds.includes(prefs.voice) ? prefs.voice : cfg.voice,
     mode: prefs.mode ?? cfg.default_mode,
     model: prefs.model ?? cfg.model,
+    libraryItems: [],
+    libraryTotal: 0,
+    libraryOffset: 0,
+    libraryCursor: 0,
+    confirmDelete: false,
   });
 
   const sockRef = useRef<ReadbackSocket | null>(null);
@@ -195,6 +267,11 @@ export function App({ handle, prefs, onQuit }: Props) {
     exit();
   };
 
+  const startQuit = () => {
+    dispatch({ type: "quitting" });
+    setTimeout(quit, 300);
+  };
+
   const persist = (voice: string, mode: "full" | "summary", model: string) =>
     savePrefs({ voice, mode, model });
 
@@ -205,6 +282,38 @@ export function App({ handle, prefs, onQuit }: Props) {
     if (resp.error) throw new Error(resp.error);
     modelsRef.current = resp;
     return resp;
+  };
+
+  const fetchLibrary = async (offset: number): Promise<{ items: LibraryItem[]; total: number }> => {
+    const res = await fetch(handle.base + `/api/library?sort=newest&limit=20&offset=${offset}`);
+    if (!res.ok) throw new Error(`library fetch failed (${res.status})`);
+    const data = (await res.json()) as { items: LibraryItem[]; total: number };
+    return data;
+  };
+
+  const openLibrary = () => {
+    fetchLibrary(0)
+      .then(({ items, total }) => dispatch({ type: "openLibrary", items, total }))
+      .catch((err) => dispatch({ type: "error", message: String(err.message ?? err) }));
+  };
+
+  const loadMoreLibrary = () => {
+    if (state.libraryItems.length >= state.libraryTotal) return;
+    fetchLibrary(state.libraryOffset)
+      .then(({ items, total }) =>
+        dispatch({ type: "libraryLoaded", items, total, offset: state.libraryOffset + items.length })
+      )
+      .catch((err) => dispatch({ type: "error", message: String(err.message ?? err) }));
+  };
+
+  const deleteLibraryItem = (item: LibraryItem) => {
+    if (!stateRef.current.confirmDelete) {
+      dispatch({ type: "libraryConfirmDelete" });
+      return;
+    }
+    fetch(handle.base + `/api/library/${item.id}`, { method: "DELETE" })
+      .then(() => dispatch({ type: "libraryDeleteItem", id: item.id }))
+      .catch((err) => dispatch({ type: "error", message: String(err.message ?? err) }));
   };
 
   const handleModelCommand = (arg: string | undefined) => {
@@ -238,7 +347,7 @@ export function App({ handle, prefs, onQuit }: Props) {
         break;
       case "quit":
       case "exit":
-        quit();
+        startQuit();
         break;
       case "mode":
         if (!arg) {
@@ -268,6 +377,10 @@ export function App({ handle, prefs, onQuit }: Props) {
       case "model":
         handleModelCommand(arg);
         break;
+      case "library":
+      case "lib":
+        openLibrary();
+        break;
       default:
         dispatch({ type: "error", message: `unknown command /${cmd} — /help` });
     }
@@ -276,12 +389,18 @@ export function App({ handle, prefs, onQuit }: Props) {
   const handleSubmit = (value: string) => {
     if (process.env.READBACK_CLI_DEBUG)
       require("node:fs").appendFileSync("/tmp/rbcli.log", `submit: ${JSON.stringify(value)}\n`);
-    if (value.startsWith("/")) {
+    const isGlob = /[*?]/.test(value);
+    // Slash commands are single-segment (/voice, /model, /help, …). Multi-segment
+    // paths (/Users/…) and globs are not commands even if they start with /.
+    const isSlashCommand = value.startsWith("/") && !value.slice(1).includes("/") && !isGlob;
+    if (isSlashCommand) {
       handleCommand(value);
       return;
     }
-    if (!/^https?:\/\//i.test(value)) {
-      dispatch({ type: "error", message: "that doesn't look like a URL (https://…)" });
+    const isUrl = /^https?:\/\//i.test(value);
+    const isLocalPath = value.startsWith("/") || isGlob || /^~/.test(value);
+    if (!isUrl && !isLocalPath) {
+      dispatch({ type: "error", message: "paste a URL, image path, or folder/glob (~/… or /path/to/)" });
       return;
     }
     player.stop();
@@ -310,7 +429,7 @@ export function App({ handle, prefs, onQuit }: Props) {
                 <Text color={RED}>{state.error}</Text>
               </Box>
             )}
-            <UrlInput onSubmit={handleSubmit} />
+            <UrlInput onSubmit={handleSubmit} onQuit={startQuit} />
             <Box marginTop={1}>
               <StatusLine
                 model={state.model}
@@ -353,6 +472,40 @@ export function App({ handle, prefs, onQuit }: Props) {
               player.stop();
               dispatch({ type: "back" });
             }}
+          />
+        )}
+
+        {state.screen === "quitting" && <QuittingView />}
+
+        {state.screen === "library" && (
+          <LibraryView
+            items={state.libraryItems}
+            total={state.libraryTotal}
+            cursor={state.libraryCursor}
+            confirmDelete={state.confirmDelete}
+            onMove={(delta) => dispatch({ type: "libraryMove", delta })}
+            onPlay={(item) => {
+              const result: DoneMsg = {
+                type: "done",
+                title: item.title,
+                audio_url: `/audio/${item.audio_filename}`,
+                duration_sec: item.duration_sec,
+                word_count: item.word_count,
+                mode: item.mode,
+                text: item.summary ?? null,
+              };
+              resolveWav(handle.base, result.audio_url, cfg.audio_dir)
+                .then((wavPath) => {
+                  dispatch({ type: "done", result, wavPath });
+                  player.play(wavPath, result.duration_sec);
+                })
+                .catch((err) =>
+                  dispatch({ type: "error", message: String(err.message ?? err) })
+                );
+            }}
+            onDelete={(item) => deleteLibraryItem(item)}
+            onLoadMore={loadMoreLibrary}
+            onBack={() => dispatch({ type: "back" })}
           />
         )}
       </Box>
