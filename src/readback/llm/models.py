@@ -55,6 +55,52 @@ def _is_chat_model(name: str) -> bool:
     return not any(m in low for m in _NON_CHAT_MARKERS)
 
 
+# Preferred OCR models in priority order — smallest/fastest first, Qwen excels at text extraction.
+_VISION_PREF = ["qwen3.5:4b", "gemma4:12b", "gemma4:e4b", "gemma4:26b"]
+
+
+def pick_vision_model(cfg: OllamaConfig) -> str | None:
+    """Return the name of the best available vision-capable Ollama model, or None.
+
+    Queries each installed model's capabilities via the Ollama API. Preference
+    order: qwen3.5:4b → gemma4:12b → gemma4:e4b → gemma4:26b → first vision
+    model found by size (smallest first).
+    """
+    try:
+        client = ollama.Client(host=cfg.host)
+        resp = client.list()
+        installed = {m.model: m for m in resp.models if m.model}
+    except Exception:
+        log.warning("could not list Ollama models for vision selection", exc_info=True)
+        return None
+
+    # Check preferred models first
+    for name in _VISION_PREF:
+        if name not in installed:
+            continue
+        try:
+            info = client.show(name)
+            if "vision" in (getattr(info, "capabilities", None) or []):
+                return name
+        except Exception:
+            pass
+
+    # Fall back: any vision-capable model, smallest first
+    candidates: list[tuple[int, str]] = []
+    for name, m in installed.items():
+        if name in _VISION_PREF:
+            continue  # already checked
+        try:
+            info = client.show(name)
+            if "vision" in (getattr(info, "capabilities", None) or []):
+                candidates.append((int(m.size or 0), name))
+        except Exception:
+            pass
+    if candidates:
+        return min(candidates)[1]
+    return None
+
+
 def installed_model_names(cfg: OllamaConfig) -> list[str]:
     """Names of the models installed in Ollama (empty list if unreachable)."""
     try:
@@ -86,6 +132,17 @@ def list_models(cfg: OllamaConfig) -> dict:
         out["error"] = f"Couldn't reach Ollama at {cfg.host}: {e}"
         return out
 
+    # Fetch capabilities for all models in one pass (one show() call per model).
+    capabilities: dict[str, list[str]] = {}
+    for m in resp.models:
+        if not m.model:
+            continue
+        try:
+            info = ollama.Client(host=cfg.host).show(m.model)
+            capabilities[m.model] = list(getattr(info, "capabilities", None) or [])
+        except Exception:
+            capabilities[m.model] = []
+
     best: tuple[int, str] | None = None   # (size_bytes, name) of best good fit
     for m in resp.models:
         name = m.model or ""
@@ -94,6 +151,7 @@ def list_models(cfg: OllamaConfig) -> dict:
         size = int(m.size or 0)
         details = m.details
         fit = _fit(size, total_ram)
+        caps = capabilities.get(name, [])
         out["models"].append({
             "name": name,
             "size_gb": round(size / _GIB, 1),
@@ -101,6 +159,7 @@ def list_models(cfg: OllamaConfig) -> dict:
             "quant": (details.quantization_level if details else None) or None,
             "fit": fit,
             "chat": _is_chat_model(name),
+            "vision": "vision" in caps,
         })
         # Recommend the largest comfortably-fitting chat model: best summary
         # quality without crowding CSM + the rest of the system.

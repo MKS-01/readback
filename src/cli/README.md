@@ -10,8 +10,8 @@ macOS only. *Built with [Claude Code](https://claude.com/claude-code).*
 </p>
 
 The look: a two-tone block wordmark (`READ` white / `BACK` blue), a
-dark Ghost palette plus an Xcode-blue accent, and three screens — URL input,
-progress, player — switched in place.
+dark Ghost palette plus an Xcode-blue accent, and four screens — URL input,
+progress, player, library — switched in place.
 
 ## Prerequisites
 
@@ -68,8 +68,9 @@ esc cancels a running read.
 | `/voice [id]` | Show / set the voice (persisted) |
 | `/model [name]` | List local Ollama models / set the summary LLM (persisted) |
 | `/mode [full\|summary]` | Show / set the read mode (persisted) |
+| `/library` (or `/lib`) | Browse past reads — arrow keys, Enter to replay, `d` to delete |
 | `/help` | List commands |
-| `/quit` | Exit |
+| `/quit` | Exit (or press `q` when the input field is empty) |
 
 `/model` shows every model installed in Ollama with its size and a RAM-fit
 verdict for this Mac (green fits · yellow tight · red too big), recommends the
@@ -81,6 +82,21 @@ Summary mode only and switches on the next read — no server restart.
 </p>
 
 Prefs (voice/mode/model) persist to `~/.readback/cli.json`.
+
+### Library
+
+`/library` (or `/lib`) opens a paginated list of past reads — newest first.
+
+| Key | What |
+|---|---|
+| `↑` / `↓` | Move cursor |
+| `Enter` | Replay the selected read (drops into the player) |
+| `d` twice | Delete (first press shows a confirmation prompt) |
+| `n` | Load the next page (20 more) |
+| `esc` | Back to URL input |
+
+Playback uses the same `resolveWav` path as a fresh read — local file if on the
+same machine, download into `~/.readback/cli-cache/` otherwise.
 
 ### Player
 

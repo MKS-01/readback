@@ -6,6 +6,207 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-17 — Source-aware tones (article vs book)
+
+**Status: done** — branch `feat/cli-cache`. Auto-pick a reading *tone* from the source type: a URL reads as a blog/article, an image/folder reads as a book. A tone bundles a summary framing **and** a TTS delivery temperature. Fully automatic — no new commands or config. Shipped as planned: new `pipeline/tones.py` (`ARTICLE` 0.8 / `BOOK` 0.6 + `tone_for`), `classify_source` + `_book_title_from_text` in `extract.py`, `system` param threaded through `summarize_article`/`_map_reduce`, `set_temperature` on `Synthesizer`+`CsmEngine`, server computes `tone_for(classify_source(url))` and wires the prompt + temperature. 49 tests green (`test_tones.py` covers classify + mapping); fake-LLM smoke confirms book sources get the book framing + 0.6.
+
+### Context
+
+Everything currently reads with one summary prompt + one TTS temperature. But a blog and a scanned book want different treatment: a book passage should open by naming its chapter/topic and be narrated in a measured voice; an article wants a livelier explainer. The source already tells us which: URLs are articles, scanned images are (mostly) books.
+
+### Design
+
+1. **`pipeline/tones.py`** (new): a frozen `Tone` dataclass `{name, summary_system, temperature}` and two instances:
+   - `ARTICLE` — the existing spoken-explainer prompt, `temperature 0.8` (livelier).
+   - `BOOK` — a new "narrate this book passage; open by naming the chapter or topic, then explain faithfully" prompt, `temperature 0.6` (measured/composed).
+   `tone_for(kind: str) -> Tone` maps `"book"` → BOOK, else ARTICLE. (Room for a 3rd tone — e.g. `PAPER` — later.)
+2. **`extract.py`**: `classify_source(source) -> "book" | "article"` (image suffix or folder/glob → book; else article). For book sources, derive the title from the **first ~3 OCR lines** via a focused `oneshot` (`_book_title_from_text` — "identify the chapter or topic, max 8 words"), replacing the generic `_title_from_text`. The detected chapter/topic flows into the summary as the article title, so the BOOK prompt leads with it.
+3. **`summarize.py`**: `summarize_article(..., system: str | None = None)` — defaults to the ARTICLE prompt for back-compat; threads `system` into `_summarize_once` and the map-reduce **reduce** step. The map-step condensation prompt (`_MAP_SYSTEM`) stays tone-agnostic. (The existing `_SUMMARY_SYSTEM` moves to `tones.py` as `ARTICLE.summary_system`.)
+4. **`synthesizer.py` / `csm_engine.py`**: `Synthesizer.set_temperature(temp)` → engine sets `self.cfg.temperature` (read fresh by `_make_sampler` on the next synth). Plain attribute set; reads are serialized so it's safe.
+5. **`server.py`**: compute `kind = classify_source(url)` once; `tone = tone_for(kind)`. Pass `tone.summary_system` to `summarize_article`; call `synth.set_temperature(tone.temperature)` before synth. The user's `/voice` choice is untouched — tone varies delivery (temperature), not which voice.
+
+### Files
+
+- `src/readback/pipeline/tones.py` (new): `Tone`, `ARTICLE`, `BOOK`, `tone_for`
+- `src/readback/pipeline/extract.py` (modified): `classify_source`, `_book_title_from_text`, book sources use it
+- `src/readback/pipeline/summarize.py` (modified): `system` param; `_SUMMARY_SYSTEM` → `tones.ARTICLE.summary_system`
+- `src/readback/tts/synthesizer.py` + `tts/csm_engine.py` (modified): `set_temperature`
+- `src/readback/server/server.py` (modified): classify → tone → wire summary prompt + temperature
+- `tests/test_tones.py` (new): `classify_source` + `tone_for` mapping (pure logic)
+
+### Out of scope
+
+- `/tone` manual override + persisted pref (auto-only for now, per decision)
+- A 3rd tone (paper/news) — structure leaves room; not built yet
+- Per-tone voice swap (delivery varies by temperature only; user's voice stays)
+- CLI/protocol surfacing of the active tone (no `done`-payload change)
+- Configurable tone temps/prompts in `config.yaml`
+
+### Verification
+
+1. Paste a URL, summary mode → article prompt + temp 0.8; reads as a lively explainer
+2. Paste a book-page image, summary mode → title is the chapter/topic from the first lines; summary opens by naming it; temp 0.6 (measured)
+3. Folder of pages, summary mode → same book tone over the stitched document
+4. Full mode (URL or book) → temperature still set by tone; text unchanged (verbatim)
+5. `/voice` still controls the voice in both tones (tone only shifts temperature)
+6. `pytest tests/test_tones.py` → `classify_source` + `tone_for` map correctly
+
+---
+
+## 2026-06-17 — Map-reduce summarization (long docs / book scans)
+
+**Status: done** — branch `feat/cli-cache`. Summary mode no longer truncates long inputs at `summary_max_chars`; it map-reduces them so a whole book scan summarizes end-to-end.
+
+### Context
+
+Multi-page (book scan) shipped as one continuous document, but Summary mode still fed it through a single `oneshot` truncated to `summary_max_chars` (16000 ≈ 10-12 pages) — the tail was silently dropped. A 30-page scan lost two-thirds of its content. Fix: when the body exceeds `max_chars`, split → summarize each batch (map) → combine the digests into the final spoken explanation (reduce), recursing if the combined digests are themselves still too long.
+
+### Design
+
+1. **`_batches(text, max_chars)`** in `summarize.py`: greedily packs paragraphs (split on `\n{2,}`) into ≤`max_chars` batches; an over-long paragraph falls back to sentence split (`(?<=[.!?])\s+`); an over-long single sentence is hard-cut. Pure logic — unit tested.
+2. **`_summarize_once(llm, title, body)`**: the existing single-`oneshot` spoken-explanation path, factored out. Used for short articles AND the final reduce.
+3. **`_MAP_SYSTEM`** prompt: faithful prose condensation of one section (no meta framing, no invented facts) — intermediate digests, not the final voice.
+4. **`summarize_article`**: if `len(body) <= max_chars` → `_summarize_once` (unchanged fast path). Else map-reduce: map each batch with `_MAP_SYSTEM`, join digests, reduce with `_SUMMARY_SYSTEM` via `_summarize_once`; if joined digests still exceed `max_chars`, recurse (depth-limited to 3).
+5. **Progress**: optional `progress(done, total)` callback fired during the map phase; the server reports `summarizing section N / M` over the existing `phase` WS channel (mirrors multi-page OCR progress). No protocol change.
+
+### Files
+
+- `src/readback/pipeline/summarize.py` (modified): `_batches`, `_summarize_once`, `_MAP_SYSTEM`, map-reduce `summarize_article` with optional progress
+- `src/readback/server/server.py` (modified): pass a `summarizing section N / M` progress callback into `summarize_article`
+- `tests/test_summarize_batches.py` (new): `_batches` packing / fallback / hard-cut coverage
+
+### Out of scope
+
+- Parallelizing the map calls (sequential for now — Ollama single-stream simplicity)
+- Configurable batch size (reuses `summary_max_chars`)
+- Map-reduce for Full mode (Full has no LLM step — reads verbatim)
+
+### Verification
+
+1. Short article (< 16k chars), summary mode → exactly one LLM call, identical output to before (fast path)
+2. 30-page book scan, summary mode → phases show `summarizing section 1 / N …`, final audio is a cohesive summary covering the whole book (not just the first ~12 pages)
+3. `pytest tests/test_summarize_batches.py` → packing respects `max_chars`, splits on paragraph then sentence, hard-cuts a giant sentence
+4. Full mode on the same scan → unaffected (reads everything verbatim, no LLM)
+
+---
+
+## 2026-06-17 — Multi-page image input (folder / glob)
+
+**Status: done** — branch `feat/cli-cache`. Folder or glob → sorted pages → OCR each → **one continuous document** → normal full/summary pipeline.
+
+> **Shipped differently from the original chapter design below.** The "each image = a chapter, summarize per chapter, spoken Chapter-N headers" model was wrong for the actual use case (reading **book scans**): a photo is a *page*, not a chapter, so per-page summaries shred the narrative and the headers are meaningless. Final design: OCR pages in natural order, stitch into **one continuous document** (single space at each page seam so sentences flow across page breaks), and feed it through the **same** summarize/full step as a URL article — no per-page LLM calls, no synthetic headers. The vision model is resolved **once** per batch (not per image — `pick_vision_model` does a `client.show()` per installed model, which was the multi-page slowdown). `fetch_multi_page(source, ollama_cfg, progress_cb)` no longer takes `mode`/`llm`; the server runs step 2 uniformly. `_num_to_word` was removed (no chapter headers). Long scans truncate at `summary_max_chars` — map-reduce summarization for whole books is a follow-up. Progress phase text is `reading page N / M`.
+
+### Context
+
+Single-image OCR shipped. Natural next step: scanned books, multi-page documents, screenshot sequences. A folder of PNGs or a glob (`page*.png`) should be treated as an ordered sequence of chapters, with the existing pipeline (TTS → WAV) consuming the assembled text unchanged.
+
+### Design
+
+1. **`_is_multi_page(source)`** in `extract.py`: returns True if source ends with `/`, is an existing directory, or contains `*`/`?` glob metacharacters.
+
+2. **`_collect_images(source)`**: resolves the source to a sorted list of image paths. Directory → `glob("*")` filtered to `_IMAGE_EXTS`. Glob string → `glob.glob(source, recursive=False)` filtered to `_IMAGE_EXTS`. Both sorted with `_natural_sort_key` (splits on digit runs: `page1 < page2 < page10`). Raises `ExtractError` if no images found.
+
+3. **`fetch_multi_page(source, mode, ollama_cfg, llm=None)`** in `extract.py`: new function. Calls `_collect_images`, OCRs each via `_ocr_via_ollama`, then:
+   - **full mode**: joins chapters as `"Chapter 1\n\n{text}\n\nChapter 2\n\n{text}…"` → single Article. Title from `_title_from_text` on the first chapter's text (fast, representative).
+   - **summary mode**: calls `llm.oneshot` per chapter with the existing `_SUMMARY_SYSTEM` prompt (imported from `summarize.py`), prefixes each summary with `"Chapter one. / Chapter two. …"` (word form for natural TTS), stitches summaries → single Article. Overall title from `_title_from_text` on the stitched summaries.
+   - Progress is signalled via a `progress_cb(page_index, total)` optional callback so the server can send WS phase messages.
+
+4. **`server.py`** step 1 branch: import `_is_multi_page`, `fetch_multi_page`. If source is multi-page: send phase `"fetching page 1 / N"` updates via the `progress_cb`, call `fetch_multi_page(url, mode, cfg.ollama, llm)`, then **skip step 2** (summarization already done inside). If single source: existing path unchanged.
+
+5. **`app.tsx` CLI validation**: extend the local-path carve-out to also allow:
+   - Paths with a `/` after position 0 (multi-segment = never a slash command)
+   - Strings containing `*` or `?` (glob)
+   Both bypass the slash-command guard and URL check.
+
+6. **Number-to-word helper** `_num_to_word(n)` for chapter headers in summary mode — covers 1–20 with a numeric fallback (`"chapter 21"`). Keeps TTS from reading "Chapter 1" as "Chapter one" inconsistently.
+
+### Files
+
+- `src/readback/pipeline/extract.py` (modified): `_is_multi_page`, `_collect_images`, `_natural_sort_key`, `_num_to_word`, `fetch_multi_page`
+- `src/readback/server/server.py` (modified): multi-page branch before step 1, per-page phase messages, skip summarization for multi-page
+- `src/cli/src/app.tsx` (modified): extend local-path detection for directories and globs
+
+### Out of scope
+
+- Recursive directory scanning (one level only)
+- PDF input (separate feature)
+- Per-chapter WAV files or chapter seek points
+- Dashboard UI for multi-page reads (shows as one entry like any read)
+- Config for images-per-chapter grouping (always 1 image = 1 chapter)
+
+### Verification
+
+1. `~/Desktop/scan/` (folder with 3 PNGs, full mode) → phases show "fetching page 1 / 3" … → audio reads all three chapters verbatim in order
+2. Same folder, summary mode → audio reads "Chapter one. [summary]. Chapter two. [summary]. Chapter three. [summary]."
+3. Glob `~/Desktop/page*.png` (full mode) → natural-sorted, same result as folder
+4. Folder with mixed files (`.png` + `.DS_Store` + `.txt`) → only images processed, others silently skipped
+5. Empty folder → `ExtractError` "no images found"
+6. Single image path still works unchanged
+7. URL still works unchanged
+
+---
+
+## 2026-06-17 — Image OCR via Ollama vision
+
+**Status: done** — branch `feat/image-ocr`. Drop an image path into the CLI input → Ollama vision model extracts the text → reads it aloud. No new model pulls needed (`qwen3.5:4b`, `gemma4:12b`, `gemma4:e4b`, `gemma4:26b` all have vision already).
+
+### Context
+
+Users want to read text from screenshots, photos, or scanned pages. All Gemma 4 and Qwen 3.5 models already installed have the `vision` capability in Ollama. The existing Ollama integration (`llm/client.py`) is one `images=` kwarg away from vision support. The full pipeline (chunk → TTS → play) is unchanged — OCR just replaces the URL fetch step.
+
+### Design
+
+1. **`llm/models.py` — `pick_vision_model(cfg)`**: calls `ollama.Client.show(name)` for each installed model to check `capabilities`, returns the name of the smallest good-fit vision model. Preference order: `qwen3.5:4b` → `gemma4:12b` → `gemma4:e4b` → `gemma4:26b` → first vision model found → `None`.
+
+2. **`pipeline/extract.py` — image branch**: add `_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".tiff", ".bmp"}`, `_is_image_path(s)`, and `_ocr_via_ollama(path, ollama_cfg)` (base64-encodes the file, sends to the vision model with prompt "Extract all text from this image verbatim. Output only the text."). `fetch_article` gains an optional `ollama_cfg: OllamaConfig | None = None` param; if source has an image extension it routes to `_ocr_via_ollama` and uses the filename stem as the title. URL path is unchanged.
+
+3. **`server/server.py`**: pass `cfg.ollama` as `ollama_cfg` kwarg to `fetch_article`. Update "Please enter a URL." error → "Please enter a URL or image path.". Phase label stays `"fetching"` (covers both cases fine).
+
+4. **`src/cli/src/app.tsx` — `handleSubmit`**: before the slash-command guard, check if value ends with an image extension (`/\.(png|jpg|jpeg|heic|webp|tiff|tif|bmp)$/i`) — if so, skip the command check and validate it as a file source. Update the URL-only error message to mention image paths. Tilde paths (`~/…`) bypass the slash guard already.
+
+### Files
+
+- `src/readback/llm/models.py` (modified): add `pick_vision_model(cfg) -> str | None`
+- `src/readback/pipeline/extract.py` (modified): add image detection + `_ocr_via_ollama`, optional `ollama_cfg` param on `fetch_article`
+- `src/readback/server/server.py` (modified): pass `ollama_cfg` to `fetch_article`, update error text
+- `src/cli/src/app.tsx` (modified): handle image paths before slash-command guard, update error message
+
+### Out of scope
+
+- PDF / text file extraction (separate feature)
+- Drag-and-drop (terminal limitation)
+- Progress during OCR (single Ollama call, not chunked)
+- Dashboard image preview
+- Config knob for the OCR model (always auto-picks best available vision model)
+
+### Verification
+
+1. Drop `~/Desktop/screenshot.png` into the CLI → phases show `fetching` → `synthesizing` → audio plays with the extracted text
+2. Drop an absolute path `/Users/mks/…/image.jpg` → same result
+3. Drop a URL → original URL path unaffected
+4. No vision model available (hypothetical) → clear `ExtractError` "no vision-capable model found in Ollama"
+5. Unsupported extension `.gif` → falls through to URL path → "doesn't look like a URL or image path"
+
+---
+
+## 2026-06-17 — CLI library screen
+
+**Status: done** — branch `feat/cli-cache`. CLI-only; no Python/server/protocol changes.
+
+### What shipped
+
+`/library` (alias `/lib`) opens a new `library` screen in the terminal: paginated list of past reads (newest first, 20 per page), arrow-key cursor, `▸` indicator, truncated titles with mode/duration/date columns. Enter constructs a `DoneMsg` from the library item and calls `resolveWav` + `player.play` — drops straight into the existing `PlayerView`. `d` twice to delete (first press shows an inline confirmation; second calls `DELETE /api/library/{id}` and removes the row from local state). `n` loads the next page. `esc` returns to input.
+
+`q` on the URL input screen (when the field is empty) now triggers quit. Intercepted in `UrlInput.onChange` before the controlled `TextInput` value updates. Quit path: `dispatch("quitting")` → new `quitting` screen renders a braille spinner (`⠋…⠏`) for 300 ms → `shutdown()` + `exit()`.
+
+New files: `src/cli/src/components/LibraryView.tsx`. Modified: `src/cli/src/app.tsx`, `src/cli/src/components/UrlInput.tsx`. Version bumped to v3.4.0.
+
+### Verified
+
+TypeScript (`bun tsc --noEmit`) clean. Functional verification: `/library` opens list, Enter replays, `d d` deletes, `esc` returns, `q` shows quitting spinner and exits.
+
+---
+
 ## 2026-06-15 — Landing-page sync: "run it on your network"
 
 **Status: done** — branch `deployment`. Surface the shipped Pi / home-network deployment on the marketing site without breaking its hook-and-redirect shape.

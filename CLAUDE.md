@@ -29,7 +29,11 @@ gotchas, and exact knobs.
 ## Stack
 
 - **Extraction**: `trafilatura` (URL → clean article text) + a browser-UA urllib
-  fallback for sites that 403 the default agent.
+  fallback for sites that 403 the default agent. Local images (`.png/.jpg/.heic/…`)
+  → Ollama vision OCR (`pick_vision_model` auto-selects). Folder or glob → multi-page
+  mode: pages OCR'd in natural-filename order and stitched into one continuous
+  Article (a scanned page is a page, not a chapter — no synthetic headers), then
+  summarized/read like any article.
 - **LLM**: Ollama, default **`gemma4:26b`** (`think=False` + `<think>`
   stripping). Used **only by Summary mode** (`LLMClient.oneshot`).
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
@@ -110,13 +114,13 @@ readback/
     │                          # NOT a web client; media/ gitignored (preview of docs/media).
     │                          # Deployed by pages.yml; refresh via the landing-page skill.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
-    │   ├── package.json       # readback-cli 3.2.0; ink + ink-text-input
+    │   ├── package.json       # readback-cli (version-synced); ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
     │   └── src/               # index.tsx (boot + resize repaint), app.tsx (screen
     │                          # switch), theme.ts (Ghost + BLUE accent),
     │                          # server.ts (spawn), ws.ts, player.ts (afplay + seek),
     │                          # prefs.ts, components/{Header,UrlInput,StatusLine,
-    │                          # BusyView,PlayerView,ModelList}.tsx
+    │                          # BusyView,PlayerView,ModelList,LibraryView}.tsx
     └── readback/              # python package (src layout; wheel packages src/readback)
         ├── __main__.py        # `readback` CLI: argparse --host/--port/--model/--config, uvicorn boot
         ├── config.py          # Pydantic config: OllamaConfig / CsmTTSConfig (+ CsmVoicePrompt)
@@ -127,8 +131,12 @@ readback/
         │   ├── client.py      # LLMClient.oneshot() for summary + the <think> stripper
         │   └── models.py      # Ollama model listing + RAM-fit verdict (GET /api/models)
         ├── pipeline/
-        │   ├── extract.py     # fetch_article: trafilatura + UA fallback; TTS-prep scrub
-        │   ├── summarize.py   # summarize_article: LLM oneshot → spoken explanation
+        │   ├── extract.py     # fetch_article (URL/image) + fetch_multi_page (folder/glob);
+        │   │                  # trafilatura + UA fallback; Ollama vision OCR; TTS-prep scrub
+        │   ├── tones.py       # reading tones: Tone(summary_system, temperature);
+        │   │                  # ARTICLE (URL) / BOOK (image) + tone_for(kind)
+        │   ├── summarize.py   # summarize_article: LLM oneshot/map-reduce → spoken
+        │   │                  # explanation; tone `system` prompt selectable
         │   └── speak.py       # chunk_text + synthesize_article + _tidy_silence + _peak_normalize + write_wav
         ├── tts/
         │   ├── csm_engine.py  # CsmEngine (csm-mlx); single-thread MLX executor; _ref_for
@@ -175,10 +183,36 @@ readback/
 
 - **Extract** (`extract.py`): trafilatura first, browser-UA urllib fallback on
   empty/403. `_clean_for_tts` strips `https?://…`, `[12]` citation markers, and
-  collapses whitespace. Missing title → slug from the URL tail.
-- **Summarize** (`summarize.py`): `oneshot` with a spoken-explanation system
-  prompt; truncates body to `reader.summary_max_chars` (default 16000). Returns
-  the article text unchanged if the LLM produced nothing.
+  collapses whitespace. Missing title → slug from the URL tail. Local images →
+  `_ocr_via_ollama` (sips converts HEIC/TIFF/BMP/WebP → JPEG; base64 → Ollama vision;
+  `pick_vision_model` auto-selects). **Multi-page** (`_is_multi_page` → folder or
+  glob): `_collect_images` natural-sorts by filename, `fetch_multi_page` OCRs each
+  page (resolving the vision model **once** up front, not per image — `client.show()`
+  is per-model and per-image selection multiplied that cost by page count) and joins
+  the pages with a single space at each seam (a book sentence runs across page
+  breaks; within-page paragraphs survive). Returns one continuous Article — the
+  server then summarizes/reads it through the **same** step 2 as a URL article (no
+  special-casing; long scans are map-reduced by `summarize_article`, not truncated).
+  Progress fires `reading page N / M` via the existing `phase` WS channel.
+- **Tones** (`tones.py`): a `Tone` bundles a summary framing prompt + a CSM
+  delivery `temperature`. `classify_source(src)` → `"book"` (image / folder / glob)
+  or `"article"` (URL); `tone_for(kind)` → `BOOK` (measured, **0.6**, opens by
+  naming the chapter/topic) or `ARTICLE` (livelier explainer, **0.8**). Auto,
+  server-side, invisible to the CLI — **no `/tone` override or config yet** (room
+  for a 3rd tone). ⚠ Tone shifts *delivery temperature*, NOT the voice — the user's
+  `/voice` is untouched. Book sources also take their **title from the first ~3 OCR
+  lines** (`_book_title_from_text`), which the BOOK prompt then leads with.
+- **Summarize** (`summarize.py`): short body (≤ `reader.summary_max_chars`, default
+  16000) → one `oneshot` with the spoken-explanation prompt (`_summarize_once`).
+  The framing prompt is the tone's `system` (passed by the server; defaults to the
+  article tone).
+  Longer input (book scans) → **map-reduce** (`_map_reduce`): `_batches` packs the
+  text into ≤`max_chars` batches (paragraph → sentence → hard-cut), each condensed
+  with `_MAP_SYSTEM`, the digests joined and reduced via `_summarize_once`;
+  recurses (depth ≤ 3) if the joined digests still overflow. ⚠ This **replaced** the
+  old hard truncation that silently dropped everything past ~10-12 pages. Optional
+  `progress(done, total)` fires per batch in the map phase (server → `summarizing
+  section N / M`). Returns the article text unchanged if the LLM produced nothing.
 - **Chunk + synth** (`speak.py`):
   - `chunk_text` — paragraph-respecting, sentence-aware merge up to `_MAX_CHARS`
     (280); over-long single sentences split on commas; sub-`_MIN_CHARS` (8)
@@ -220,7 +254,10 @@ readback/
   used by both the engine's `supported_voices` and the server's picker.
   `swap_voice` validates against `voices_for`. `temperature` tunes **delivery**
   (lower = composed/measured, higher = livelier); **below ~0.55 with a short
-  (<5 s) reference the clone destabilizes** (rambles/repeats).
+  (<5 s) reference the clone destabilizes** (rambles/repeats). `set_temperature`
+  (engine + Synthesizer) sets it per-read — `_make_sampler` reads `cfg.temperature`
+  fresh each synth, so it takes effect on the next call with no reload (the server
+  uses it to apply the reading tone; see Tones).
 - **`synthesize_stream`** exists (csm-mlx `stream_generate`) but the reader uses
   batch `synthesize` (offline — no streaming benefit).
 
@@ -294,10 +331,20 @@ readback/
   handlers where ink's unmount doesn't run. A SIGKILL of the CLI itself orphans
   the spawned server.
 - **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
-  (`input` | `busy` | `player`), so key handlers only land on the active screen.
-  Slash commands: `/voice`, `/mode`, `/model` (lists local Ollama models via
-  `GET /api/models` with a RAM-fit verdict + summary recommendation, switches
-  the summary LLM per-read), `/help`, `/quit`; esc cancels a read.
+  (`input` | `busy` | `player` | `library` | `quitting`), so key handlers only
+  land on the active screen. Slash commands: `/voice`, `/mode`, `/model` (lists
+  local Ollama models via `GET /api/models` with a RAM-fit verdict + summary
+  recommendation, switches the summary LLM per-read), `/library` (alias `/lib` —
+  `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, Enter to
+  replay, `d` twice to delete), `/help`, `/quit`; esc cancels a read.
+  `q` when the URL input field is empty triggers quit — intercepted in
+  `UrlInput.onChange` before the controlled value updates. Quit path:
+  `dispatch("quitting")` → braille spinner renders for 300 ms → `shutdown()` +
+  `exit()` (the delay lets Ink paint one frame before tearing down).
+  **Input guard** (`handleSubmit`): slash commands are single-segment
+  (`/voice`, `/model`, etc. — no second `/`, no glob chars). Multi-segment
+  absolute paths (`/Users/…`), globs (`*`/`?`), and tilde paths (`~/…`) all
+  bypass the command check and route to the server as local sources.
 - **Playback = `afplay`** (macOS-only): pause/resume via **SIGSTOP/SIGCONT**;
   always SIGCONT before SIGTERM (a SIGSTOPped process can't handle SIGTERM).
   Caveats: pause flushes ~0.5 s of buffer, elapsed time is wall-clock-tracked.
@@ -431,15 +478,28 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.3.0** — voice tuning + audio/CLI fixes (**minor** — additive
-behavior + a default-config change; no protocol/API change). New `codeword`
-clone voice replaces `kay` (CSM-bootstrapped reference — no source audio kept;
-default `temperature` 0.7). Loudness normalization: `_peak_normalize` scales every
-read to 0.95 so clone voices no longer read ~18 dB quieter than the built-ins.
-Instant CLI quit: `stopServer` SIGKILLs the spawned server outright (the old
-SIGTERM-then-busy-wait stalled every quit ~1.5 s — the synchronous busy-wait
-blocked the loop Bun needs to reap the child). Landing page + README demo
-regenerated with the codeword voice. WS protocol + CLI protocol unchanged.
+Current: **v3.5.0** — image OCR, book scans, tones (**minor** — additive; no
+protocol/config/dependency break). New input sources beyond URLs: drop an **image**
+path → Ollama vision OCR (`_ocr_via_ollama`, auto-`pick_vision_model`; `think=False` +
+`num_predict` cap so Qwen3 vision can't loop into a hang); a **folder or glob** of
+page photos → `fetch_multi_page` OCRs in natural order and stitches one continuous
+document (book scan). **Map-reduce summarization** (`summarize.py`: `_batches` →
+condense → combine) so long scans summarize end-to-end instead of truncating.
+**Source-aware tones** (`pipeline/tones.py`): URL → article (livelier, temp 0.8),
+image/folder → book (measured, temp 0.6, opens by naming the chapter/topic from the
+first lines); auto by source, `set_temperature` per read, user's `/voice` untouched.
+WS protocol + CLI protocol unchanged (phase is a free-form string; CLI input guard
+extended for paths/globs). New: `pipeline/tones.py`, `tests/test_{summarize_batches,
+tones}.py`.
+
+Previously: **v3.4.0** — CLI library screen (**minor** — CLI-only). `/library`
+(alias `/lib`) opens a paginated past-reads list in the terminal: arrow-key nav,
+Enter to replay, `d` twice to delete, `n` to load more. `q` on the input screen
+quits via a 300 ms braille-spinner screen. New component: `LibraryView.tsx`.
+
+Previously: **v3.3.0** — voice tuning + audio/CLI fixes (**minor**). New `codeword`
+clone voice; loudness normalization (`_peak_normalize` → 0.95); instant CLI quit
+(SIGKILL replaces SIGTERM-then-busy-wait). WS protocol + CLI protocol unchanged.
 
 Previously: **v3.2.0** — Pi deployment (**minor** — additive deployment tooling; no
 protocol/API/config change). Split deploy: the Mac stays the generation host

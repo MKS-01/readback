@@ -51,6 +51,12 @@ class Synthesizer:
     def swap_voice(self, voice: str) -> str:
         return self._engine.swap_voice(voice)
 
+    def set_temperature(self, temp: float) -> None:
+        """Set the CSM delivery temperature for subsequent synth calls (reading
+        tone). Read fresh by the sampler each synth; reads are serialized so a
+        plain set is safe."""
+        self._engine.set_temperature(temp)
+
     def synthesize(self, text: str) -> np.ndarray:
         return self._engine.synthesize(text)
 

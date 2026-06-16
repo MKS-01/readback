@@ -33,11 +33,11 @@ export function Header({ intro }: Props) {
       {intro && (
         <Box flexDirection="column" marginTop={1}>
           <Text color={DIM}>
-            turn any article into spoken audio — all on-device.
+            turn any article or image into spoken audio — all on-device.
           </Text>
           <Box marginTop={1}>
             <Text color={DIM}>
-              paste a URL · <Text color={BLUE}>/voice</Text> ·{" "}
+              paste a URL, 🖼️ image, or folder/glob · <Text color={BLUE}>/voice</Text> ·{" "}
               <Text color={BLUE}>/model</Text> · <Text color={BLUE}>/mode</Text> ·{" "}
               <Text color={BLUE}>/help</Text>
             </Text>

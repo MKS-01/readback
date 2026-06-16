@@ -44,6 +44,7 @@ intentionally lower priority.
 - [ ] Faster synthesis — tune the controllable knobs (precision, chunking, warm-up); ultimately bounded by your Mac's GPU / unified memory
 - [ ] Cache by (url, mode, voice) so re-reading is instant
 - [ ] Trim startup / model warm-up and surface clearer progress (% + ETA, not just per-chunk)
+- [ ] Parallelize multi-page OCR + the map-phase summary calls across a small Ollama-concurrent pool — both are sequential today; the win scales with page count (try after book-scan testing)
 
 ## 🍓 Pi — shipped
 
@@ -55,6 +56,10 @@ intentionally lower priority.
 
 ## 📄 More input sources
 
+- [x] **Image OCR** — drop an image path; an Ollama vision model extracts the text and reads it aloud (`_ocr_via_ollama`)
+- [x] **Multi-page / book scans** — a folder or glob of page images is OCR'd in filename order and stitched into one continuous document (`fetch_multi_page`)
+- [x] **Source-aware tones** — a URL reads as a livelier article; an image/folder reads as a measured book that opens by naming its chapter/topic (`pipeline/tones.py`, auto by source)
+- [ ] `/tone` override + persisted pref, and a 3rd tone (technical paper / news) — auto-only with two tones today
 - [ ] Read **local documents**, not just URLs — `.txt` and `.pdf` → voice
 - [ ] Paste raw text directly as a source
 
@@ -62,5 +67,5 @@ intentionally lower priority.
 
 - [x] Automation + testing — `pytest` suite (pure logic: chunking, silence-tidy, text scrub, library, think-stripper) + GitHub Actions CI on Python 3.10–3.12
 - [ ] Broaden coverage — server/WS integration tests, an end-to-end synth smoke test on a macOS runner
-- [ ] Chunked summarization for very long articles (Summary mode truncates to `summary_max_chars`)
+- [x] Chunked summarization for very long articles — map-reduce in `summarize.py` (batches → condense → combine), so book scans summarize end-to-end instead of truncating at `summary_max_chars`
 - [ ] UX niceties (lower priority): extracted-article preview before synth, download filename = article title, nicer error states for paywalled / JS-only pages
