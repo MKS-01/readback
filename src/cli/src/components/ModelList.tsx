@@ -20,10 +20,10 @@ export interface ModelsResp {
   error?: string;
 }
 
-const FIT: Record<ModelInfo["fit"], { text: string; color: string }> = {
+const FIT_LABEL: Record<ModelInfo["fit"], { text: string; color: string }> = {
   good: { text: "fits", color: GREEN },
-  tight: { text: "tight fit — will squeeze other apps", color: YELLOW },
-  no: { text: "too big — would swap/thrash", color: RED },
+  tight: { text: "tight", color: YELLOW },
+  no: { text: "too big", color: RED },
 };
 
 interface Props {
@@ -32,35 +32,53 @@ interface Props {
 }
 
 export function ModelList({ resp, active }: Props) {
-  const pad = Math.max(...resp.models.map((m) => m.name.length));
+  const namePad = Math.max(...resp.models.map((m) => m.name.length));
+  const paramPad = Math.max(...resp.models.map((m) => (m.params ?? "—").length));
+
   return (
     <Box flexDirection="column" paddingX={1} marginBottom={1}>
-      <Text color={DIM}>models on this mac ({resp.total_ram_gb} GB):</Text>
-      {resp.models.map((m) => {
-        const isActive = m.name === active;
-        const isRec = m.name === resp.recommended;
-        const fit = m.chat
-          ? FIT[m.fit]
-          : { text: "embedding model — not for summaries", color: DIM };
-        return (
-          <Box key={m.name}>
-            <Text color={isRec ? BLUE : FG}>
-              {isActive ? "★" : isRec ? "→" : " "}{" "}
-            </Text>
-            <Text color={isActive ? FG : DIM}>{m.name.padEnd(pad)}</Text>
-            <Text color={DIM}>
-              {"  "}
-              {String(m.size_gb).padStart(5)} GB · {m.params ?? "—"} ·{" "}
-            </Text>
-            <Text color={fit.color}>{fit.text}</Text>
-            {m.vision && <Text color={BLUE}> · 🖼️ OCR</Text>}
-            {isRec && <Text color={BLUE}> — recommended for summaries</Text>}
-          </Box>
-        );
-      })}
+      <Text color={DIM}>
+        models on this mac ({resp.total_ram_gb} GB):
+      </Text>
+      <Box marginTop={0} flexDirection="column">
+        {resp.models.map((m) => {
+          const isActive = m.name === active;
+          const isRec = m.name === resp.recommended;
+          const fit = m.chat
+            ? FIT_LABEL[m.fit]
+            : { text: "embed", color: DIM };
+
+          const marker = isActive ? "★" : isRec ? "→" : " ";
+          const tags: string[] = [];
+          if (m.vision) tags.push("vision");
+          if (isRec) tags.push("recommended");
+
+          return (
+            <Box key={m.name}>
+              <Text color={isActive ? BLUE : isRec ? BLUE : DIM}>
+                {marker}{" "}
+              </Text>
+              <Text color={isActive ? FG : DIM}>
+                {m.name.padEnd(namePad)}
+              </Text>
+              <Text color={DIM}>
+                {"  "}
+                {String(m.size_gb).padStart(5)} GB
+                {"  "}
+                {(m.params ?? "—").padEnd(paramPad)}
+                {"  "}
+              </Text>
+              <Text color={fit.color}>{fit.text.padEnd(7)}</Text>
+              {tags.length > 0 && (
+                <Text color={BLUE}> {tags.join(" · ")}</Text>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
       <Box marginTop={1}>
         <Text color={DIM}>
-          <Text color={BLUE}>/model {"<name>"}</Text> to switch · used by Summary mode only · <Text color={BLUE}>🖼️ OCR</Text> = supports image input
+          <Text color={BLUE}>/model {"<name>"}</Text> to switch · Summary mode only
         </Text>
       </Box>
     </Box>

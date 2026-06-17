@@ -1,23 +1,18 @@
 import React, { useMemo } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
+import { basename } from "node:path";
 import type { DoneMsg } from "../ws";
 import type { PlayerSnapshot } from "../player";
 import { BLUE, DIM, FG } from "../theme";
 
-const BAR_WIDTH = 32;
 const SEEK_STEP_SEC = 5;
+const TRANSCRIPT_MAX_LINES = 12;
 
 function fmt(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/**
- * Karaoke transcript. No word timestamps come back from the server, so timing
- * is estimated: each word gets a share of the total duration proportional to
- * its character count. Wrapping is done here (not by ink) because ink's
- * wrap="wrap" drops ANSI color state when a style change crosses a line break.
- */
 function Transcript({
   text,
   elapsed,
@@ -61,22 +56,43 @@ function Transcript({
   let spoken = 0;
   while (spoken < cumWeights.length && cumWeights[spoken] <= target) spoken++;
 
-  let i = 0;
+  // Scroll window: keep the current spoken word visible with context
+  let startLine = 0;
+  if (lines.length > TRANSCRIPT_MAX_LINES) {
+    let wordIdx = 0;
+    for (let li = 0; li < lines.length; li++) {
+      wordIdx += lines[li].length;
+      if (wordIdx >= spoken) {
+        startLine = Math.max(0, li - Math.floor(TRANSCRIPT_MAX_LINES / 3));
+        break;
+      }
+    }
+    startLine = Math.min(startLine, lines.length - TRANSCRIPT_MAX_LINES);
+  }
+  const visibleLines = lines.slice(startLine, startLine + TRANSCRIPT_MAX_LINES);
+  const globalWordStart = lines.slice(0, startLine).reduce((s, l) => s + l.length, 0);
+
+  let i = globalWordStart;
   return (
     <Box flexDirection="column">
-      {lines.map((line, li) => {
+      {visibleLines.map((line, li) => {
         const start = i;
         i += line.length;
         const blueCount = Math.min(Math.max(spoken - start, 0), line.length);
         const blue = line.slice(0, blueCount).join(" ");
         const dim = line.slice(blueCount).join(" ");
         return (
-          <Text key={li}>
+          <Text key={startLine + li}>
             <Text color={BLUE}>{blue}</Text>
             <Text color={DIM}>{(blue && dim ? " " : "") + dim}</Text>
           </Text>
         );
       })}
+      {lines.length > TRANSCRIPT_MAX_LINES && (
+        <Text color={DIM}>
+          {"  "}⋯ {lines.length - TRANSCRIPT_MAX_LINES} more lines
+        </Text>
+      )}
     </Box>
   );
 }
@@ -102,6 +118,11 @@ export function PlayerView({
   onSeek,
   onBack,
 }: Props) {
+  const { stdout } = useStdout();
+  const timeWidth = 10; // "0:00 " + " 0:00"
+  const iconWidth = 3;
+  const barWidth = Math.max(16, Math.min((stdout?.columns ?? 80) - 8 - timeWidth - iconWidth, 56));
+
   useInput((input, key) => {
     if (input === " ") onTogglePause();
     else if (key.leftArrow) onSeek(-SEEK_STEP_SEC);
@@ -112,9 +133,10 @@ export function PlayerView({
 
   const total = result.duration_sec;
   const pos = Math.min(player.elapsed / Math.max(total, 0.01), 1);
-  const filled = Math.round(pos * BAR_WIDTH);
+  const filled = Math.round(pos * barWidth);
   const icon = player.state === "playing" ? "❚❚" : player.state === "finished" ? "↺ " : "▸ ";
   const modeLabel = result.mode === "summary" ? "Summary" : "Full article";
+  const wavName = basename(wavPath);
 
   return (
     <Box flexDirection="column" paddingX={1} marginY={1}>
@@ -130,13 +152,13 @@ export function PlayerView({
         <Text color={DIM}>{fmt(player.elapsed)} </Text>
         <Text>
           <Text color={BLUE}>{"━".repeat(filled)}</Text>
-          <Text color={DIM}>{"─".repeat(BAR_WIDTH - filled)}</Text>
+          <Text color={DIM}>{"─".repeat(Math.max(0, barWidth - filled))}</Text>
         </Text>
         <Text color={DIM}> {fmt(total)}</Text>
       </Box>
 
       {result.text && showTranscript && (
-        <Box borderStyle="round" borderColor={DIM} paddingX={1} marginTop={1}>
+        <Box borderStyle="round" borderColor={DIM} paddingX={1} paddingY={1} marginTop={1}>
           <Transcript text={result.text} elapsed={player.elapsed} total={total} />
         </Box>
       )}
@@ -155,7 +177,7 @@ export function PlayerView({
           {"  ·  "}
           <Text color={FG}>q</Text> back
         </Text>
-        <Text color={DIM}>↓ {wavPath}</Text>
+        <Text color={DIM}>↓ {wavName}</Text>
       </Box>
     </Box>
   );

@@ -16,18 +16,7 @@ import { BusyView } from "./components/BusyView";
 import { PlayerView } from "./components/PlayerView";
 import { ModelList, type ModelsResp } from "./components/ModelList";
 import { LibraryView, type LibraryItem } from "./components/LibraryView";
-
-const HELP = `/voice            list voices
-/voice <id>       switch voice
-/model            list local Ollama models (RAM fit + suggestion)
-/model <name>     switch summary model
-/mode             show mode
-/mode full        read the whole article
-/mode summary     spoken summary (local LLM)
-/library (/lib)   browse past reads
-/quit             exit
-
-player keys: space pause/resume · ←/→ seek ±5s · t transcript · q back`;
+import { HelpView } from "./components/HelpView";
 
 interface State {
   screen: "input" | "busy" | "player" | "library" | "quitting";
@@ -48,6 +37,7 @@ interface State {
   libraryOffset: number;
   libraryCursor: number;
   confirmDelete: boolean;
+  showHelp: boolean;
 }
 
 type Action =
@@ -64,6 +54,7 @@ type Action =
   | { type: "setModel"; model: string }
   | { type: "notice"; text: string | null }
   | { type: "modelList"; resp: ModelsResp }
+  | { type: "toggleHelp" }
   | { type: "openLibrary"; items: LibraryItem[]; total: number }
   | { type: "libraryLoaded"; items: LibraryItem[]; total: number; offset: number }
   | { type: "libraryMove"; delta: number }
@@ -83,6 +74,7 @@ function reducer(state: State, action: Action): State {
         error: null,
         notice: null,
         modelList: null,
+        showHelp: false,
       };
     case "phase":
       return { ...state, phase: action.value };
@@ -112,9 +104,11 @@ function reducer(state: State, action: Action): State {
     case "setModel":
       return { ...state, model: action.model, error: null };
     case "notice":
-      return { ...state, notice: action.text, error: null, modelList: null };
+      return { ...state, notice: action.text, error: null, modelList: null, showHelp: false };
     case "modelList":
-      return { ...state, modelList: action.resp, notice: null, error: null };
+      return { ...state, modelList: action.resp, notice: null, error: null, showHelp: false };
+    case "toggleHelp":
+      return { ...state, showHelp: !state.showHelp, notice: null, error: null, modelList: null };
     case "openLibrary":
       return {
         ...state,
@@ -220,6 +214,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     libraryOffset: 0,
     libraryCursor: 0,
     confirmDelete: false,
+    showHelp: false,
   });
 
   const sockRef = useRef<ReadbackSocket | null>(null);
@@ -343,7 +338,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     const [cmd, arg] = raw.slice(1).split(/\s+/, 2);
     switch (cmd) {
       case "help":
-        dispatch({ type: "notice", text: HELP });
+        dispatch({ type: "toggleHelp" });
         break;
       case "quit":
       case "exit":
@@ -419,6 +414,7 @@ export function App({ handle, prefs, onQuit }: Props) {
         {state.screen === "input" && (
           <>
             {state.modelList && <ModelList resp={state.modelList} active={state.model} />}
+            {state.showHelp && <HelpView />}
             {state.notice && (
               <Box paddingX={1} marginBottom={1}>
                 <Text color={DIM}>{state.notice}</Text>

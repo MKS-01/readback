@@ -37,9 +37,10 @@ export function Header({ intro }: Props) {
           </Text>
           <Box marginTop={1}>
             <Text color={DIM}>
-              paste a URL, 🖼️ image, or folder/glob · <Text color={BLUE}>/voice</Text> ·{" "}
-              <Text color={BLUE}>/model</Text> · <Text color={BLUE}>/mode</Text> ·{" "}
-              <Text color={BLUE}>/help</Text>
+              paste a <Text color={FG}>URL</Text>, <Text color={FG}>image</Text>, or{" "}
+              <Text color={FG}>folder</Text> · <Text color={BLUE}>/lib</Text> ·{" "}
+              <Text color={BLUE}>/voice</Text> · <Text color={BLUE}>/model</Text> ·{" "}
+              <Text color={BLUE}>/mode</Text> · <Text color={BLUE}>/help</Text>
             </Text>
           </Box>
         </Box>
