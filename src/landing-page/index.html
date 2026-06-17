@@ -48,14 +48,13 @@
   <!-- ── see it work (CLI + dashboard, one flow) ────────── -->
   <section class="reveal demo" id="shots">
     <h2>See it work</h2>
-    <p class="dim small">From a pasted URL to replaying it days later — one flow, four steps.</p>
+    <p class="dim small">From a pasted URL to replaying it days later — the terminal does everything.</p>
     <div class="demo-frame">
-      <img class="demo-slide on" src="media/cli-home.png" alt="readback CLI home screen: paste a URL, slash commands for voice, mode, and model" data-cap="Open it — paste a URL; /voice, /mode, /model do the rest.">
+      <img class="demo-slide on" src="media/cli-home.png" alt="readback CLI home screen: paste a URL, slash commands for voice, mode, and model" data-cap="Open it — paste a URL; /lib, /voice, /model, /mode do the rest.">
       <img class="demo-slide" src="media/cli-model.png" alt="readback CLI /model list: local Ollama models with RAM-fit verdicts and a recommendation" loading="lazy" data-cap="Pick a summary model — every local Ollama model, sized against your RAM.">
       <img class="demo-slide" src="media/cli-player.png" alt="readback CLI mid-read: seekable terminal player with live word-by-word transcript highlighting" loading="lazy" data-cap="Listen — seek ±5 s, with a transcript that highlights word by word.">
-      <img class="demo-slide" src="media/cli-lib.png" alt="readback CLI library browser with selected-item metadata and summary preview" loading="lazy" data-cap="Browse — every past read in a scannable list; metadata and a preview for the selected item.">
+      <img class="demo-slide" src="media/cli-lib.png" alt="readback CLI library browser with selected-item metadata and summary preview" loading="lazy" data-cap="Browse — every past read in a scannable list with a summary preview.">
       <img class="demo-slide" src="media/cli-help.png" alt="readback CLI help screen with structured command and player key reference" loading="lazy" data-cap="All commands and player keys — /help lays them out at a glance.">
-      <img class="demo-slide" src="media/dashboard.png" alt="readback web dashboard: a searchable library of past reads with an inline player and word-synced transcript" loading="lazy" data-cap="Replay anytime — every read saved to a searchable web dashboard.">
     </div>
     <div class="demo-progress" aria-hidden="true"><span class="demo-progress-fill" id="demo-progress"></span></div>
     <div class="demo-steps" role="tablist" aria-label="Steps — click to jump">
@@ -64,9 +63,17 @@
       <button class="demo-step" role="tab" aria-label="Step 3: listen"><span class="k"><span class="num">03</span> LISTEN</span><span class="t">play + transcript</span></button>
       <button class="demo-step" role="tab" aria-label="Step 4: library"><span class="k"><span class="num">04</span> LIBRARY</span><span class="t">browse past reads</span></button>
       <button class="demo-step" role="tab" aria-label="Step 5: help"><span class="k"><span class="num">05</span> HELP</span><span class="t">command reference</span></button>
-      <button class="demo-step" role="tab" aria-label="Step 6: dashboard"><span class="k"><span class="num">06</span> DASHBOARD</span><span class="t">web library</span></button>
     </div>
-    <p class="dim small demo-cap">Open it — paste a URL; /voice, /mode, /model do the rest.</p>
+    <p class="dim small demo-cap">Open it — paste a URL; /lib, /voice, /model, /mode do the rest.</p>
+  </section>
+
+  <!-- ── dashboard (separate from the CLI stepper) ─────────── -->
+  <section class="reveal">
+    <h2>Web dashboard</h2>
+    <p class="dim small">Every read saved to a searchable library — replay from any browser on your network.</p>
+    <div class="demo-frame">
+      <img class="demo-slide on" src="media/dashboard.png" alt="readback web dashboard: a searchable library of past reads with an inline player and word-synced transcript">
+    </div>
   </section>
 
   <!-- ── features (rendered as a `readback --features` terminal listing) ── -->

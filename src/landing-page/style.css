@@ -299,7 +299,7 @@ a:hover { text-decoration: underline; }
    on a shared baseline rule */
 .demo-steps {
   display: flex;
-  gap: 30px;
+  gap: 24px;
   margin-top: 20px;
   border-bottom: 1px solid var(--line);
 }
