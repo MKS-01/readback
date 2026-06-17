@@ -245,11 +245,6 @@ The Pi runs readback under [PiZoW](https://github.com/MKS-01/pizow) (PM2, surviv
   <sub>PiZoW Monitor — Readback online at 6 MB alongside the other Pi services.</sub>
 </p>
 
-<p align="center">
-  <img src="docs/media/dashboard-mobile.jpg" alt="readback library dashboard on mobile" width="260"><br>
-  <sub>The library dashboard on a phone — fully mobile-responsive.</sub>
-</p>
-
 ```bash
 # one-time setup
 cp .env.example .env              # fill in PI_USER, PI_HOST, PI_PATH
