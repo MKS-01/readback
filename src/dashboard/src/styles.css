@@ -38,6 +38,14 @@ a:hover { text-decoration: underline; }
 
 button { font: inherit; cursor: pointer; }
 
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 1px; }
+::selection { background: rgba(77, 163, 255, 0.28); color: var(--text); }
+
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border: 3px solid var(--bg); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #333; }
+
 .wrap {
   max-width: 820px;
   margin: 0 auto;
@@ -66,14 +74,12 @@ button { font: inherit; cursor: pointer; }
 
 @keyframes blink { 50% { opacity: 0; } }
 
-.wordmark {
-  font-family: "Martian Mono", monospace;
-  font-weight: 700;
-  font-size: 26px;
-  letter-spacing: 0.04em;
+.wordmark-img {
+  display: block;
+  height: 32px;
+  width: auto;
+  image-rendering: pixelated;
 }
-
-.wordmark .accent { color: var(--accent); }
 
 .subtitle {
   font-family: "Martian Mono", monospace;
@@ -135,11 +141,14 @@ button { font: inherit; cursor: pointer; }
   color: var(--dim);
   padding: 9px 14px;
   font-size: 13px;
-  transition: color 0.15s, background 0.15s;
+  transition: color 0.15s var(--ease-out), background 0.15s var(--ease-out);
 }
 
 .sort button.on { color: var(--accent); background: rgba(77, 163, 255, 0.08); }
-.sort button:hover { color: var(--text); }
+.sort button:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) {
+  .sort button:hover { color: var(--text); }
+}
 
 /* ── states ──────────────────────────────────────────────── */
 
@@ -169,7 +178,9 @@ button { font: inherit; cursor: pointer; }
   transition: border-color 0.15s, color 0.15s, transform 0.12s var(--ease-out);
 }
 
-.load-more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  .load-more:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+}
 .load-more:active:not(:disabled) { transform: scale(0.99); }
 .load-more:disabled { opacity: 0.6; cursor: default; }
 
@@ -220,8 +231,10 @@ button { font: inherit; cursor: pointer; }
   transition: background 0.15s, transform 0.12s var(--ease-out);
 }
 
-.play:hover { background: rgba(77, 163, 255, 0.08); }
 .play:active { transform: scale(0.95); }
+@media (hover: hover) and (pointer: fine) {
+  .play:hover { background: rgba(77, 163, 255, 0.08); }
+}
 .play.on { background: var(--accent); color: var(--bg); }
 
 .card-body { flex: 1; min-width: 0; }
@@ -266,11 +279,13 @@ button { font: inherit; cursor: pointer; }
   border: none;
   color: var(--dim);
   padding: 0;
-  transition: color 0.15s;
+  transition: color 0.15s var(--ease-out);
 }
 
-.actions button:hover { color: var(--text); }
-.actions button.danger:hover { color: var(--red); }
+@media (hover: hover) and (pointer: fine) {
+  .actions button:hover { color: var(--text); }
+  .actions button.danger:hover { color: var(--red); }
+}
 .actions button.confirm { color: var(--red); }
 
 /* active card — the one driving the shared player */
@@ -382,8 +397,10 @@ button { font: inherit; cursor: pointer; }
   transition: border-color 0.15s, color 0.15s, transform 0.12s var(--ease-out);
 }
 
-.skips button:hover { border-color: var(--accent); color: var(--accent); }
 .skips button:active { transform: scale(0.95); }
+@media (hover: hover) and (pointer: fine) {
+  .skips button:hover { border-color: var(--accent); color: var(--accent); }
+}
 
 /* ── footer ──────────────────────────────────────────────── */
 
@@ -403,7 +420,7 @@ button { font: inherit; cursor: pointer; }
   .card-enter-from, .card-leave-to { transform: none; }
   .card-move { transition: none; }
   .player-enter-from, .player-leave-to { grid-template-rows: 1fr; } /* fade only, full height */
-  .play:active, .skips button:active, .load-more:active { transform: none; }
+  .play:active, .skips button:active, .load-more:active, .sort button:active { transform: none; }
 }
 
 @media (max-width: 560px) {

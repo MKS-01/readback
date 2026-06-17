@@ -168,6 +168,10 @@ Raspberry Pi can serve as a network-accessible replay host:
   (`../readback-audio-db/`) resolve correctly regardless of PM2's default cwd.
 - **`scripts/sync-pi.sh`** — stops the Pi server (avoids SQLite lock), rsyncs
   WAVs + the library DB from `readback-audio-db/` on Mac to Pi, then restarts.
+  **Incremental by default**: a `.last-sync` marker tracks the last successful
+  run; only WAVs created/modified since then are transferred (the DB is always
+  synced — it's small and rows may be deleted). Pass `--full` to force a full
+  sync with `--delete` (cleans orphaned WAVs on Pi).
   Uses SSH keep-alive flags to survive large transfers over Wi-Fi.
 - **Config on Pi** — `config.pi.example.yaml` is copied to `config.yaml` on
   first deploy only. Uses the same relative reader paths as Mac; no voices

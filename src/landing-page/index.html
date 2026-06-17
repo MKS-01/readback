@@ -24,8 +24,7 @@
     <img class="wordmark" src="media/wordmark.png" alt="readback" width="487">
     <h1 class="tagline">Make reading interesting again.</h1>
     <p class="pitch">
-      A natural neural voice reads whole articles — and book scans — aloud, right
-      in your terminal, entirely on-device. <span class="bright">Nothing leaves your Mac.</span>
+      Articles and books, read aloud by a neural voice — <span class="bright">entirely on your Mac.</span>
     </p>
     <div class="cta">
       <a class="btn btn-accent" href="https://github.com/MKS-01/readback">GitHub ↗</a>
@@ -48,21 +47,39 @@
   <!-- ── see it work (CLI + dashboard, one flow) ────────── -->
   <section class="reveal demo" id="shots">
     <h2>See it work</h2>
-    <p class="dim small">From a pasted URL to replaying it days later — one flow, four steps.</p>
+    <p class="dim small">From a pasted URL to replaying it days later — the terminal does everything.</p>
     <div class="demo-frame">
-      <img class="demo-slide on" src="media/cli-home.png" alt="readback CLI home screen: paste a URL, slash commands for voice, mode, and model" data-cap="Open it — paste a URL; /voice, /mode, /model do the rest.">
+      <img class="demo-slide on" src="media/cli-home.png" alt="readback CLI home screen: paste a URL, slash commands for voice, mode, and model" data-cap="Open it — paste a URL; /lib, /voice, /model, /mode do the rest.">
       <img class="demo-slide" src="media/cli-model.png" alt="readback CLI /model list: local Ollama models with RAM-fit verdicts and a recommendation" loading="lazy" data-cap="Pick a summary model — every local Ollama model, sized against your RAM.">
       <img class="demo-slide" src="media/cli-player.png" alt="readback CLI mid-read: seekable terminal player with live word-by-word transcript highlighting" loading="lazy" data-cap="Listen — seek ±5 s, with a transcript that highlights word by word.">
-      <img class="demo-slide" src="media/dashboard.png" alt="readback web dashboard: a searchable library of past reads with an inline player and word-synced transcript" loading="lazy" data-cap="Replay anytime — every read saved to a searchable web dashboard.">
+      <img class="demo-slide" src="media/cli-lib.png" alt="readback CLI library browser with selected-item metadata and summary preview" loading="lazy" data-cap="Browse — every past read in a scannable list with a summary preview.">
+      <img class="demo-slide" src="media/cli-help.png" alt="readback CLI help screen with structured command and player key reference" loading="lazy" data-cap="All commands and player keys — /help lays them out at a glance.">
     </div>
     <div class="demo-progress" aria-hidden="true"><span class="demo-progress-fill" id="demo-progress"></span></div>
     <div class="demo-steps" role="tablist" aria-label="Steps — click to jump">
       <button class="demo-step on" role="tab" aria-label="Step 1: open"><span class="k"><span class="num">01</span> OPEN</span><span class="t">paste a URL</span></button>
       <button class="demo-step" role="tab" aria-label="Step 2: model"><span class="k"><span class="num">02</span> MODEL</span><span class="t">pick the LLM</span></button>
       <button class="demo-step" role="tab" aria-label="Step 3: listen"><span class="k"><span class="num">03</span> LISTEN</span><span class="t">play + transcript</span></button>
-      <button class="demo-step" role="tab" aria-label="Step 4: replay"><span class="k"><span class="num">04</span> REPLAY</span><span class="t">dashboard library</span></button>
+      <button class="demo-step" role="tab" aria-label="Step 4: library"><span class="k"><span class="num">04</span> LIBRARY</span><span class="t">browse past reads</span></button>
+      <button class="demo-step" role="tab" aria-label="Step 5: help"><span class="k"><span class="num">05</span> HELP</span><span class="t">command reference</span></button>
     </div>
-    <p class="dim small demo-cap">Open it — paste a URL; /voice, /mode, /model do the rest.</p>
+    <p class="dim small demo-cap">Open it — paste a URL; /lib, /voice, /model, /mode do the rest.</p>
+  </section>
+
+  <!-- ── dashboard + home server ────────────────────────────── -->
+  <section class="reveal">
+    <h2>Beyond the terminal</h2>
+    <p class="dim small">Every read saved to a searchable library — replay from any browser on your network. Deploy to a Raspberry Pi and it's always on.</p>
+    <div class="dash-grid">
+      <a class="dash-card" href="https://github.com/MKS-01/readback#library-dashboard" target="_blank" rel="noopener">
+        <img src="media/dashboard.png" alt="readback web dashboard: a searchable library of past reads with an inline player and word-synced transcript" loading="lazy">
+        <p class="dim small">Web dashboard — search, sort, and replay past reads.</p>
+      </a>
+      <a class="dash-card" href="https://github.com/MKS-01/pizow" target="_blank" rel="noopener">
+        <img src="media/home-server.png" alt="PiZoW Monitor showing Readback running on a Raspberry Pi home server" loading="lazy">
+        <p class="dim small">Home server — Readback on a Pi via PiZoW, always online.</p>
+      </a>
+    </div>
   </section>
 
   <!-- ── features (rendered as a `readback --features` terminal listing) ── -->

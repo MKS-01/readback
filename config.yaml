@@ -4,7 +4,7 @@
 
 ollama:
   # Used only by "summary" mode (turns the article into a spoken explanation).
-  model: "gemma4:26b"
+  model: "qwen3.5:9b"
   host: "http://localhost:11434"
 
 tts:

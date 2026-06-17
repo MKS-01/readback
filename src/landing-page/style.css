@@ -273,11 +273,12 @@ a:hover { text-decoration: underline; }
   height: 100%;
   object-fit: contain;
   opacity: 0;
-  transition: opacity 0.5s var(--ease-out);
+  filter: blur(4px);
+  transition: opacity 0.5s var(--ease-out), filter 0.5s var(--ease-out);
   pointer-events: none;
 }
 
-.demo-slide.on { opacity: 1; }
+.demo-slide.on { opacity: 1; filter: blur(0); }
 
 /* auto-advance progress: a thin accent bar that fills over the 4.5 s timer,
    flush under the frame (rAF-driven, transform-only, freezes on hover). */
@@ -299,7 +300,7 @@ a:hover { text-decoration: underline; }
    on a shared baseline rule */
 .demo-steps {
   display: flex;
-  gap: 30px;
+  gap: 24px;
   margin-top: 20px;
   border-bottom: 1px solid var(--line);
 }
@@ -339,6 +340,44 @@ a:hover { text-decoration: underline; }
   .demo-frame { height: 300px; }
   .demo-steps { gap: 18px; flex-wrap: wrap; }
   .demo-step .t { display: none; }   /* labels only on small screens */
+}
+
+/* ── dashboard + home server grid ────────────────────────── */
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+a.dash-card { color: inherit; text-decoration: none; transition: transform 0.2s var(--ease-out); }
+a.dash-card:active { transform: scale(0.98); }
+
+.dash-card img {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  transition: border-color 0.2s var(--ease-out);
+}
+
+.dash-card p { margin-top: 8px; }
+
+.reveal .dash-card {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.4s var(--ease-out), transform 0.4s var(--ease-out);
+}
+.reveal .dash-card:nth-child(2) { transition-delay: 60ms; }
+.reveal.in .dash-card { opacity: 1; transform: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  a.dash-card:hover { text-decoration: none; }
+  a.dash-card:hover img { border-color: var(--accent); }
+}
+
+@media (max-width: 600px) {
+  .dash-grid { grid-template-columns: 1fr; }
 }
 
 /* ── features — a `readback --features` terminal listing ── */
@@ -451,6 +490,8 @@ code {
   .reveal { transform: none; }                     /* fade in place, no slide */
   .wordmark, .tagline, .pitch, .cta { animation-name: fade-in; } /* opacity, no translate */
   .playing .wave i.on { animation: none; }         /* no sway */
+  .reveal .dash-card { transform: none; }          /* fade only, no slide */
+  .demo-slide { filter: none; }                    /* no blur transition */
 }
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }

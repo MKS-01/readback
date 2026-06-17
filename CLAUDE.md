@@ -34,8 +34,11 @@ gotchas, and exact knobs.
   mode: pages OCR'd in natural-filename order and stitched into one continuous
   Article (a scanned page is a page, not a chapter — no synthetic headers), then
   summarized/read like any article.
-- **LLM**: Ollama, default **`gemma4:26b`** (`think=False` + `<think>`
-  stripping). Used **only by Summary mode** (`LLMClient.oneshot`).
+ - **LLM**: Ollama, default **`qwen3.5:9b`** (`think=False` + `<think>`
+  stripping). Used **only by Summary mode** (`LLMClient.oneshot`) + title
+  generation. OCR auto-selects via `pick_vision_model` (prefers `qwen3.5:4b`
+  for speed). `/model` can switch per-read; `qwen3.5:27b` is the quality
+  option (good fit on 48 GB, just slower).
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +
   clone-condition voices + optional LoRA fine-tuning. English-best.
@@ -70,6 +73,9 @@ readback/
 │   │                          # Excludes venv/ and config.yaml from rsync so Pi state is preserved.
 │   │                          # PM2 started with --cwd PI_PATH so relative config paths resolve.
 │   └── sync-pi.sh             # stop Pi server → rsync WAVs + SQLite DB Mac→Pi → pm2 restart.
+│                              # Incremental by default: a .last-sync marker in readback-audio-db/
+│                              # tracks the last run; only new/modified WAVs are transferred.
+│                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── tests/                     # pytest suite — PURE LOGIC only (no MLX/CSM/GPU): chunk_text,
@@ -157,12 +163,17 @@ readback/
   while busy returns an error.
 - **Phases** stream as `phase` messages (`loading` → `fetching` → `summarizing` →
   `synthesizing`), then per-chunk `progress {done, total}`, then `done`.
-- **`done` payload**: `{title, audio_url, duration_sec, word_count, mode, text}`.
-  `text` is the spoken summary **only in Summary mode** (None in Full) — it feeds
-  the client transcript panel; the full article isn't shipped back (it's on the
-  source page).
+- **`done` payload**: `{title, audio_url, duration_sec, word_count, mode, text,
+  timings}`. `text` is the spoken summary **only in Summary mode** (None in Full)
+  — it feeds the client transcript panel; the full article isn't shipped back (it's
+  on the source page). `timings` = `{fetch, summarize, synthesize, write, total}`
+  (seconds, rounded to 1 dp) — server-side instrumentation for profiling reads.
 - Models (`Synthesizer` + `LLMClient`) load lazily on first read via
   `ReaderModels.ensure_loaded` (downloads the CSM checkpoint the first time).
+  The `LLMClient` instance is reused across the pipeline (passed into
+  `fetch_article`/`fetch_multi_page` for title generation, avoiding per-call
+  reinstantiation). `set_temperature` and `swap_voice` are plain attribute
+  mutations (no `asyncio.to_thread` needed — they don't touch MLX).
 - **Read library persist.** Step 4b (after `write_wav`) records the read in the
   SQLite library via `library.add(...)` (best-effort — wrapped in try/except +
   logged; a DB failure must never break playback). Full mode stores `excerpt`
@@ -345,9 +356,12 @@ readback/
   (`/voice`, `/model`, etc. — no second `/`, no glob chars). Multi-segment
   absolute paths (`/Users/…`), globs (`*`/`?`), and tilde paths (`~/…`) all
   bypass the command check and route to the server as local sources.
-- **Playback = `afplay`** (macOS-only): pause/resume via **SIGSTOP/SIGCONT**;
-  always SIGCONT before SIGTERM (a SIGSTOPped process can't handle SIGTERM).
-  Caveats: pause flushes ~0.5 s of buffer, elapsed time is wall-clock-tracked.
+- **Playback = `afplay`** (macOS-only): pause **SIGKILLs** the afplay process
+  and records the elapsed position; resume restarts afplay from that position via
+  the same WAV-slice mechanism seek uses (`restartAt`). ⚠ The old
+  SIGSTOP/SIGCONT approach was removed — it caused CoreAudio buffer bleed (~0.5 s
+  of repeated audio on resume) and audible pops during rapid toggling.
+  Elapsed time is wall-clock-tracked.
   Plays the server-written WAV directly when the file is on this machine —
   `resolveWav` checks `<config.audio_dir>/<fname>` (the `audio_dir` the server
   reports in its config) and falls back to downloading from `/audio` into
@@ -446,9 +460,12 @@ readback/
 - **Clone sounds garbled.** Almost always a `ref_text` that doesn't match the
   clip, or a too-short reference at low temperature. Fix the transcript / use a
   5–8 s clip / raise temperature toward 0.6–0.8.
-- **`<think>` leaks only on qwen3.** qwen3 ignores `think=False` and emits
-  untagged reasoning; the default `gemma4:26b` (and the lighter
-  `nemotron-3-nano:4b` fallback) are clean.
+- **Brief silence on resume.** Pause kills afplay and resume restarts it from a
+  sliced WAV (~50 ms). This is intentional — the old SIGSTOP/SIGCONT was faster
+  but caused audible buffer bleed (0.5 s of repeated audio).
+- **`<think>` leaks only on qwen3.** qwen3 (not qwen3.5) ignores `think=False`
+  and emits untagged reasoning. The default `qwen3.5:9b` and `gemma4:26b` are
+  clean; the `_ThinkStripper` is belt-and-suspenders for any model.
 
 ## Remaining cleanup candidates (tracked in docs/ROADMAP.md)
 
@@ -466,7 +483,7 @@ and the Qwen→CSM config migration.
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e .                          # csm-mlx is a git dep (allow-direct-references)
 readback                                  # starts the server (or: python -m readback)
-cd src/cli && bun install && bun run start    # terminal CLI from source (auto-spawns the server)
+cd src/cli && bun run start                   # terminal CLI from source (auto-spawns the server)
 cd src/cli && ./install.sh                    # or: standalone binary → ~/.local/bin/readback-cli
 ```
 
@@ -478,19 +495,20 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.5.0** — image OCR, book scans, tones (**minor** — additive; no
-protocol/config/dependency break). New input sources beyond URLs: drop an **image**
-path → Ollama vision OCR (`_ocr_via_ollama`, auto-`pick_vision_model`; `think=False` +
-`num_predict` cap so Qwen3 vision can't loop into a hang); a **folder or glob** of
-page photos → `fetch_multi_page` OCRs in natural order and stitches one continuous
-document (book scan). **Map-reduce summarization** (`summarize.py`: `_batches` →
-condense → combine) so long scans summarize end-to-end instead of truncating.
-**Source-aware tones** (`pipeline/tones.py`): URL → article (livelier, temp 0.8),
-image/folder → book (measured, temp 0.6, opens by naming the chapter/topic from the
-first lines); auto by source, `set_temperature` per read, user's `/voice` untouched.
-WS protocol + CLI protocol unchanged (phase is a free-form string; CLI input guard
-extended for paths/globs). New: `pipeline/tones.py`, `tests/test_{summarize_batches,
-tones}.py`.
+Current: **v3.6.0** — optimisation + UI polish (**minor** — no protocol/config
+break). Default model → `qwen3.5:9b`; `LLMClient` reused across the pipeline;
+`set_temperature`/`swap_voice` off the thread pool. Server logs per-read timings
+(`done` payload includes `timings`). CLI player: kill+restart replaces
+SIGSTOP/SIGCONT for glitch-free pause/resume. CLI UI polish: responsive progress
+bars, transcript scroll window (12-line cap), structured help view, cleaner model
+list (no emoji), library with selected-item-only metadata + summary preview.
+Dashboard: `:focus-visible`, `::selection`, scrollbar, hover media queries
+(mobile/Pi parity). New: `HelpView.tsx`, `ghost-design-system` skill,
+`drive-cli` skill.
+
+Previously: **v3.5.0** — image OCR, book scans, tones (**minor** — additive; no
+protocol/config/dependency break). New input sources beyond URLs; map-reduce
+summarization; source-aware tones (`pipeline/tones.py`).
 
 Previously: **v3.4.0** — CLI library screen (**minor** — CLI-only). `/library`
 (alias `/lib`) opens a paginated past-reads list in the terminal: arrow-key nav,

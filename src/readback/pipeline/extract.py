@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from readback.config import OllamaConfig
-    from readback.llm.client import LLMClient
+    from readback.llm.client import LLMClient  # noqa: F811
 
 log = logging.getLogger("readback.pipeline")
 
@@ -192,11 +192,12 @@ def _ocr_via_ollama(path: str, ollama_cfg: "OllamaConfig", model: str | None = N
     return text
 
 
-def _title_from_text(text: str, ollama_cfg: "OllamaConfig") -> str:
+def _title_from_text(text: str, ollama_cfg: "OllamaConfig", llm: "LLMClient | None" = None) -> str:
     """Ask the LLM for a short title based on the OCR'd text. Falls back to 'Image'."""
     from readback.llm.client import LLMClient
     try:
-        raw = LLMClient(ollama_cfg).oneshot(
+        client = llm or LLMClient(ollama_cfg)
+        raw = client.oneshot(
             "You generate short titles. Output only the title, nothing else. Max 6 words.",
             f"Give a title for this text:\n\n{text[:400]}",
         )
@@ -207,7 +208,7 @@ def _title_from_text(text: str, ollama_cfg: "OllamaConfig") -> str:
         return "Image"
 
 
-def _book_title_from_text(text: str, ollama_cfg: "OllamaConfig") -> str:
+def _book_title_from_text(text: str, ollama_cfg: "OllamaConfig", llm: "LLMClient | None" = None) -> str:
     """Distill a book page's chapter/topic from its opening lines. Falls back to 'Book'.
 
     Books usually carry the chapter heading or topic in the first lines, so we feed
@@ -216,7 +217,8 @@ def _book_title_from_text(text: str, ollama_cfg: "OllamaConfig") -> str:
     from readback.llm.client import LLMClient
     head = "\n".join(text.strip().splitlines()[:3])[:600]
     try:
-        raw = LLMClient(ollama_cfg).oneshot(
+        client = llm or LLMClient(ollama_cfg)
+        raw = client.oneshot(
             "You identify the chapter or topic of a book page from its opening lines. "
             "Reply with ONLY the chapter name or topic, at most 8 words. No quotes, no commentary.",
             f"Opening lines:\n\n{head}",
@@ -244,6 +246,7 @@ def fetch_multi_page(
     source: str,
     ollama_cfg: "OllamaConfig",
     progress_cb=None,
+    llm: "LLMClient | None" = None,
 ) -> Article:
     """OCR every image in a folder/glob and stitch them into one continuous Article.
 
@@ -288,7 +291,7 @@ def fetch_multi_page(
     # mid-sentence). Within-page paragraph breaks survive untouched.
     full_text = " ".join(p.strip() for p in pages if p.strip())
     # Title = the chapter/topic from the first page's opening lines (book tone).
-    title = _book_title_from_text(pages[0], ollama_cfg)
+    title = _book_title_from_text(pages[0], ollama_cfg, llm=llm)
 
     article = Article(title=title, text=_clean_for_tts(full_text), url=source)
     log.info("multi-page: %d pages, %d words, title=%r", len(pages), article.word_count, title)
@@ -324,7 +327,7 @@ def _download(url: str) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def fetch_article(source: str, ollama_cfg: "OllamaConfig | None" = None) -> Article:
+def fetch_article(source: str, ollama_cfg: "OllamaConfig | None" = None, llm: "LLMClient | None" = None) -> Article:
     """Fetch `source` and return the extracted, TTS-ready article.
 
     `source` may be a URL (http/https) or a local image path. Raises
@@ -339,7 +342,7 @@ def fetch_article(source: str, ollama_cfg: "OllamaConfig | None" = None) -> Arti
         if ollama_cfg is None:
             raise ExtractError("\U0001f5bc️ image OCR requires an Ollama config")
         text = _ocr_via_ollama(source, ollama_cfg)
-        title = _book_title_from_text(text, ollama_cfg)
+        title = _book_title_from_text(text, ollama_cfg, llm=llm)
         article = Article(title=title, text=_clean_for_tts(text), url=source)
         log.info("OCR extracted %r (%d words) from %s", title, article.word_count, source)
         return article

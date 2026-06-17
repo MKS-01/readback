@@ -48,7 +48,7 @@ pip install -e .          # csm-mlx is a git dependency, pulled automatically
 cd src/cli && ./install.sh && cd ../..   # → ~/.local/bin/readback-cli
 ```
 
-Or run it from source without installing: `cd src/cli && bun install && bun run start`.
+Or run it from source without installing: `cd src/cli && bun run start`.
 Re-run `./install.sh` after pulling changes (the standalone binary is compiled).
 
 ## 4. Run

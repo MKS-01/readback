@@ -128,7 +128,7 @@ shell via `afplay`.
 ```bash
 # 1. Ollama for Summary mode (skip if you only want Full mode)
 ollama serve &                          # or launch the desktop app
-ollama pull gemma4:26b                  # default; any chat model works
+ollama pull qwen3.5:9b                  # default; any chat model works
 
 # 2. Install the server
 git clone https://github.com/MKS-01/readback.git && cd readback
@@ -159,6 +159,16 @@ only. Details: [`src/cli/README.md`](src/cli/README.md).
 <p align="center">
   <img src="docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts and a recommendation" width="640"><br>
   <sub><code>/model</code> — every local Ollama model, sized up against your Mac's RAM before you commit.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/media/cli-lib.png" alt="readback CLI — /lib library browser with selected-item preview" width="640"><br>
+  <sub><code>/lib</code> — browse past reads; metadata and a summary preview appear for the selected item.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/media/cli-help.png" alt="readback CLI — /help command reference" width="640"><br>
+  <sub><code>/help</code> — every command and player key at a glance.</sub>
 </p>
 
 On the **first read**, the CSM-1B weights (~6 GB) download from Hugging Face (no
@@ -194,7 +204,7 @@ read time, and the same Ghost design system (and fonts) as the CLI and landing
 page.
 
 ```bash
-cd src/dashboard && bun install && bun run build   # → dist/
+cd src/dashboard && bun run build                   # → dist/
 readback                                            # then open http://127.0.0.1:8000/
 ```
 
@@ -270,7 +280,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system view.
 | Layer | Technology |
 |---|---|
 | **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback); **Ollama vision OCR** for images / book scans |
-| **Summary (optional)** | [Ollama](https://ollama.ai/) — default `gemma4:26b`; any pulled chat model works |
+| **Summary (optional)** | [Ollama](https://ollama.ai/) — default `qwen3.5:9b`; any pulled chat model works |
 | **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, fp32 |
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV, REST library |
@@ -315,7 +325,7 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 
 | Key | What | Default |
 |---|---|---|
-| `ollama.model` | Ollama model for Summary mode | `gemma4:26b` |
+| `ollama.model` | Ollama model for Summary mode | `qwen3.5:9b` |
 | `ollama.host` | Ollama endpoint | `http://localhost:11434` |
 | `tts.csm.speaker` | Active voice (`conversational_a`/`_b` or a clone `name`) | `codeword` |
 | `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `fp32` |
@@ -370,10 +380,11 @@ ssh PI_USER@PI_HOST "pm2 startup && pm2 save"
 **After each new read on Mac:**
 
 ```bash
-bash scripts/sync-pi.sh       # rsync WAVs + SQLite DB to Pi
+bash scripts/sync-pi.sh       # incremental: only new WAVs since last sync
+bash scripts/sync-pi.sh --full  # full sync (cleans orphaned WAVs on Pi)
 ```
 
-The dashboard is then live at `http://<PI_HOST>:8090`. The Pi never runs TTS or Ollama — generation stays on the Mac. `scripts/sync-pi.sh` stops the Pi server briefly to avoid a SQLite lock during the DB copy, then restarts it.
+The dashboard is then live at `http://<PI_HOST>:8090`. The Pi never runs TTS or Ollama — generation stays on the Mac. `sync-pi.sh` is incremental by default — a `.last-sync` marker tracks the last run, so only new WAVs are transferred (the DB always syncs). Use `--full` to force a complete sync with orphan cleanup.
 
 ---
 

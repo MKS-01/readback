@@ -55,9 +55,7 @@ function startTimer(): void {
 
 function killProc(): void {
   if (proc && proc.exitCode === null) {
-    // a SIGSTOPped process defers SIGTERM until resumed — always CONT first
-    proc.kill("SIGCONT");
-    proc.kill("SIGTERM");
+    proc.kill("SIGKILL");
   }
   proc = null;
 }
@@ -93,15 +91,21 @@ export function play(wavPath: string, durationSec: number): void {
 }
 
 export function togglePause(): void {
-  if (!proc || proc.exitCode !== null) return;
   if (state === "playing") {
-    proc.kill("SIGSTOP");
+    if (seekTimer) clearTimeout(seekTimer);
+    seekTimer = null;
+    seeking = false;
+    generation++;
+    killProc();
+    clearTimer();
     state = "paused";
+    emit();
   } else if (state === "paused") {
-    proc.kill("SIGCONT");
     state = "playing";
+    seeking = true;
+    emit();
+    void restartAt(elapsed);
   }
-  emit();
 }
 
 /** Jump deltaSec forward/back. Restarts afplay on a sliced WAV (debounced). */

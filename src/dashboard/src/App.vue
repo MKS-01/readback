@@ -166,8 +166,8 @@ onBeforeUnmount(() => {
   <main class="wrap">
     <header class="head">
       <p class="prompt-line"><span>~ $</span> readback-cli --library<span class="caret"></span></p>
-      <div class="wordmark">read<span class="accent">back</span></div>
-      <p class="subtitle">your library — replay any read, anytime</p>
+      <img class="wordmark-img" src="/wordmark.png" alt="readback" height="32">
+      <p class="subtitle">offline article reader · library</p>
     </header>
 
     <div class="controls">

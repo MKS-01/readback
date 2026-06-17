@@ -1,9 +1,10 @@
 {
   "name": "readback-cli",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "bun run src/index.tsx",
     "start": "bun run src/index.tsx",
     "build": "bun build ./src/index.tsx --compile --outfile dist/readback-cli",
     "setup": "./install.sh"
