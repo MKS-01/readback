@@ -495,19 +495,20 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.5.0** — image OCR, book scans, tones (**minor** — additive; no
-protocol/config/dependency break). New input sources beyond URLs: drop an **image**
-path → Ollama vision OCR (`_ocr_via_ollama`, auto-`pick_vision_model`; `think=False` +
-`num_predict` cap so Qwen3 vision can't loop into a hang); a **folder or glob** of
-page photos → `fetch_multi_page` OCRs in natural order and stitches one continuous
-document (book scan). **Map-reduce summarization** (`summarize.py`: `_batches` →
-condense → combine) so long scans summarize end-to-end instead of truncating.
-**Source-aware tones** (`pipeline/tones.py`): URL → article (livelier, temp 0.8),
-image/folder → book (measured, temp 0.6, opens by naming the chapter/topic from the
-first lines); auto by source, `set_temperature` per read, user's `/voice` untouched.
-WS protocol + CLI protocol unchanged (phase is a free-form string; CLI input guard
-extended for paths/globs). New: `pipeline/tones.py`, `tests/test_{summarize_batches,
-tones}.py`.
+Current: **v3.6.0** — optimisation + UI polish (**minor** — no protocol/config
+break). Default model → `qwen3.5:9b`; `LLMClient` reused across the pipeline;
+`set_temperature`/`swap_voice` off the thread pool. Server logs per-read timings
+(`done` payload includes `timings`). CLI player: kill+restart replaces
+SIGSTOP/SIGCONT for glitch-free pause/resume. CLI UI polish: responsive progress
+bars, transcript scroll window (12-line cap), structured help view, cleaner model
+list (no emoji), library with selected-item-only metadata + summary preview.
+Dashboard: `:focus-visible`, `::selection`, scrollbar, hover media queries
+(mobile/Pi parity). New: `HelpView.tsx`, `ghost-design-system` skill,
+`drive-cli` skill.
+
+Previously: **v3.5.0** — image OCR, book scans, tones (**minor** — additive; no
+protocol/config/dependency break). New input sources beyond URLs; map-reduce
+summarization; source-aware tones (`pipeline/tones.py`).
 
 Previously: **v3.4.0** — CLI library screen (**minor** — CLI-only). `/library`
 (alias `/lib`) opens a paginated past-reads list in the terminal: arrow-key nav,
