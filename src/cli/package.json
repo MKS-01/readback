@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "bun run src/index.tsx",
     "start": "bun run src/index.tsx",
     "build": "bun build ./src/index.tsx --compile --outfile dist/readback-cli",
     "setup": "./install.sh"

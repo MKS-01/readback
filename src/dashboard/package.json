@@ -6,6 +6,7 @@
   "description": "readback library dashboard — search, sort & replay past reads (Vue 3 + Vite)",
   "scripts": {
     "dev": "vite",
+    "start": "vite",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview"
   },
