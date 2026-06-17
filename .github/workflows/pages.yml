@@ -20,6 +20,7 @@ on:
       - "docs/media/cli-lib.png"
       - "docs/media/cli-help.png"
       - "docs/media/dashboard.png"
+      - "docs/media/home-server.png"
       - "docs/media/sample-read.wav"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -57,6 +58,7 @@ jobs:
              docs/media/cli-lib.png \
              docs/media/cli-help.png \
              docs/media/dashboard.png \
+             docs/media/home-server.png \
              docs/media/sample-read.wav \
              _site/media/
 
