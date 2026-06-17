@@ -86,7 +86,7 @@ fi
 # ── 5. web dashboard (Bun) ──────────────────────────────────────
 if command -v bun >/dev/null 2>&1; then
   step "Building the web dashboard"
-  ( cd src/dashboard && bun install && bun run build )
+  ( cd src/dashboard && bun run build )
   ok "dashboard built → src/dashboard/dist (served at / by 'readback')"
 fi
 

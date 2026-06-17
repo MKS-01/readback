@@ -194,7 +194,7 @@ read time, and the same Ghost design system (and fonts) as the CLI and landing
 page.
 
 ```bash
-cd src/dashboard && bun install && bun run build   # → dist/
+cd src/dashboard && bun run build                   # → dist/
 readback                                            # then open http://127.0.0.1:8000/
 ```
 

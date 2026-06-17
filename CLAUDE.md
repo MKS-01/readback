@@ -483,7 +483,7 @@ and the Qwen→CSM config migration.
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e .                          # csm-mlx is a git dep (allow-direct-references)
 readback                                  # starts the server (or: python -m readback)
-cd src/cli && bun install && bun run start    # terminal CLI from source (auto-spawns the server)
+cd src/cli && bun run start                   # terminal CLI from source (auto-spawns the server)
 cd src/cli && ./install.sh                    # or: standalone binary → ~/.local/bin/readback-cli
 ```
 

@@ -18,9 +18,6 @@ command -v bun >/dev/null 2>&1 || {
   exit 1
 }
 
-echo "▸ installing dependencies…"
-bun install
-
 echo "▸ compiling ${BIN_NAME}…"
 bun build ./src/index.tsx --compile \
   --define "process.env.READBACK_ROOT=\"${REPO_ROOT}\"" \
