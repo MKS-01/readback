@@ -236,35 +236,32 @@ Audio + library DB default to a **`readback-audio-db/`** folder beside the repo.
 
 ## Pi deployment
 
-The Mac generates; a Raspberry Pi serves the library + dashboard on your LAN — accessible from **any browser, on any device**. Runs under [PiZoW](https://github.com/MKS-01/pizow) (PM2, survives reboots, ~68 MB).
+Generation stays on the Mac (CSM-1B + Ollama need Apple Silicon). A Raspberry Pi runs the lightweight read-only server — library REST, Vue dashboard, and audio serving — so your reads are accessible from **any browser on the network**.
+
+The Pi runs readback under [PiZoW](https://github.com/MKS-01/pizow) (PM2, survives reboots, ~68 MB).
 
 <p align="center">
-  <img src="docs/media/dashboard-mobile.jpg" alt="readback library dashboard on mobile" width="260">
-  &nbsp;&nbsp;&nbsp;
-  <img src="docs/media/server-mobile.jpg" alt="PiZoW Monitor showing readback online" width="260">
+  <img src="docs/media/home-server.png" alt="PiZoW Monitor showing Readback running on a Raspberry Pi" width="720"><br>
+  <sub>PiZoW Monitor — Readback online at 6 MB alongside the other Pi services.</sub>
 </p>
 
-**One-time setup:**
+<p align="center">
+  <img src="docs/media/dashboard-mobile.jpg" alt="readback library dashboard on mobile" width="260"><br>
+  <sub>The library dashboard on a phone — fully mobile-responsive.</sub>
+</p>
 
 ```bash
-cp .env.example .env          # fill in PI_USER, PI_HOST, PI_PATH
-bash scripts/deploy-pi.sh     # build dashboard → rsync → venv + pip → PM2
+# one-time setup
+cp .env.example .env              # fill in PI_USER, PI_HOST, PI_PATH
+bash scripts/deploy-pi.sh        # build dashboard → rsync → venv + pip → PM2
+ssh PI_USER@PI_HOST "pm2 startup && pm2 save"   # survive reboots
+
+# after each new read on Mac
+bash scripts/sync-pi.sh          # incremental — only new WAVs since last sync
+bash scripts/sync-pi.sh --full   # or full sync (cleans orphans on Pi)
 ```
 
-Then on the Pi once (so readback survives reboots):
-
-```bash
-ssh PI_USER@PI_HOST "pm2 startup && pm2 save"
-```
-
-**After each new read on Mac:**
-
-```bash
-bash scripts/sync-pi.sh       # incremental: only new WAVs since last sync
-bash scripts/sync-pi.sh --full  # full sync (cleans orphaned WAVs on Pi)
-```
-
-Dashboard is live at `http://<PI_HOST>:8090`. Sync is incremental by default (only new WAVs); `--full` forces a complete sync with orphan cleanup.
+Dashboard is live at `http://<PI_HOST>:8090`.
 
 ---
 
