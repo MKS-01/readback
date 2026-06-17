@@ -161,6 +161,16 @@ only. Details: [`src/cli/README.md`](src/cli/README.md).
   <sub><code>/model</code> — every local Ollama model, sized up against your Mac's RAM before you commit.</sub>
 </p>
 
+<p align="center">
+  <img src="docs/media/cli-lib.png" alt="readback CLI — /lib library browser with selected-item preview" width="640"><br>
+  <sub><code>/lib</code> — browse past reads; metadata and a summary preview appear for the selected item.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/media/cli-help.png" alt="readback CLI — /help command reference" width="640"><br>
+  <sub><code>/help</code> — every command and player key at a glance.</sub>
+</p>
+
 On the **first read**, the CSM-1B weights (~6 GB) download from Hugging Face (no
 login) and the MLX graph warms up — so the first synthesis is slow; later runs
 are fast. See [SETUP.md](docs/SETUP.md) for verification, flags, and troubleshooting.

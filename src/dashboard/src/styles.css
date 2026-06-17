@@ -74,14 +74,12 @@ button { font: inherit; cursor: pointer; }
 
 @keyframes blink { 50% { opacity: 0; } }
 
-.wordmark {
-  font-family: "Martian Mono", monospace;
-  font-weight: 700;
-  font-size: 26px;
-  letter-spacing: 0.04em;
+.wordmark-img {
+  display: block;
+  height: 32px;
+  width: auto;
+  image-rendering: pixelated;
 }
-
-.wordmark .accent { color: var(--accent); }
 
 .subtitle {
   font-family: "Martian Mono", monospace;
