@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -97,6 +98,8 @@ async def _run_read_job(
     library: Library, state: Optional[dict] = None,
 ) -> None:
     loop = asyncio.get_running_loop()
+    t_job_start = time.monotonic()
+    timings: dict[str, float] = {}
     # `alive` flips false the moment a send fails (client closed the tab) OR the
     # client sends a `cancel`. It both silences the send path and (via
     # should_stop) aborts synthesis so we don't keep burning GPU on audio nobody
@@ -122,7 +125,9 @@ async def _run_read_job(
     # Load models on first use (downloads the CSM checkpoint the very first time).
     if not models._loaded:
         await send({"type": "phase", "value": "loading"})
+    t0 = time.monotonic()
     await models.ensure_loaded()
+    timings["model_load"] = time.monotonic() - t0
     synth, llm = models.synth, models.llm
     assert synth is not None and llm is not None
 
@@ -138,6 +143,7 @@ async def _run_read_job(
 
     # 1) Fetch + extract (URL, single image, or multi-page folder/glob).
     await send({"type": "phase", "value": "fetching"})
+    t0 = time.monotonic()
     if _is_multi_page(url):
         def _page_progress(pi: int, tot: int):
             if not state["alive"]:
@@ -148,7 +154,7 @@ async def _run_read_job(
             )
         try:
             article = await asyncio.to_thread(
-                fetch_multi_page, url, cfg.ollama, _page_progress,
+                fetch_multi_page, url, cfg.ollama, _page_progress, llm,
             )
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
@@ -159,7 +165,7 @@ async def _run_read_job(
             return
     else:
         try:
-            article = await asyncio.to_thread(fetch_article, url, cfg.ollama)
+            article = await asyncio.to_thread(fetch_article, url, cfg.ollama, llm)
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
             return
@@ -167,6 +173,8 @@ async def _run_read_job(
             log.exception("fetch failed")
             await send({"type": "error", "message": f"Couldn't read that page: {e}"})
             return
+
+    timings["fetch"] = time.monotonic() - t0
 
     # Reading tone, auto-picked from the source: URL → article (livelier), image /
     # folder → book (measured, opens by naming the chapter/topic). A tone bundles
@@ -177,6 +185,7 @@ async def _run_read_job(
     # 2) Optional LLM summary/explainer — uniform across URL / image / multi-page.
     # Multi-page is now a single continuous document, so it summarizes exactly like
     # a long article (map-reduced when it's a big scan).
+    t0 = time.monotonic()
     if mode == "summary":
         await send({"type": "phase", "value": "summarizing"})
 
@@ -196,14 +205,15 @@ async def _run_read_job(
         )
     else:
         text = article.text
+    timings["summarize"] = time.monotonic() - t0
 
     # 3) Synthesize (offline, with progress). Apply the tone's delivery temperature
     # (the user's chosen voice is untouched — tone shifts pacing, not the voice).
     await send({"type": "phase", "value": "synthesizing"})
-    await asyncio.to_thread(synth.set_temperature, tone.temperature)
+    synth.set_temperature(tone.temperature)
     if voice and voice != synth.current_voice:
         try:
-            await asyncio.to_thread(synth.swap_voice, voice)
+            synth.swap_voice(voice)
         except Exception:
             log.warning("ignoring bad voice %r", voice)
 
@@ -216,11 +226,13 @@ async def _run_read_job(
             )
         )
 
+    t0 = time.monotonic()
     audio = await asyncio.to_thread(
         synthesize_article, synth, text,
         gap_sec=cfg.reader.gap_sec, progress=progress,
         should_stop=lambda: not state["alive"],
     )
+    timings["synthesize"] = time.monotonic() - t0
     if not state["alive"]:
         return   # client gone — don't bother writing/serving the file
     if audio.size == 0:
@@ -228,12 +240,14 @@ async def _run_read_job(
         return
 
     # 4) Write the WAV and hand back a URL (playback + download).
+    t0 = time.monotonic()
     out_dir = cfg.reader.output_dir.expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     fname = f"{uuid.uuid4().hex}.wav"
     audio_path = out_dir / fname
     duration_sec = round(len(audio) / synth.sample_rate, 1)
     await asyncio.to_thread(write_wav, str(audio_path), audio, synth.sample_rate)
+    timings["write"] = time.monotonic() - t0
 
     # 4b) Record the read in the library (powers the dashboard). A DB hiccup must
     # never break playback, so this is best-effort + logged.
@@ -256,6 +270,16 @@ async def _run_read_job(
     except Exception:
         log.exception("failed to record read in library")
 
+    timings["total"] = time.monotonic() - t_job_start
+    log.info(
+        "read complete: %s | %s | %.1fs audio | %d words | "
+        "fetch=%.1fs summarize=%.1fs synthesize=%.1fs write=%.1fs total=%.1fs",
+        article.title[:50], mode, duration_sec, article.word_count,
+        timings.get("fetch", 0), timings.get("summarize", 0),
+        timings.get("synthesize", 0), timings.get("write", 0),
+        timings["total"],
+    )
+
     await send({
         "type": "done",
         "title": article.title,
@@ -266,6 +290,7 @@ async def _run_read_job(
         # Spoken text for the client transcript panel — summary only (the full
         # article is already on the source page, no need to ship it back).
         "text": text if mode == "summary" else None,
+        "timings": {k: round(v, 1) for k, v in timings.items()},
     })
 
 

@@ -34,8 +34,11 @@ gotchas, and exact knobs.
   mode: pages OCR'd in natural-filename order and stitched into one continuous
   Article (a scanned page is a page, not a chapter — no synthetic headers), then
   summarized/read like any article.
-- **LLM**: Ollama, default **`gemma4:26b`** (`think=False` + `<think>`
-  stripping). Used **only by Summary mode** (`LLMClient.oneshot`).
+ - **LLM**: Ollama, default **`qwen3.5:9b`** (`think=False` + `<think>`
+  stripping). Used **only by Summary mode** (`LLMClient.oneshot`) + title
+  generation. OCR auto-selects via `pick_vision_model` (prefers `qwen3.5:4b`
+  for speed). `/model` can switch per-read; `qwen3.5:27b` is the quality
+  option (good fit on 48 GB, just slower).
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +
   clone-condition voices + optional LoRA fine-tuning. English-best.
@@ -449,9 +452,9 @@ readback/
 - **Clone sounds garbled.** Almost always a `ref_text` that doesn't match the
   clip, or a too-short reference at low temperature. Fix the transcript / use a
   5–8 s clip / raise temperature toward 0.6–0.8.
-- **`<think>` leaks only on qwen3.** qwen3 ignores `think=False` and emits
-  untagged reasoning; the default `gemma4:26b` (and the lighter
-  `nemotron-3-nano:4b` fallback) are clean.
+- **`<think>` leaks only on qwen3.** qwen3 (not qwen3.5) ignores `think=False`
+  and emits untagged reasoning. The default `qwen3.5:9b` and `gemma4:26b` are
+  clean; the `_ThinkStripper` is belt-and-suspenders for any model.
 
 ## Remaining cleanup candidates (tracked in docs/ROADMAP.md)
 

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class OllamaConfig(BaseModel):
     # Used only by Summary mode (turns the article into a spoken explanation via
     # LLMClient.oneshot, which carries its own system prompt).
-    model: str = "nemotron-3-nano:4b"
+    model: str = "qwen3.5:9b"
     host: str = "http://localhost:11434"
 
 
