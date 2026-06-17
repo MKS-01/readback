@@ -370,10 +370,11 @@ ssh PI_USER@PI_HOST "pm2 startup && pm2 save"
 **After each new read on Mac:**
 
 ```bash
-bash scripts/sync-pi.sh       # rsync WAVs + SQLite DB to Pi
+bash scripts/sync-pi.sh       # incremental: only new WAVs since last sync
+bash scripts/sync-pi.sh --full  # full sync (cleans orphaned WAVs on Pi)
 ```
 
-The dashboard is then live at `http://<PI_HOST>:8090`. The Pi never runs TTS or Ollama — generation stays on the Mac. `scripts/sync-pi.sh` stops the Pi server briefly to avoid a SQLite lock during the DB copy, then restarts it.
+The dashboard is then live at `http://<PI_HOST>:8090`. The Pi never runs TTS or Ollama — generation stays on the Mac. `sync-pi.sh` is incremental by default — a `.last-sync` marker tracks the last run, so only new WAVs are transferred (the DB always syncs). Use `--full` to force a complete sync with orphan cleanup.
 
 ---
 

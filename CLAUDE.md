@@ -70,6 +70,9 @@ readback/
 │   │                          # Excludes venv/ and config.yaml from rsync so Pi state is preserved.
 │   │                          # PM2 started with --cwd PI_PATH so relative config paths resolve.
 │   └── sync-pi.sh             # stop Pi server → rsync WAVs + SQLite DB Mac→Pi → pm2 restart.
+│                              # Incremental by default: a .last-sync marker in readback-audio-db/
+│                              # tracks the last run; only new/modified WAVs are transferred.
+│                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── tests/                     # pytest suite — PURE LOGIC only (no MLX/CSM/GPU): chunk_text,
