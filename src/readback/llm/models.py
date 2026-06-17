@@ -143,7 +143,11 @@ def list_models(cfg: OllamaConfig) -> dict:
         except Exception:
             capabilities[m.model] = []
 
-    best: tuple[int, str] | None = None   # (size_bytes, name) of best good fit
+    # Extract the default model's family prefix (e.g. "qwen3.5" from "qwen3.5:9b")
+    default_family = cfg.model.split(":")[0] if ":" in cfg.model else ""
+
+    best_family: tuple[int, str] | None = None  # largest good-fit in the default's family
+    best_any: tuple[int, str] | None = None      # largest good-fit overall (fallback)
     for m in resp.models:
         name = m.model or ""
         if not name:
@@ -161,12 +165,14 @@ def list_models(cfg: OllamaConfig) -> dict:
             "chat": _is_chat_model(name),
             "vision": "vision" in caps,
         })
-        # Recommend the largest comfortably-fitting chat model: best summary
-        # quality without crowding CSM + the rest of the system.
         if fit == "good" and _is_chat_model(name):
-            if best is None or size > best[0]:
-                best = (size, name)
+            if best_any is None or size > best_any[0]:
+                best_any = (size, name)
+            if default_family and name.startswith(default_family + ":"):
+                if best_family is None or size > best_family[0]:
+                    best_family = (size, name)
 
     out["models"].sort(key=lambda m: m["size_gb"], reverse=True)
-    out["recommended"] = best[1] if best else None
+    pick = best_family or best_any
+    out["recommended"] = pick[1] if pick else None
     return out
