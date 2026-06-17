@@ -141,7 +141,7 @@ button { font: inherit; cursor: pointer; }
   color: var(--dim);
   padding: 9px 14px;
   font-size: 13px;
-  transition: color 0.15s, background 0.15s;
+  transition: color 0.15s var(--ease-out), background 0.15s var(--ease-out);
 }
 
 .sort button.on { color: var(--accent); background: rgba(77, 163, 255, 0.08); }
@@ -279,7 +279,7 @@ button { font: inherit; cursor: pointer; }
   border: none;
   color: var(--dim);
   padding: 0;
-  transition: color 0.15s;
+  transition: color 0.15s var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
