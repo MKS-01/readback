@@ -163,12 +163,17 @@ readback/
   while busy returns an error.
 - **Phases** stream as `phase` messages (`loading` → `fetching` → `summarizing` →
   `synthesizing`), then per-chunk `progress {done, total}`, then `done`.
-- **`done` payload**: `{title, audio_url, duration_sec, word_count, mode, text}`.
-  `text` is the spoken summary **only in Summary mode** (None in Full) — it feeds
-  the client transcript panel; the full article isn't shipped back (it's on the
-  source page).
+- **`done` payload**: `{title, audio_url, duration_sec, word_count, mode, text,
+  timings}`. `text` is the spoken summary **only in Summary mode** (None in Full)
+  — it feeds the client transcript panel; the full article isn't shipped back (it's
+  on the source page). `timings` = `{fetch, summarize, synthesize, write, total}`
+  (seconds, rounded to 1 dp) — server-side instrumentation for profiling reads.
 - Models (`Synthesizer` + `LLMClient`) load lazily on first read via
   `ReaderModels.ensure_loaded` (downloads the CSM checkpoint the first time).
+  The `LLMClient` instance is reused across the pipeline (passed into
+  `fetch_article`/`fetch_multi_page` for title generation, avoiding per-call
+  reinstantiation). `set_temperature` and `swap_voice` are plain attribute
+  mutations (no `asyncio.to_thread` needed — they don't touch MLX).
 - **Read library persist.** Step 4b (after `write_wav`) records the read in the
   SQLite library via `library.add(...)` (best-effort — wrapped in try/except +
   logged; a DB failure must never break playback). Full mode stores `excerpt`
@@ -351,9 +356,12 @@ readback/
   (`/voice`, `/model`, etc. — no second `/`, no glob chars). Multi-segment
   absolute paths (`/Users/…`), globs (`*`/`?`), and tilde paths (`~/…`) all
   bypass the command check and route to the server as local sources.
-- **Playback = `afplay`** (macOS-only): pause/resume via **SIGSTOP/SIGCONT**;
-  always SIGCONT before SIGTERM (a SIGSTOPped process can't handle SIGTERM).
-  Caveats: pause flushes ~0.5 s of buffer, elapsed time is wall-clock-tracked.
+- **Playback = `afplay`** (macOS-only): pause **SIGKILLs** the afplay process
+  and records the elapsed position; resume restarts afplay from that position via
+  the same WAV-slice mechanism seek uses (`restartAt`). ⚠ The old
+  SIGSTOP/SIGCONT approach was removed — it caused CoreAudio buffer bleed (~0.5 s
+  of repeated audio on resume) and audible pops during rapid toggling.
+  Elapsed time is wall-clock-tracked.
   Plays the server-written WAV directly when the file is on this machine —
   `resolveWav` checks `<config.audio_dir>/<fname>` (the `audio_dir` the server
   reports in its config) and falls back to downloading from `/audio` into
@@ -452,6 +460,9 @@ readback/
 - **Clone sounds garbled.** Almost always a `ref_text` that doesn't match the
   clip, or a too-short reference at low temperature. Fix the transcript / use a
   5–8 s clip / raise temperature toward 0.6–0.8.
+- **Brief silence on resume.** Pause kills afplay and resume restarts it from a
+  sliced WAV (~50 ms). This is intentional — the old SIGSTOP/SIGCONT was faster
+  but caused audible buffer bleed (0.5 s of repeated audio).
 - **`<think>` leaks only on qwen3.** qwen3 (not qwen3.5) ignores `think=False`
   and emits untagged reasoning. The default `qwen3.5:9b` and `gemma4:26b` are
   clean; the `_ThinkStripper` is belt-and-suspenders for any model.

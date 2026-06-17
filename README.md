@@ -128,7 +128,7 @@ shell via `afplay`.
 ```bash
 # 1. Ollama for Summary mode (skip if you only want Full mode)
 ollama serve &                          # or launch the desktop app
-ollama pull gemma4:26b                  # default; any chat model works
+ollama pull qwen3.5:9b                  # default; any chat model works
 
 # 2. Install the server
 git clone https://github.com/MKS-01/readback.git && cd readback
@@ -270,7 +270,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system view.
 | Layer | Technology |
 |---|---|
 | **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback); **Ollama vision OCR** for images / book scans |
-| **Summary (optional)** | [Ollama](https://ollama.ai/) — default `gemma4:26b`; any pulled chat model works |
+| **Summary (optional)** | [Ollama](https://ollama.ai/) — default `qwen3.5:9b`; any pulled chat model works |
 | **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, fp32 |
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV, REST library |
@@ -315,7 +315,7 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 
 | Key | What | Default |
 |---|---|---|
-| `ollama.model` | Ollama model for Summary mode | `gemma4:26b` |
+| `ollama.model` | Ollama model for Summary mode | `qwen3.5:9b` |
 | `ollama.host` | Ollama endpoint | `http://localhost:11434` |
 | `tts.csm.speaker` | Active voice (`conversational_a`/`_b` or a clone `name`) | `codeword` |
 | `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `fp32` |

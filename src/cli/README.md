@@ -118,7 +118,9 @@ same machine, download into `~/.readback/cli-cache/` otherwise.
 - **Seeking** works even though `afplay` has no transport control: the CLI
   slices the local WAV's PCM data at the target offset into a temp file and
   relaunches `afplay` there. Rapid presses are debounced into one jump.
-- Pausing flushes ~0.5 s of buffered audio (`afplay` SIGSTOP quirk).
+- Pause/resume kills and restarts `afplay` at the saved position (via WAV
+  slicing), so there's a brief (~50 ms) silence on resume. This replaced the
+  old SIGSTOP/SIGCONT approach which caused audible buffer bleed.
 
 ## Caveats
 
