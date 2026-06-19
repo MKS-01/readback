@@ -500,19 +500,19 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.6.0** — optimisation + UI polish (**minor** — no protocol/config
-break). Default model → `qwen3.5:9b`; `LLMClient` reused across the pipeline;
-`set_temperature`/`swap_voice` off the thread pool. Server logs per-read timings
-(`done` payload includes `timings`). CLI player: kill+restart replaces
-SIGSTOP/SIGCONT for glitch-free pause/resume. CLI UI polish: responsive progress
-bars, transcript scroll window (12-line cap), structured help view, cleaner model
-list (no emoji), library with selected-item-only metadata + summary preview.
-Dashboard: `:focus-visible`, `::selection`, scrollbar, hover media queries
-(mobile/Pi parity). New: `HelpView.tsx`, `ghost-design-system` skill,
-`drive-cli` skill.
+Current: **v3.7.0** — design system consistency pass (**minor** — presentational
+only; no protocol/API/config change). New `src/design-system/tokens/` with 5
+canonical token CSS files (colors, typography, spacing, motion, base). Dashboard
+CSS imports from tokens; landing page inlines the same values. All raw px
+`font-size` replaced with `var(--text-*)` tokens (7-rung scale); play button
+standardised to `var(--control-h)` 40px; inline `rgba()` replaced with semantic
+tint tokens. New `design-system` skill.
 
-Previously: **v3.5.0** — image OCR, book scans, tones (**minor** — additive; no
-protocol/config/dependency break). New input sources beyond URLs; map-reduce
+Previously: **v3.6.0** — optimisation + UI polish. Default model → `qwen3.5:9b`;
+`LLMClient` reused; server timings; CLI kill+restart pause; UI polish across CLI +
+dashboard. New: `HelpView.tsx`, `ghost-design-system` skill, `drive-cli` skill.
+
+Previously: **v3.5.0** — image OCR, book scans, tones. New input sources; map-reduce
 summarization; source-aware tones (`pipeline/tones.py`).
 
 Previously: **v3.4.0** — CLI library screen (**minor** — CLI-only). `/library`
