@@ -1,0 +1,16 @@
+/* readback type scale + leading.
+   Six rungs — every component and surface uses these, never raw px. */
+
+:root {
+  --text-xs:   11.5px;
+  --text-sm:   12.5px;
+  --text-base: 13.5px;
+  --text-md:   14px;
+  --text-body: 15px;
+  --text-lg:   19px;
+  --text-xl:   23px;
+
+  --leading-tight:   1.3;
+  --leading-normal:  1.7;
+  --leading-relaxed: 1.75;
+}

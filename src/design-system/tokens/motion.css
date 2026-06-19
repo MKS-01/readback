@@ -1,0 +1,12 @@
+/* readback motion tokens (per emil-design-eng).
+   Strong ease-out for entrances/press; iOS-style drawer curve for
+   accordions/slides. No bounce in functional UI. */
+
+:root {
+  --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --dur-fast:  0.15s;
+  --dur-base:  0.2s;
+  --dur-press: 0.12s;
+}

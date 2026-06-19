@@ -6,6 +6,20 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-20 — Design system consistency pass
+
+**Status: done** — branch `design-revamp`. Established a shared design token
+layer (`src/design-system/tokens/`) as the canonical source for the Ghost palette,
+type scale, spacing, and motion values. Dashboard CSS now imports from the token
+files; landing page inlines the same values (deployed standalone). All raw px
+`font-size` values replaced with `var(--text-*)` tokens across both surfaces; play
+button size standardized to `var(--control-h)` (40px); inline `rgba()` accent fills
+replaced with semantic tint tokens (`--accent-08`, `--accent-14`, `--accent-28`);
+status tints (`--green-10`, `--yellow-10`, `--red-10`) added. Dashboard build
+verified clean.
+
+---
+
 ## 2026-06-17 — Source-aware tones (article vs book)
 
 **Status: done** — branch `feat/cli-cache`. Auto-pick a reading *tone* from the source type: a URL reads as a blog/article, an image/folder reads as a book. A tone bundles a summary framing **and** a TTS delivery temperature. Fully automatic — no new commands or config. Shipped as planned: new `pipeline/tones.py` (`ARTICLE` 0.8 / `BOOK` 0.6 + `tone_for`), `classify_source` + `_book_title_from_text` in `extract.py`, `system` param threaded through `summarize_article`/`_map_reduce`, `set_temperature` on `Synthesizer`+`CsmEngine`, server computes `tone_for(classify_source(url))` and wires the prompt + temperature. 49 tests green (`test_tones.py` covers classify + mapping); fake-LLM smoke confirms book sources get the book framing + 0.6.

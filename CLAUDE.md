@@ -107,14 +107,19 @@ readback/
     ├── voice/                 # reference clips for clone voices; *.wav gitignored
     │                          # (exception: committed voice_codeword.wav,
     │                          # the active codeword reference)
+    ├── design-system/         # shared design tokens — canonical source for the Ghost palette.
+    │   └── tokens/            # colors.css, typography.css, spacing.css, motion.css, base.css
+    │                          # Dashboard imports via @import; landing page inlines (deployed
+    │                          # standalone). CLI mirrors via theme.ts (Ink, no CSS).
     ├── dashboard/             # web library UI (Vue 3 + Vite + TS); REST + static client
     │                          # (search/sort/replay/delete past reads), NOT a /ws client.
     │                          # src/{App,api,styles}.* + components/; build → dist/ (gitignored),
-    │                          # which server.py mounts at / when present. Ghost palette reused.
+    │                          # which server.py mounts at / when present. Tokens from design-system/.
     ├── landing-page/          # static marketing site (mks-01.github.io/readback) —
     │                          # index.html + style.css, vanilla inline JS (waveform
     │                          # player, screenshot stepper w/ rAF progress bar, scroll
-    │                          # reveal + staggered Features). Trimmed to hook+redirect:
+    │                          # reveal + staggered Features). Tokens inlined (deployed
+    │                          # standalone); keep in sync with design-system/. Trimmed to hook+redirect:
     │                          # hero · Hear it · See it work · Features · Dive-in (GitHub
     │                          # links) — deep docs live in the repo, not duplicated here.
     │                          # NOT a web client; media/ gitignored (preview of docs/media).

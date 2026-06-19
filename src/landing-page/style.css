@@ -1,21 +1,42 @@
 /* readback landing — the page is the terminal.
-   Palette = the CLI's Ghost theme (src/cli/src/theme.ts). */
+   Tokens inlined (deployed standalone via GitHub Pages); canonical source
+   is src/design-system/tokens/ — keep in sync. */
 
 :root {
+  /* colors (tokens/colors.css) */
   --bg: #0a0a0a;
   --panel: #121212;
   --line: #232323;
+  --line-hi: #333333;
   --text: #f0f0f0;
   --dim: #808080;
-  --accent: #4da3ff;   /* Xcode blue — wordmark "BACK", caret, fills */
-  --accent-hi: #6cb4ff; /* brighter accent for hover/glow */
+  --accent: #4da3ff;
+  --accent-hi: #6cb4ff;
+  --accent-08: rgba(77, 163, 255, 0.08);
+  --accent-14: rgba(77, 163, 255, 0.14);
+  --accent-28: rgba(77, 163, 255, 0.28);
   --green: #5dd17a;
   --red: #ff5d5d;
-  /* motion curves (per emil-design-eng): strong ease-out for entrances/press,
-     iOS-style drawer curve for slides. No bounce in functional UI. */
+  --yellow: #e6c35a;
+  --green-10: rgba(93, 209, 122, 0.10);
+  --yellow-10: rgba(230, 195, 90, 0.10);
+  --red-10: rgba(255, 93, 93, 0.10);
+  /* typography (tokens/typography.css) */
+  --text-xs: 11.5px;
+  --text-sm: 12.5px;
+  --text-base: 13.5px;
+  --text-md: 14px;
+  --text-body: 15px;
+  --text-lg: 19px;
+  --text-xl: 23px;
+  --leading-normal: 1.7;
+  /* spacing (tokens/spacing.css) */
+  --control-h: 40px;
+  --radius: 8px;
+  --radius-sm: 4px;
+  /* motion (tokens/motion.css) */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
-  --radius: 8px;       /* soften the boxy sharp corners */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -26,8 +47,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
   /* faint scanline texture, like a tired CRT */
   background-image: repeating-linear-gradient(
     0deg, transparent 0 2px, rgba(255, 255, 255, 0.012) 2px 4px);
@@ -44,7 +65,7 @@ section, footer { margin-top: 104px; }
 /* section headers: a single hairline rule does the separating — no boxes */
 h2 {
   font-family: "Martian Mono", "IBM Plex Mono", monospace;
-  font-size: 19px;
+  font-size: var(--text-lg);
   font-weight: 700;
   letter-spacing: 0.03em;
   padding-bottom: 14px;
@@ -53,7 +74,7 @@ h2 {
 }
 
 h3 {
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
   margin-bottom: 8px;
 }
@@ -64,17 +85,17 @@ a:hover { text-decoration: underline; }
 /* invisible-correctness details: clear focus rings, on-brand selection, a
    scrollbar that doesn't fight the dark theme. */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 1px; }
-::selection { background: rgba(77, 163, 255, 0.28); color: var(--text); }
+::selection { background: var(--accent-28); color: var(--text); }
 
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border: 3px solid var(--bg); border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: #333; }
+::-webkit-scrollbar-thumb:hover { background: var(--line-hi); }
 
 .dim    { color: var(--dim); }
 .bright { color: var(--text); font-weight: 500; }
 .accent { color: var(--accent); }
-.small  { font-size: 13px; }
+.small  { font-size: var(--text-base); }
 .center { text-align: center; }
 
 /* ── hero ─────────────────────────────────────────────── */
@@ -97,7 +118,7 @@ a:hover { text-decoration: underline; }
 
 .prompt-line {
   text-align: left;
-  font-size: 13px;
+  font-size: var(--text-base);
   margin-bottom: 40px;
 }
 
@@ -115,7 +136,7 @@ a:hover { text-decoration: underline; }
 
 .kicker {
   font-family: "Martian Mono", monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
   letter-spacing: 0.03em;
   color: var(--dim);
   margin-bottom: 26px;
@@ -131,7 +152,7 @@ a:hover { text-decoration: underline; }
 .tagline {
   font-family: "Martian Mono", monospace;
   font-weight: 700;
-  font-size: 23px;
+  font-size: var(--text-xl);
   line-height: 1.3;
   margin-top: 26px;
   animation: rise 0.6s var(--ease-out) 0.16s both;
@@ -168,20 +189,20 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-md);
   transition: border-color 0.15s, color 0.15s, transform 0.14s var(--ease-out), background 0.15s;
 }
 
 .btn:active { transform: scale(0.97); }
 
 /* primary CTA carries a faint accent fill so it reads above the ghost secondary */
-.btn-accent { border-color: var(--accent); color: var(--accent); background: rgba(77, 163, 255, 0.07); }
+.btn-accent { border-color: var(--accent); color: var(--accent); background: var(--accent-08); }
 
 /* hover movement only where a real pointer exists (touch fires :hover on tap) */
 @media (hover: hover) and (pointer: fine) {
   .btn:hover { border-color: var(--dim); text-decoration: none; transform: translateY(-1px); }
   .btn:active { transform: translateY(0) scale(0.97); }
-  .btn-accent:hover { background: rgba(77, 163, 255, 0.14); border-color: var(--accent-hi); color: var(--accent-hi); }
+  .btn-accent:hover { background: var(--accent-14); border-color: var(--accent-hi); color: var(--accent-hi); }
 }
 
 /* ── sample player (styled like the CLI's) ────────────── */
@@ -200,9 +221,9 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--accent);
   color: var(--accent);
   font: inherit;
-  font-size: 13px;
-  width: 42px;
-  height: 42px;
+  font-size: var(--text-base);
+  width: var(--control-h);
+  height: var(--control-h);
   border-radius: var(--radius);
   cursor: pointer;
   flex-shrink: 0;
@@ -211,7 +232,7 @@ a:hover { text-decoration: underline; }
 
 .play:active { transform: scale(0.95); }
 @media (hover: hover) and (pointer: fine) {
-  .play:hover { background: rgba(77, 163, 255, 0.08); }
+  .play:hover { background: var(--accent-08); }
 }
 
 .wave {
@@ -246,7 +267,7 @@ a:hover { text-decoration: underline; }
 
 .time {
   color: var(--dim);
-  font-size: 13px;
+  font-size: var(--text-base);
   min-width: 86px;
   text-align: right;
   flex-shrink: 0;
@@ -320,12 +341,12 @@ a:hover { text-decoration: underline; }
 .demo-step .k {
   display: block;
   font-family: "Martian Mono", monospace;
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
   color: var(--dim);
 }
 
-.demo-step .t { display: block; font-size: 12.5px; color: var(--dim); margin-top: 3px; }
+.demo-step .t { display: block; font-size: var(--text-sm); color: var(--dim); margin-top: 3px; }
 .demo-step .num { color: var(--accent); opacity: 0.5; }
 
 .demo-step.on { border-bottom-color: var(--accent); }
@@ -387,10 +408,10 @@ a.dash-card:active { transform: scale(0.98); }
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 20px 22px;
-  font-size: 13.5px;
+  font-size: var(--text-base);
 }
 
-.feat-cmd { font-size: 13px; margin-bottom: 16px; }
+.feat-cmd { font-size: var(--text-base); margin-bottom: 16px; }
 .feat-cmd .caret { margin-left: 4px; }
 
 .feat-list { list-style: none; display: flex; flex-direction: column; gap: 13px; }
@@ -407,7 +428,7 @@ a.dash-card:active { transform: scale(0.98); }
 
 .feat-list .fkey {
   font-family: "Martian Mono", monospace;
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   letter-spacing: 0.02em;
   color: var(--accent);
 }
@@ -419,7 +440,7 @@ a.dash-card:active { transform: scale(0.98); }
   margin-top: 16px;
   padding-top: 13px;
   border-top: 1px solid var(--line);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--green);
 }
 
@@ -449,7 +470,7 @@ code {
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 0 5px;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   font-family: inherit;
 }
 
