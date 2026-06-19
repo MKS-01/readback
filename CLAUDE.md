@@ -107,10 +107,20 @@ readback/
     ├── voice/                 # reference clips for clone voices; *.wav gitignored
     │                          # (exception: committed voice_codeword.wav,
     │                          # the active codeword reference)
-    ├── design-system/         # shared design tokens — canonical source for the Ghost palette.
-    │   └── tokens/            # colors.css, typography.css, spacing.css, motion.css, base.css
-    │                          # Dashboard imports via @import; landing page inlines (deployed
-    │                          # standalone). CLI mirrors via theme.ts (Ink, no CSS).
+    ├── design-system/         # shared design system — canonical source for the Ghost palette.
+    │   ├── tokens/            # colors.css, typography.css, spacing.css, motion.css, base.css
+    │   │                      # Dashboard imports via @import; landing page inlines (deployed
+    │   │                      # standalone). CLI mirrors via theme.ts (Ink, no CSS).
+    │   ├── components/        # 9 React JSX specimen components (Badge, Button, PromptLine,
+    │   │                      # SearchInput, SeekBar, WaveformPlayer, ReadCard, Wordmark,
+    │   │                      # SectionHeader). Bundled into _ds_bundle.js.
+    │   ├── ui_kits/           # 3 full-page recreations (terminal, dashboard, landing) that
+    │   │                      # compose the components into interactive demos.
+    │   ├── templates/         # dc-runtime template wrappers (for Claude Design Components).
+    │   ├── index.html         # single-page design system viewer — tokens, components, kits.
+    │   │                      # Serve with `python3 -m http.server` and open in browser.
+    │   ├── styles.css         # base stylesheet importing all token layers.
+    │   └── _ds_bundle.js      # pre-built bundle of all components (bun build).
     ├── dashboard/             # web library UI (Vue 3 + Vite + TS); REST + static client
     │                          # (search/sort/replay/delete past reads), NOT a /ws client.
     │                          # src/{App,api,styles}.* + components/; build → dist/ (gitignored),

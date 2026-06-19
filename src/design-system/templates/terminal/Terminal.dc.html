@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Terminal CLI" description="readback's Ink terminal client — input, player, /model, /lib, /help, in a macOS window" -->
+<helmet>
+  <script src="./ds-base.js"></script>
+</helmet>
+<div style="min-height:100vh;padding:32px 0;background:var(--bg);background-image:var(--scanlines);">
+  <x-import component-from-global-scope="Terminal" from="../../ui_kits/terminal/Terminal.jsx" hint-size="900px,720px"></x-import>
+</div>
+</x-dc>
+</body>
+</html>

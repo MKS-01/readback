@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Landing page" description="readback's marketing site — \"the page is the terminal\": hero, sample player, features" -->
+<helmet>
+  <script src="./ds-base.js"></script>
+</helmet>
+<div style="min-height:100vh;background:var(--bg);background-image:var(--scanlines);">
+  <x-import component-from-global-scope="Landing" from="../../ui_kits/landing/Landing.jsx" hint-size="760px,1200px"></x-import>
+</div>
+</x-dc>
+</body>
+</html>

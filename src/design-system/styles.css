@@ -1,0 +1,73 @@
+/* readback design system — base stylesheet.
+   Imports all token layers and provides the shared foundation
+   (reset, body, scrollbars, focus, selection, links, keyframes).
+   Components and kits build on top of this. */
+
+@import url("tokens/fonts.css");
+@import url("tokens/colors.css");
+@import url("tokens/typography.css");
+@import url("tokens/spacing.css");
+@import url("tokens/motion.css");
+@import url("tokens/base.css");
+
+/* ── reset ─────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  background-image: var(--scanlines);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+  min-height: 100vh;
+}
+
+/* ── links ─────────────────────────────────────────────── */
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── buttons ───────────────────────────────────────────── */
+
+button { font: inherit; cursor: pointer; }
+
+/* ── focus + selection ─────────────────────────────────── */
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 1px; }
+::selection { background: var(--accent-28); color: var(--text); }
+
+/* ── scrollbars ────────────────────────────────────────── */
+
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border: 3px solid var(--bg); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--line-hi); }
+
+/* ── shared keyframes ──────────────────────────────────── */
+
+@keyframes rb-blink { 50% { opacity: 0; } }
+@keyframes rb-sway  { to  { transform: scaleY(0.45); } }
+@keyframes rb-pulse { 50% { opacity: 0.4; } }
+
+@keyframes rb-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes rb-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── reduced motion ────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001s !important;
+    transition-duration: 0.001s !important;
+  }
+}
