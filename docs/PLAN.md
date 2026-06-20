@@ -8,7 +8,7 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ## 2026-06-20 — Replace Ollama with mlx-lm + mlx-vlm (full MLX LLM stack)
 
-**Status: in progress** — branch `llm-migration`. Remove Ollama entirely; summary/title/OCR all run in-process via Apple's MLX framework, unifying with CSM-1B.
+**Status: done** — branch `llm-migration`, v4.0.0. Removed Ollama entirely; summary/title/OCR all run in-process via mlx-lm + mlx-vlm on Apple's MLX framework, unifying with CSM-1B. `OllamaConfig` → `LLMConfig`, config key `ollama:` → `llm:` (old key auto-migrated), `ollama` dep replaced by `mlx-lm` + `mlx-vlm`. Model discovery scans HF cache. Non-chat models (whisper, parakeet, CSM, TTS) filtered from `/model` picker. Smoke-tested: Full + Summary mode end-to-end. All docs updated. 49 tests pass.
 
 ### Context
 
