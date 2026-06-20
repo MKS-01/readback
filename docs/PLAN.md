@@ -8,7 +8,7 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ## 2026-06-20 — Replace Ollama with mlx-lm + mlx-vlm (full MLX LLM stack)
 
-**Status: proposed** — branch `llm-migration`. Remove Ollama entirely; summary/title/OCR all run in-process via Apple's MLX framework, unifying with CSM-1B.
+**Status: in progress** — branch `llm-migration`. Remove Ollama entirely; summary/title/OCR all run in-process via Apple's MLX framework, unifying with CSM-1B.
 
 ### Context
 

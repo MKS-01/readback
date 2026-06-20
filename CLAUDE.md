@@ -479,9 +479,9 @@ readback/
 - **Brief silence on resume.** Pause kills afplay and resume restarts it from a
   sliced WAV (~50 ms). This is intentional — the old SIGSTOP/SIGCONT was faster
   but caused audible buffer bleed (0.5 s of repeated audio).
-- **`<think>` leaks only on qwen3.** qwen3 (not qwen3.5) ignores `think=False`
-  and emits untagged reasoning. The default `qwen3.5:9b` and `gemma4:26b` are
-  clean; the `_ThinkStripper` is belt-and-suspenders for any model.
+- **`<think>` leaks only on qwen3.** qwen3 (not qwen3.5) emits untagged
+  reasoning. The default `Qwen3.5-9B-4bit` is clean; the `_ThinkStripper` is
+  belt-and-suspenders for any model.
 
 ## Remaining cleanup candidates (tracked in docs/ROADMAP.md)
 
