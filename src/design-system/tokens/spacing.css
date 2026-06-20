@@ -1,0 +1,7 @@
+/* readback spacing + sizing tokens. */
+
+:root {
+  --control-h:  40px;
+  --radius:     8px;
+  --radius-sm:  4px;
+}

@@ -1,0 +1,31 @@
+/* readback color tokens — the "Ghost" theme.
+   Source of truth: src/cli/src/theme.ts, mirrored across the dashboard + landing
+   page. A near-black terminal canvas, one Xcode-blue accent, hairline structure. */
+
+:root {
+  /* ── base palette ─────────────────────────────────────── */
+  --bg:        #0a0a0a;
+  --panel:     #121212;
+  --line:      #232323;
+  --line-hi:   #333333;
+
+  --text:      #f0f0f0;
+  --dim:       #808080;
+
+  /* ── accent (Xcode blue) — wordmark "BACK", caret, fills, focus ── */
+  --accent:    #4da3ff;
+  --accent-hi: #6cb4ff;
+  --accent-08: rgba(77, 163, 255, 0.08);
+  --accent-14: rgba(77, 163, 255, 0.14);
+  --accent-28: rgba(77, 163, 255, 0.28);
+
+  /* ── semantic status ──────────────────────────────────── */
+  --green:  #5dd17a;
+  --red:    #ff5d5d;
+  --yellow: #e6c35a;
+
+  /* faint status tints — chip fills, parallel to --accent-08 */
+  --green-10:  rgba(93, 209, 122, 0.10);
+  --yellow-10: rgba(230, 195, 90, 0.10);
+  --red-10:    rgba(255, 93, 93, 0.10);
+}

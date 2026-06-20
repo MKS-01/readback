@@ -36,6 +36,7 @@
   <a href="#voices">Voices</a> ·
   <a href="#configuration">Config</a> ·
   <a href="#pi-deployment">Pi deploy</a> ·
+  <a href="#design-system">Design system</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
 </p>
 
@@ -257,6 +258,31 @@ bash scripts/sync-pi.sh --full   # or full sync (cleans orphans on Pi)
 ```
 
 Dashboard is live at `http://<PI_HOST>:8090`.
+
+---
+
+## Design system
+
+The Ghost palette, type scale, and every UI component — documented as live specimens you can browse locally.
+
+<p align="center">
+  <img src="docs/media/design-system.png" alt="readback design system — Ghost palette, tints, type scale" width="720"><br>
+  <sub>Ghost palette, tints, type scale, spacing, and motion tokens — the foundation every surface is built on.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/media/design-system-components.png" alt="readback design system — component specimens and UI kits" width="720"><br>
+  <sub>Component specimens (Badge, Button, SeekBar, WaveformPlayer, ReadCard…) and interactive UI Kits.</sub>
+</p>
+
+**7 type rungs** · **9 components** (Badge, Button, PromptLine, SearchInput, SeekBar, WaveformPlayer, ReadCard, Wordmark, SectionHeader) · **3 UI kits** (Terminal, Dashboard, Landing) — all interactive.
+
+```bash
+cd src/design-system && python3 -m http.server 8111
+# open http://localhost:8111
+```
+
+Canonical tokens live in `src/design-system/tokens/` — the dashboard imports them via `@import`; the landing page inlines the same values (deployed standalone). The CLI mirrors the palette in `src/cli/src/theme.ts`.
 
 ---
 

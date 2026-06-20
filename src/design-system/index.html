@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>readback — design system</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="_ds_bundle.js"></script>
+<style>
+  body { padding: 0; }
+  .ds-shell { max-width: 1100px; margin: 0 auto; padding: 48px 32px 80px; }
+  .ds-header { margin-bottom: 48px; }
+  .ds-header h1 { font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; }
+  .ds-header p { color: var(--dim); margin-top: 6px; }
+  .ds-section { margin-top: 56px; }
+  .ds-section h2 {
+    font-family: var(--font-display); font-size: var(--text-lg); font-weight: 700;
+    letter-spacing: 0.03em; padding-bottom: 12px; margin-bottom: 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .ds-sub { margin-top: 32px; }
+  .ds-sub h3 { font-size: var(--text-body); font-weight: 600; margin-bottom: 12px; }
+
+  /* token grid */
+  .tok-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .tok {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px; font-size: var(--text-sm);
+  }
+  .tok .swatch { width: 100%; height: 36px; border-radius: var(--radius-sm); margin-bottom: 10px; border: 1px solid var(--line); }
+  .tok .name { color: var(--accent); }
+  .tok .val { color: var(--dim); margin-top: 2px; }
+
+  /* type scale */
+  .type-row { display: flex; align-items: baseline; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .type-row:last-child { border-bottom: none; }
+  .type-label { color: var(--accent); font-size: var(--text-sm); min-width: 100px; flex-shrink: 0; }
+  .type-val { color: var(--dim); font-size: var(--text-sm); min-width: 50px; }
+
+  /* spacing tokens */
+  .space-row { display: flex; align-items: center; gap: 16px; padding: 8px 0; }
+  .space-bar { background: var(--accent-08); border: 1px solid var(--accent); border-radius: 2px; height: 24px; }
+  .space-label { color: var(--accent); font-size: var(--text-sm); min-width: 100px; }
+  .space-val { color: var(--dim); font-size: var(--text-sm); }
+
+  /* motion tokens */
+  .motion-row { display: flex; align-items: center; gap: 16px; padding: 8px 0; }
+  .motion-label { color: var(--accent); font-size: var(--text-sm); min-width: 120px; }
+  .motion-val { color: var(--dim); font-size: var(--text-sm); }
+  .motion-demo {
+    width: 32px; height: 32px; background: var(--accent); border-radius: var(--radius-sm);
+    cursor: pointer; transition-property: transform;
+  }
+  .motion-demo:hover { transform: scale(1.3); }
+
+  /* component demos */
+  .comp-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .comp-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 24px; flex: 1; min-width: 300px;
+  }
+
+  /* kit tabs */
+  .kit-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .kit-tabs button {
+    background: none; border: 1px solid var(--line); color: var(--dim);
+    border-radius: var(--radius); padding: 7px 16px; font-size: var(--text-sm);
+    cursor: pointer; font-family: var(--font-mono); transition: all 0.15s;
+  }
+  .kit-tabs button.on { background: var(--accent-08); border-color: var(--accent); color: var(--accent); }
+  .kit-frame {
+    background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden; min-height: 500px;
+  }
+  .kit-frame iframe { width: 100%; height: 640px; border: none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const NS = window.ReadbackDesignSystem_7af2ab || {};
+const { Badge, Button, PromptLine, Caret, SearchInput, SeekBar, WaveformPlayer, ReadCard, Wordmark, SectionHeader } = NS;
+
+const COLORS = [
+  ["--bg",         "#0a0a0a"],
+  ["--panel",      "#121212"],
+  ["--line",       "#232323"],
+  ["--line-hi",    "#333333"],
+  ["--text",       "#f0f0f0"],
+  ["--dim",        "#808080"],
+  ["--accent",     "#4da3ff"],
+  ["--accent-hi",  "#6cb4ff"],
+  ["--green",      "#5dd17a"],
+  ["--yellow",     "#e6c35a"],
+  ["--red",        "#ff5d5d"],
+];
+
+const TINTS = [
+  ["--accent-08",  "rgba(77,163,255,0.08)"],
+  ["--accent-14",  "rgba(77,163,255,0.14)"],
+  ["--accent-28",  "rgba(77,163,255,0.28)"],
+  ["--green-10",   "rgba(93,209,122,0.10)"],
+  ["--yellow-10",  "rgba(230,195,90,0.10)"],
+  ["--red-10",     "rgba(255,93,93,0.10)"],
+];
+
+const TYPE_SCALE = [
+  ["--text-xs",   "11.5px"],
+  ["--text-sm",   "12.5px"],
+  ["--text-base", "13.5px"],
+  ["--text-md",   "14px"],
+  ["--text-body", "15px"],
+  ["--text-lg",   "19px"],
+  ["--text-xl",   "23px"],
+];
+
+const SPACING = [
+  ["--control-h", "40px"],
+  ["--radius",    "8px"],
+  ["--radius-sm", "4px"],
+];
+
+const MOTION = [
+  ["--ease-out",    "cubic-bezier(0.23,1,0.32,1)"],
+  ["--ease-drawer", "cubic-bezier(0.32,0.72,0,1)"],
+  ["--dur-fast",    "0.15s"],
+  ["--dur-base",    "0.2s"],
+  ["--dur-press",   "0.12s"],
+];
+
+function TokenColors() {
+  return (
+    <div className="ds-sub">
+      <h3>Palette</h3>
+      <div className="tok-grid">
+        {COLORS.map(([name, val]) => (
+          <div className="tok" key={name}>
+            <div className="swatch" style={{ background: val }} />
+            <div className="name">{name}</div>
+            <div className="val">{val}</div>
+          </div>
+        ))}
+      </div>
+      <h3 style={{ marginTop: 24 }}>Tints</h3>
+      <div className="tok-grid">
+        {TINTS.map(([name, val]) => (
+          <div className="tok" key={name}>
+            <div className="swatch" style={{ background: val, borderColor: "var(--accent)" }} />
+            <div className="name">{name}</div>
+            <div className="val">{val}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TokenTypography() {
+  return (
+    <div className="ds-sub">
+      <h3>Type scale</h3>
+      {TYPE_SCALE.map(([name, val]) => (
+        <div className="type-row" key={name}>
+          <span className="type-label">{name}</span>
+          <span className="type-val">{val}</span>
+          <span style={{ fontSize: val }}>The quick brown fox</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TokenSpacing() {
+  return (
+    <div className="ds-sub">
+      <h3>Spacing &amp; sizing</h3>
+      {SPACING.map(([name, val]) => (
+        <div className="space-row" key={name}>
+          <span className="space-label">{name}</span>
+          <span className="space-val">{val}</span>
+          <div className="space-bar" style={{ width: val }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TokenMotion() {
+  return (
+    <div className="ds-sub">
+      <h3>Motion</h3>
+      {MOTION.map(([name, val]) => (
+        <div className="motion-row" key={name}>
+          <span className="motion-label">{name}</span>
+          <span className="motion-val">{val}</span>
+          {name.startsWith("--ease") && (
+            <div
+              className="motion-demo"
+              style={{ transitionDuration: "0.4s", transitionTimingFunction: val }}
+              title="Hover to preview"
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Components() {
+  const [search, setSearch] = React.useState("");
+  return (
+    <>
+      <div className="ds-sub">
+        <h3>Badge</h3>
+        <div className="comp-row">
+          {Badge && <>
+            <Badge color="accent">accent chip</Badge>
+            <Badge color="green">green chip</Badge>
+            <Badge color="yellow">yellow chip</Badge>
+            <Badge color="red">red chip</Badge>
+            <Badge color="dim">dim chip</Badge>
+            <Badge color="accent" variant="text">text badge</Badge>
+          </>}
+        </div>
+      </div>
+
+      <div className="ds-sub">
+        <h3>Button</h3>
+        <div className="comp-row">
+          {Button && <>
+            <Button>Ghost</Button>
+            <Button variant="accent">Accent</Button>
+            <Button size="sm">Small</Button>
+            <Button disabled>Disabled</Button>
+          </>}
+        </div>
+      </div>
+
+      <div className="ds-sub">
+        <h3>PromptLine + Caret</h3>
+        <div className="comp-row">
+          {PromptLine && <PromptLine command="readback-cli --library" />}
+        </div>
+      </div>
+
+      <div className="ds-sub">
+        <h3>SearchInput</h3>
+        <div style={{ maxWidth: 400 }}>
+          {SearchInput && <SearchInput value={search} onChange={setSearch} />}
+        </div>
+      </div>
+
+      <div className="ds-sub">
+        <h3>SeekBar</h3>
+        <div style={{ maxWidth: 500 }}>
+          {SeekBar && <SeekBar elapsed={42} duration={111} />}
+        </div>
+      </div>
+
+      <div className="ds-sub">
+        <h3>WaveformPlayer</h3>
+        {WaveformPlayer && <WaveformPlayer duration={111} />}
+      </div>
+
+      <div className="ds-sub">
+        <h3>ReadCard</h3>
+        {ReadCard && (
+          <ReadCard
+            title="What Are Bug Bounties and How They Work"
+            date="16 Jun 2026"
+            duration={111}
+            mode="summary"
+            voice="codeword"
+            words={1161}
+            snippet="So, I was just reading this interesting piece about bug bounty programs and how they work to help companies stay secure. Basically, as technology changes so fast with new features and AI, it becomes really hard for a single internal team to catch every vulnerability."
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+function Kits() {
+  const [tab, setTab] = React.useState("dashboard");
+  const kits = { dashboard: "Dashboard", landing: "Landing", terminal: "Terminal" };
+  return (
+    <>
+      <div className="kit-tabs">
+        {Object.entries(kits).map(([k, label]) => (
+          <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
+        ))}
+      </div>
+      <div className="kit-frame">
+        <iframe key={tab} src={`ui_kits/${tab}/index.html`} title={kits[tab]} />
+      </div>
+    </>
+  );
+}
+
+function App() {
+  return (
+    <div className="ds-shell">
+      <header className="ds-header">
+        <h1>readback <span style={{ color: "var(--dim)", fontWeight: 400 }}>design system</span></h1>
+        <p>Ghost palette &middot; 7 type rungs &middot; 9 components &middot; 3 kits</p>
+      </header>
+
+      <section className="ds-section">
+        <h2>Tokens</h2>
+        <TokenColors />
+        <TokenTypography />
+        <TokenSpacing />
+        <TokenMotion />
+      </section>
+
+      <section className="ds-section">
+        <h2>Components</h2>
+        <Components />
+      </section>
+
+      <section className="ds-section">
+        <h2>UI Kits</h2>
+        <Kits />
+      </section>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Library dashboard" description="readback's searchable, replayable library of past reads — the Vue 3 SPA" -->
+<helmet>
+  <script src="./ds-base.js"></script>
+</helmet>
+<div style="min-height:100vh;background:var(--bg);background-image:var(--scanlines);">
+  <x-import component-from-global-scope="Dashboard" from="../../ui_kits/dashboard/Dashboard.jsx" hint-size="820px,900px"></x-import>
+</div>
+</x-dc>
+</body>
+</html>

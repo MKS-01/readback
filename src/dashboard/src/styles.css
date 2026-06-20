@@ -1,21 +1,11 @@
-/* readback library dashboard — Ghost palette, same as the CLI + landing page
-   (src/cli/src/theme.ts is the source of truth; mirrored in site/style.css). */
+/* readback library dashboard — tokens imported from the shared design system;
+   surface-specific styles below. */
 
-:root {
-  --bg: #0a0a0a;
-  --panel: #121212;
-  --line: #232323;
-  --text: #f0f0f0;
-  --dim: #808080;
-  --accent: #4da3ff; /* Xcode blue — wordmark "BACK", caret, fills */
-  --green: #5dd17a;
-  --red: #ff5d5d;
-  /* motion curves (per emil-design-eng): strong ease-out for entrances/press,
-     iOS-style drawer curve for the accordion. No bounce in functional UI. */
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
-  --radius: 8px;       /* soften the boxy sharp corners — matches the landing page */
-}
+@import url("../../design-system/tokens/colors.css");
+@import url("../../design-system/tokens/typography.css");
+@import url("../../design-system/tokens/spacing.css");
+@import url("../../design-system/tokens/motion.css");
+@import url("../../design-system/tokens/base.css");
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -25,8 +15,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
   /* faint scanline texture, like a tired CRT */
   background-image: repeating-linear-gradient(
     0deg, transparent 0 2px, rgba(255, 255, 255, 0.012) 2px 4px);
@@ -39,12 +29,12 @@ a:hover { text-decoration: underline; }
 button { font: inherit; cursor: pointer; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 1px; }
-::selection { background: rgba(77, 163, 255, 0.28); color: var(--text); }
+::selection { background: var(--accent-28); color: var(--text); }
 
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border: 3px solid var(--bg); border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: #333; }
+::-webkit-scrollbar-thumb:hover { background: var(--line-hi); }
 
 .wrap {
   max-width: 820px;
@@ -57,7 +47,7 @@ button { font: inherit; cursor: pointer; }
 .head { margin-bottom: 8px; }
 
 .prompt-line {
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--dim);
   margin-bottom: 18px;
 }
@@ -84,7 +74,7 @@ button { font: inherit; cursor: pointer; }
 .subtitle {
   font-family: "Martian Mono", monospace;
   font-weight: 500;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--dim);
   margin-top: 6px;
 }
@@ -120,12 +110,12 @@ button { font: inherit; cursor: pointer; }
   outline: none;
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .search input::placeholder { color: var(--dim); }
 
-.search .sigil { color: var(--accent); font-size: 13px; }
+.search .sigil { color: var(--accent); font-size: var(--text-base); }
 
 .sort {
   display: flex;
@@ -140,11 +130,11 @@ button { font: inherit; cursor: pointer; }
   border: none;
   color: var(--dim);
   padding: 9px 14px;
-  font-size: 13px;
+  font-size: var(--text-base);
   transition: color 0.15s var(--ease-out), background 0.15s var(--ease-out);
 }
 
-.sort button.on { color: var(--accent); background: rgba(77, 163, 255, 0.08); }
+.sort button.on { color: var(--accent); background: var(--accent-08); }
 .sort button:active { transform: scale(0.97); }
 @media (hover: hover) and (pointer: fine) {
   .sort button:hover { color: var(--text); }
@@ -154,7 +144,7 @@ button { font: inherit; cursor: pointer; }
 
 .muted {
   color: var(--dim);
-  font-size: 14px;
+  font-size: var(--text-md);
   padding: 40px 0;
   text-align: center;
 }
@@ -163,7 +153,7 @@ button { font: inherit; cursor: pointer; }
 .muted.loading { animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.4; } }
 
-.count { color: var(--dim); font-size: 12.5px; margin-bottom: 16px; }
+.count { color: var(--dim); font-size: var(--text-sm); margin-bottom: 16px; }
 
 .load-more {
   display: block;
@@ -174,7 +164,7 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--dim);
-  font-size: 13px;
+  font-size: var(--text-base);
   transition: border-color 0.15s, color 0.15s, transform 0.12s var(--ease-out);
 }
 
@@ -223,27 +213,27 @@ button { font: inherit; cursor: pointer; }
   background: none;
   border: 1px solid var(--accent);
   color: var(--accent);
-  width: 40px;
-  height: 40px;
+  width: var(--control-h);
+  height: var(--control-h);
   border-radius: var(--radius);
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
   transition: background 0.15s, transform 0.12s var(--ease-out);
 }
 
 .play:active { transform: scale(0.95); }
 @media (hover: hover) and (pointer: fine) {
-  .play:hover { background: rgba(77, 163, 255, 0.08); }
+  .play:hover { background: var(--accent-08); }
 }
 .play.on { background: var(--accent); color: var(--bg); }
 
 .card-body { flex: 1; min-width: 0; }
 
-.title { font-size: 15px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.title { font-size: var(--text-body); font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 
 .meta {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--text-sm);
   margin-top: 5px;
   display: flex;
   flex-wrap: wrap;
@@ -254,7 +244,7 @@ button { font: inherit; cursor: pointer; }
 
 .snippet {
   color: var(--dim);
-  font-size: 13.5px;
+  font-size: var(--text-base);
   margin-top: 10px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -271,7 +261,7 @@ button { font: inherit; cursor: pointer; }
   display: flex;
   gap: 16px;
   margin-top: 12px;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 .actions button {
@@ -295,7 +285,7 @@ button { font: inherit; cursor: pointer; }
 /* ── synced transcript (karaoke) ─────────────────────────── */
 /* Mirrors the CLI: spoken words in accent blue, the rest dim. */
 .transcript {
-  font-size: 13.5px;
+  font-size: var(--text-base);
   margin-top: 10px;
   line-height: 1.75;
   color: var(--dim);
@@ -335,7 +325,7 @@ button { font: inherit; cursor: pointer; }
 }
 
 .player .t {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text);
   min-width: 34px;
   flex-shrink: 0;
@@ -392,7 +382,7 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--dim);
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   padding: 3px 8px;
   transition: border-color 0.15s, color 0.15s, transform 0.12s var(--ease-out);
 }
@@ -410,7 +400,7 @@ button { font: inherit; cursor: pointer; }
   border-top: 1px solid var(--line);
   text-align: center;
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,0 +1,13 @@
+/* readback composite / semantic tokens — built from the primitives. */
+
+:root {
+  /* CRT scanline texture */
+  --scanlines: repeating-linear-gradient(
+    0deg, transparent 0 2px, rgba(255, 255, 255, 0.012) 2px 4px);
+
+  /* terminal window shadow */
+  --shadow-window: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* active-card left rail (dashboard) */
+  --rail-accent: inset 2px 0 0 var(--accent);
+}

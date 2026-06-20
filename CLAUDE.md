@@ -107,14 +107,29 @@ readback/
     ├── voice/                 # reference clips for clone voices; *.wav gitignored
     │                          # (exception: committed voice_codeword.wav,
     │                          # the active codeword reference)
+    ├── design-system/         # shared design system — canonical source for the Ghost palette.
+    │   ├── tokens/            # colors.css, typography.css, spacing.css, motion.css, base.css
+    │   │                      # Dashboard imports via @import; landing page inlines (deployed
+    │   │                      # standalone). CLI mirrors via theme.ts (Ink, no CSS).
+    │   ├── components/        # 9 React JSX specimen components (Badge, Button, PromptLine,
+    │   │                      # SearchInput, SeekBar, WaveformPlayer, ReadCard, Wordmark,
+    │   │                      # SectionHeader). Bundled into _ds_bundle.js.
+    │   ├── ui_kits/           # 3 full-page recreations (terminal, dashboard, landing) that
+    │   │                      # compose the components into interactive demos.
+    │   ├── templates/         # dc-runtime template wrappers (for Claude Design Components).
+    │   ├── index.html         # single-page design system viewer — tokens, components, kits.
+    │   │                      # Serve with `python3 -m http.server` and open in browser.
+    │   ├── styles.css         # base stylesheet importing all token layers.
+    │   └── _ds_bundle.js      # pre-built bundle of all components (bun build).
     ├── dashboard/             # web library UI (Vue 3 + Vite + TS); REST + static client
     │                          # (search/sort/replay/delete past reads), NOT a /ws client.
     │                          # src/{App,api,styles}.* + components/; build → dist/ (gitignored),
-    │                          # which server.py mounts at / when present. Ghost palette reused.
+    │                          # which server.py mounts at / when present. Tokens from design-system/.
     ├── landing-page/          # static marketing site (mks-01.github.io/readback) —
     │                          # index.html + style.css, vanilla inline JS (waveform
     │                          # player, screenshot stepper w/ rAF progress bar, scroll
-    │                          # reveal + staggered Features). Trimmed to hook+redirect:
+    │                          # reveal + staggered Features). Tokens inlined (deployed
+    │                          # standalone); keep in sync with design-system/. Trimmed to hook+redirect:
     │                          # hero · Hear it · See it work · Features · Dive-in (GitHub
     │                          # links) — deep docs live in the repo, not duplicated here.
     │                          # NOT a web client; media/ gitignored (preview of docs/media).
@@ -495,19 +510,19 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.6.0** — optimisation + UI polish (**minor** — no protocol/config
-break). Default model → `qwen3.5:9b`; `LLMClient` reused across the pipeline;
-`set_temperature`/`swap_voice` off the thread pool. Server logs per-read timings
-(`done` payload includes `timings`). CLI player: kill+restart replaces
-SIGSTOP/SIGCONT for glitch-free pause/resume. CLI UI polish: responsive progress
-bars, transcript scroll window (12-line cap), structured help view, cleaner model
-list (no emoji), library with selected-item-only metadata + summary preview.
-Dashboard: `:focus-visible`, `::selection`, scrollbar, hover media queries
-(mobile/Pi parity). New: `HelpView.tsx`, `ghost-design-system` skill,
-`drive-cli` skill.
+Current: **v3.7.0** — design system consistency pass (**minor** — presentational
+only; no protocol/API/config change). New `src/design-system/tokens/` with 5
+canonical token CSS files (colors, typography, spacing, motion, base). Dashboard
+CSS imports from tokens; landing page inlines the same values. All raw px
+`font-size` replaced with `var(--text-*)` tokens (7-rung scale); play button
+standardised to `var(--control-h)` 40px; inline `rgba()` replaced with semantic
+tint tokens. New `design-system` skill.
 
-Previously: **v3.5.0** — image OCR, book scans, tones (**minor** — additive; no
-protocol/config/dependency break). New input sources beyond URLs; map-reduce
+Previously: **v3.6.0** — optimisation + UI polish. Default model → `qwen3.5:9b`;
+`LLMClient` reused; server timings; CLI kill+restart pause; UI polish across CLI +
+dashboard. New: `HelpView.tsx`, `ghost-design-system` skill, `drive-cli` skill.
+
+Previously: **v3.5.0** — image OCR, book scans, tones. New input sources; map-reduce
 summarization; source-aware tones (`pipeline/tones.py`).
 
 Previously: **v3.4.0** — CLI library screen (**minor** — CLI-only). `/library`
