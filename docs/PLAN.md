@@ -6,6 +6,57 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-20 — Summary-LLM model experiments (quality/accuracy backlog)
+
+**Status: proposed** — a shortlist of MLX models to trial for Summary mode, now
+that the LLM is no longer the bottleneck (chain-of-thought disabled, ~4 s
+summaries). Goal: find the best faithfulness/prose vs speed point for article +
+book-scan summarization. No code change — `/model` already switches per-read; this
+is a download-and-compare exercise. Default stays `Qwen3.5-9B-4bit`.
+
+### Context
+
+Target hardware: M5 Pro, 48 GB unified. CSM-1B (~6 GB) is always resident, so the
+practical LLM budget is ~30 GB to stay comfortable (≤50% fit), ~36 GB before it
+gets tight. 4-bit MLX builds (`mlx-community/*`) only. Quality for this task =
+faithful, well-ordered spoken prose under the ~250-word ceiling — instruction
+-following and grounding matter more than raw size past ~9B.
+
+### Candidates (summary LLM)
+
+| model | ~size | why try it | verdict for 48 GB |
+|---|---|---|---|
+| `Qwen3.5-9B-4bit` (current) | 5.5 GB | strong baseline, fast | keep as default |
+| `Qwen3-30B-A3B-4bit` (MoE) | ~17 GB | near-32B quality, only ~3B active → fast; best "quality+speed" bet | **top experiment** |
+| `Qwen2.5-32B-Instruct-4bit` | ~18 GB | dense/technical faithfulness upgrade | good fit, ~2-3× slower |
+| `gemma-2-27b-it-4bit` | ~16 GB | excellent natural narration/prose for read-aloud | good fit |
+| `Mistral-Small-3.1-24B-Instruct-4bit` | ~13 GB | efficient, strong instruction-following | good fit, lighter |
+| `Phi-4-14B-4bit` | ~8 GB | reasoning-dense at small size; modest step up from 9B | comfortable |
+| `Llama-3.3-70B-Instruct-4bit` | ~40 GB | ceiling quality | ⚠ tight alongside CSM — edge of envelope, expect swap pressure |
+
+### Candidate (vision OCR, separate `cfg.vision_model`)
+
+| model | ~size | why try it |
+|---|---|---|
+| `Qwen2.5-VL-7B-Instruct-4bit` | ~5 GB | OCR-accuracy upgrade over the default 3B for dense/low-quality book scans |
+
+### How to evaluate
+
+1. `huggingface-cli download <id>` (or let the first `/model` switch pull it).
+2. Read one representative URL article AND one multi-page book scan through each
+   model in Summary mode, same voice/tone.
+3. Compare on: faithfulness (no invented facts), ordering/coverage, prose
+   naturalness when spoken, and the server's `summarize` timing (already logged).
+4. Promote the winner to `config.yaml`'s `llm.model` default if it beats the 9B
+   on quality without an unacceptable speed hit.
+
+### Out of scope
+
+- Auto-selecting a model by source length/type (manual `/model` for now).
+- Any change to the fit heuristic or picker UI.
+
+---
+
 ## 2026-06-20 — Replace Ollama with mlx-lm + mlx-vlm (full MLX LLM stack)
 
 **Status: done** — branch `llm-migration`, v4.0.0. Removed Ollama entirely; summary/title/OCR all run in-process via mlx-lm + mlx-vlm on Apple's MLX framework, unifying with CSM-1B. `OllamaConfig` → `LLMConfig`, config key `ollama:` → `llm:` (old key auto-migrated), `ollama` dep replaced by `mlx-lm` + `mlx-vlm`. Model discovery scans HF cache. Non-chat models (whisper, parakeet, CSM, TTS) filtered from `/model` picker. Smoke-tested: Full + Summary mode end-to-end. All docs updated. 49 tests pass.
