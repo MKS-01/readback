@@ -511,15 +511,16 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.7.0** — design system consistency pass (**minor** — presentational
-only; no protocol/API/config change). New `src/design-system/tokens/` with 5
-canonical token CSS files (colors, typography, spacing, motion, base). Dashboard
-CSS imports from tokens; landing page inlines the same values. All raw px
-`font-size` replaced with `var(--text-*)` tokens (7-rung scale); play button
-standardised to `var(--control-h)` 40px; inline `rgba()` replaced with semantic
-tint tokens. New `design-system` skill.
+Current: **v4.0.0** — full MLX LLM stack (**major** — Ollama removed). Summary
+LLM and vision OCR now run in-process via `mlx-lm` + `mlx-vlm` on Apple
+Silicon, unifying with CSM-1B TTS under one framework. `OllamaConfig` →
+`LLMConfig`; config key `ollama:` → `llm:` (old key auto-migrated); `ollama`
+dep replaced by `mlx-lm` + `mlx-vlm`; no external daemon needed. +25–30%
+generation speed. Model discovery scans HF cache instead of Ollama API. New
+`upgrade-deps` skill.
 
-Previously: **v3.6.0** — optimisation + UI polish. Default model → `qwen3.5:9b`;
+Previously: **v3.7.0** — design system consistency pass. **v3.6.0** — optimisation
++ UI polish. Default model → `qwen3.5:9b`;
 `LLMClient` reused; server timings; CLI kill+restart pause; UI polish across CLI +
 dashboard. New: `HelpView.tsx`, `ghost-design-system` skill, `drive-cli` skill.
 
