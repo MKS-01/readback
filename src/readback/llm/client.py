@@ -104,6 +104,7 @@ class LLMClient:
         the reader's Summary mode. Returns clean text (think tags stripped)."""
         try:
             from mlx_lm import generate
+            from mlx_lm.sample_utils import make_sampler
 
             self._ensure_loaded()
             messages = [
@@ -113,9 +114,10 @@ class LLMClient:
             prompt = self._tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True,
             )
+            sampler = make_sampler(temp=0.4)
             result = generate(
                 self._model, self._tokenizer, prompt=prompt,
-                max_tokens=4096, temperature=0.4, verbose=False,
+                max_tokens=4096, sampler=sampler, verbose=False,
             )
             return strip_think(result or "").strip()
         except Exception as e:
