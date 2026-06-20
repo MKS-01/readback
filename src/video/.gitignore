@@ -1,7 +1,0 @@
-# Remotion / Node
-node_modules/
-out/
-.remotion/
-
-# The sample WAV is copied in from ../../docs/media at build time (see README).
-public/sample-read.wav
