@@ -6,7 +6,7 @@ llm:
   # Used by "summary" mode (spoken explanation) and image OCR. Both run
   # in-process via MLX — no external daemon needed.
   model: "mlx-community/Qwen3.5-9B-4bit"
-  vision_model: "mlx-community/Qwen2.5-VL-3B-Instruct-4bit"
+  vision_model: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
 
 tts:
   # CSM-1B (Sesame) via csm-mlx (senstella). Two voices map to CSM speaker IDs;
