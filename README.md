@@ -45,16 +45,6 @@
   <sub>The terminal client mid-read: seekable player, live word-by-word transcript sync.</sub>
 </p>
 
-<p align="center">
-  <strong>🔊 <a href="docs/media/sample-read.wav">Hear a sample read</a></strong><br>
-  <sub>A real Summary-mode read (local LLM + CSM-1B) in <strong>codeword</strong> — a custom-tuned clone voice</sub>
-</p>
-
-<p align="center">
-  <a href="docs/media/how-it-works.mp4"><img src="docs/media/how-it-works.gif" alt="readback — how it works: paste a URL or book scan, extract, summarize with a local LLM, synthesize with CSM-1B, play in your terminal" width="860"></a><br>
-  <sub>How it works, in 15 s — <a href="docs/media/how-it-works.mp4">watch the MP4 (with sound)</a> · made with <a href="src/video/">Remotion</a></sub>
-</p>
-
 ---
 
 ## Getting started
@@ -106,21 +96,6 @@ The CLI auto-starts the server and kills it on exit. It's a full terminal player
 - `q` to quit (or any time the input field is empty)
 
 macOS only (`afplay` playback). Details: [`src/cli/README.md`](src/cli/README.md).
-
-<p align="center">
-  <img src="docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts and a recommendation" width="640"><br>
-  <sub><code>/model</code> — every downloaded MLX model, sized up against your Mac's RAM before you commit.</sub>
-</p>
-
-<p align="center">
-  <img src="docs/media/cli-lib.png" alt="readback CLI — /lib library browser with selected-item preview" width="640"><br>
-  <sub><code>/lib</code> — browse past reads; metadata and a summary preview appear for the selected item.</sub>
-</p>
-
-<p align="center">
-  <img src="docs/media/cli-help.png" alt="readback CLI — /help command reference" width="640"><br>
-  <sub><code>/help</code> — every command and player key at a glance.</sub>
-</p>
 
 First read downloads CSM-1B weights (~6 GB) and the summary LLM (~5.5 GB), then warms up the MLX graph — slow once, fast after. (The vision OCR model, ~5 GB, downloads lazily the first time you read an image or book scan.) See [SETUP.md](docs/SETUP.md) for details.
 
