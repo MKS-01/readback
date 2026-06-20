@@ -6,6 +6,80 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-20 — Replace Ollama with mlx-lm + mlx-vlm (full MLX LLM stack)
+
+**Status: proposed** — branch `llm-migration`. Remove Ollama entirely; summary/title/OCR all run in-process via Apple's MLX framework, unifying with CSM-1B.
+
+### Context
+
+Ollama wraps llama.cpp behind a daemon — ~15–20% overhead vs raw inference, requires a separate background process, and is a different framework from the CSM-1B TTS engine (which already runs on MLX). Replacing it with `mlx-lm` (text generation) and `mlx-vlm` (vision/OCR) means:
+- **+25–30% generation speed** (~100 tok/s vs ~78 tok/s on a 7B 4-bit model, M5 Pro).
+- **No daemon** — in-process calls, no `ollama serve` requirement.
+- **Framework alignment** — both LLM and TTS share MLX/Metal unified memory, avoiding the Ollama↔MLX memory fragmentation.
+- **One fewer system dependency** for setup.
+
+The current Ollama surface is contained: `LLMClient.oneshot()` (summary + title gen), `pick_vision_model` + `_ocr_via_ollama` (image OCR), and model listing for the CLI `/model` picker.
+
+Trade-off: MLX models are HuggingFace safetensors (not GGUF) — a one-time ~4.5 GB download per model. Existing Ollama blobs can't be reused. Model discovery changes from querying a server API to scanning the local HF cache.
+
+### Design
+
+1. **Config** — rename `OllamaConfig` → `LLMConfig`. Fields: `model: str` (HF ID, default `mlx-community/Qwen3.5-9B-4bit`), `vision_model: str` (HF ID, default `mlx-community/Qwen2.5-VL-3B-Instruct-4bit`). Drop `host` (no server). Top-level key stays `ollama` in `config.yaml` for now → renamed to `llm` (breaking config change, but minor — only one user).
+
+2. **`llm/client.py`** — replace `ollama.Client.chat()` with `mlx_lm.load()` + `mlx_lm.generate()`. The model + tokenizer are loaded lazily on first call (like CSM). Chat template applied via `tokenizer.apply_chat_template()`. `_ThinkStripper` stays (belt-and-suspenders for Qwen3.5 models). `temperature` and `top_k` passed to `generate()`. Model swap = unload current + load new (heavier than Ollama's server-side swap, but infrequent — `/model` is a per-session action).
+
+3. **`llm/models.py`** — replace Ollama API calls with HF cache scanning. `list_models()` scans `~/.cache/huggingface/hub/models--mlx-community--*` for downloaded MLX models, reads their `config.json` for parameter count, computes RAM-fit verdicts (same heuristic). `pick_vision_model()` replaced by a config-driven default (`cfg.vision_model`). `installed_model_names()` returns HF IDs of downloaded models.
+
+4. **`pipeline/extract.py`** — `_ocr_via_ollama` → `_ocr_via_mlx`. Uses `mlx_vlm.load()` + `mlx_vlm.generate()` with the vision model. Image passed as a local file path (mlx-vlm supports this natively). The vision model is loaded lazily and cached (same pattern as the text LLM). `pick_vision_model` calls removed — the vision model is config-driven.
+
+5. **`server/server.py`** — wire `cfg.llm` (renamed from `cfg.ollama`). Model swap logic updated: validate against downloaded models, then trigger unload/reload on `LLMClient`. `ReaderModels.ensure_loaded` loads the text LLM alongside CSM (vision model loads lazily on first OCR).
+
+6. **Thread safety** — the pipeline is sequential (fetch → summarize → synthesize), so the text LLM and CSM never run concurrently. The LLM runs via `asyncio.to_thread` (same as today's Ollama calls). Both models share unified memory (~4.5 GB LLM + ~2 GB CSM = ~6.5 GB of 48 GB — comfortable). No shared MLX executor needed — they're separate models on separate threads at separate times.
+
+7. **Dependencies** — `pyproject.toml`: replace `ollama>=0.6.0` with `mlx-lm` + `mlx-vlm`. Both are lazy imports in the modules that use them (same pattern as `csm-mlx`), so the Pi server boots without them. `requirements-pi.txt`: remove `ollama` (Pi never runs LLM/OCR).
+
+8. **`config.yaml`** — update the `ollama:` block to `llm:` with new defaults. `setup.sh` updated: instead of pulling an Ollama model, pre-download the default MLX model via `huggingface-cli download mlx-community/Qwen3.5-9B-4bit`.
+
+9. **CLI `/model` picker** — the list now shows downloaded MLX models (HF IDs) instead of Ollama model names. The recommendation logic (largest good-fit chat model) stays. Vision models filtered out. The display adapts: HF IDs are longer, so show a short alias (e.g. `Qwen3.5-9B-4bit` from `mlx-community/Qwen3.5-9B-4bit`).
+
+### Files
+
+- `src/readback/config.py` (modified): `OllamaConfig` → `LLMConfig`, new fields
+- `src/readback/llm/client.py` (modified): mlx-lm load/generate, lazy model management
+- `src/readback/llm/models.py` (modified): HF cache scanning, drop Ollama API calls
+- `src/readback/pipeline/extract.py` (modified): `_ocr_via_mlx` replacing `_ocr_via_ollama`
+- `src/readback/server/server.py` (modified): wire `cfg.llm`, model swap, ensure_loaded
+- `src/readback/__main__.py` (modified): `cfg.ollama` → `cfg.llm`
+- `pyproject.toml` (modified): swap deps
+- `requirements-pi.txt` (modified): remove `ollama`
+- `config.yaml` (modified): `ollama:` → `llm:` block
+- `scripts/setup.sh` (modified): HF download instead of ollama pull
+
+### Out of scope
+
+- Parallel map-reduce (sequential for now — same as Ollama era)
+- LLM LoRA fine-tuning via mlx-lm (capability exists but not wired)
+- Batched/concurrent LLM+TTS (pipeline stays sequential)
+- Ollama fallback/compatibility mode (hard cut)
+- New CLI commands or protocol changes (transparent swap)
+- Dashboard changes (it doesn't touch the LLM)
+
+### Verification
+
+1. `pip install -e .` succeeds with mlx-lm + mlx-vlm deps, no ollama dep
+2. `readback` starts — no Ollama process needed; `GET /api/config` responds
+3. Paste a URL, Summary mode → LLM summarizes via mlx-lm, audio plays (quality parity with Ollama)
+4. Paste a URL, Full mode → unchanged (no LLM involved)
+5. Drop an image path → OCR via mlx-vlm, text extracted, audio plays
+6. Folder of images → multi-page OCR via mlx-vlm, map-reduce summary works
+7. `/model` → lists downloaded MLX models with RAM-fit verdicts + recommendation
+8. `/model mlx-community/Qwen3.5-4B-4bit` → switches model, next summary uses it
+9. `grep -r "ollama" src/readback/` → zero hits (full removal)
+10. Pi: `pip install -r requirements-pi.txt` succeeds without mlx-lm/mlx-vlm; server boots, dashboard works
+11. `pytest` → existing tests pass (no MLX in the test suite)
+
+---
+
 ## 2026-06-20 — Design system consistency pass
 
 **Status: done** — branch `design-revamp`. Established a shared design token
