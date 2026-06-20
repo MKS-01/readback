@@ -50,6 +50,11 @@
   <sub>A real Summary-mode read (local LLM + CSM-1B) in <strong>codeword</strong> — a custom-tuned clone voice</sub>
 </p>
 
+<p align="center">
+  <a href="docs/media/how-it-works.mp4"><img src="docs/media/how-it-works.gif" alt="readback — how it works: paste a URL or book scan, extract, summarize with a local LLM, synthesize with CSM-1B, play in your terminal" width="860"></a><br>
+  <sub>How it works, in 15 s — <a href="docs/media/how-it-works.mp4">watch the MP4 (with sound)</a> · made with <a href="src/video/">Remotion</a></sub>
+</p>
+
 ---
 
 ## Getting started

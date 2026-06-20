@@ -11,6 +11,10 @@ intentionally lower priority.
 
 ## Recently shipped
 
+- **README explainer video (Remotion)** — a 15 s programmatic "how it works"
+  video (`src/video/`, React/TS, on-brand Ghost tokens): hero → animated pipeline
+  → terminal mock → live waveform of the real sample read → outro. Renders to
+  `docs/media/how-it-works.{mp4,gif}`; the README embeds the GIF (links to the MP4).
 - **Summary/audio speedup — disabled LLM chain-of-thought** 🏁 _key milestone_.
   Qwen3.5 defaulted to thinking and spent its whole token budget on an untagged
   "Thinking Process:" monologue — slow, truncated before the real answer, and

@@ -135,6 +135,10 @@ readback/
     │                          # links) — deep docs live in the repo, not duplicated here.
     │                          # NOT a web client; media/ gitignored (preview of docs/media).
     │                          # Deployed by pages.yml; refresh via the landing-page skill.
+    ├── video/                 # Remotion explainer for the README (how it works) —
+    │                          # React/TS video; reuses Ghost tokens (theme.ts). NOT shipped.
+    │                          # `bun run studio` to preview, `render`/`gif` → docs/media/
+    │                          # how-it-works.{mp4,gif}. node_modules + public/*.wav gitignored.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
     │   ├── package.json       # readback-cli (version-synced); ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
