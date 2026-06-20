@@ -150,6 +150,12 @@ function reducer(state: State, action: Action): State {
   }
 }
 
+// Recognized slash commands — keep in sync with handleCommand's switch. Used to
+// tell a command (`/model …`) from a local source path (`/Users/…`) at submit.
+const KNOWN_COMMANDS = new Set([
+  "help", "quit", "exit", "mode", "voice", "model", "library", "lib",
+]);
+
 const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 function QuittingView() {
@@ -385,10 +391,12 @@ export function App({ handle, prefs, onQuit }: Props) {
     if (process.env.READBACK_CLI_DEBUG)
       require("node:fs").appendFileSync("/tmp/rbcli.log", `submit: ${JSON.stringify(value)}\n`);
     const isGlob = /[*?]/.test(value);
-    // Slash commands are single-segment (/voice, /model, /help, …). Multi-segment
-    // paths (/Users/…) and globs are not commands even if they start with /.
-    const isSlashCommand = value.startsWith("/") && !value.slice(1).includes("/") && !isGlob;
-    if (isSlashCommand) {
+    // A slash command is `/<known-word> [arg]`. Match on the FIRST token only —
+    // the arg may itself contain a `/` (e.g. `/model mlx-community/Qwen…`), so we
+    // can't reject on a stray slash. Absolute paths (`/Users/…`) and globs fall
+    // through because their first token isn't a known command.
+    const firstToken = value.startsWith("/") ? value.slice(1).split(/\s+/)[0] : "";
+    if (KNOWN_COMMANDS.has(firstToken)) {
       handleCommand(value);
       return;
     }

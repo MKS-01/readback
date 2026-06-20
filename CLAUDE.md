@@ -386,10 +386,13 @@ readback/
   `UrlInput.onChange` before the controlled value updates. Quit path:
   `dispatch("quitting")` → braille spinner renders for 300 ms → `shutdown()` +
   `exit()` (the delay lets Ink paint one frame before tearing down).
-  **Input guard** (`handleSubmit`): slash commands are single-segment
-  (`/voice`, `/model`, etc. — no second `/`, no glob chars). Multi-segment
-  absolute paths (`/Users/…`), globs (`*`/`?`), and tilde paths (`~/…`) all
-  bypass the command check and route to the server as local sources.
+  **Input guard** (`handleSubmit`): an input is a command iff its FIRST token is
+  a known command word (`KNOWN_COMMANDS`, kept in sync with `handleCommand`'s
+  switch). ⚠ Match on the first token only — the arg may contain a `/` (e.g.
+  `/model mlx-community/Qwen…`), so the old "no second `/`" heuristic wrongly
+  routed `/model <hf-id>` to the read pipeline. Absolute paths (`/Users/…`),
+  globs (`*`/`?`), and tilde paths (`~/…`) have a non-command first token and
+  route to the server as local sources.
 - **Playback = `afplay`** (macOS-only): pause **SIGKILLs** the afplay process
   and records the elapsed position; resume restarts afplay from that position via
   the same WAV-slice mechanism seek uses (`restartAt`). ⚠ The old
