@@ -1,4 +1,4 @@
-# Architecture — readback (v3.2.0)
+# Architecture — readback (v4.0.0)
 
 How the pieces fit together and why. System-level companion to
 [CLAUDE.md](../CLAUDE.md) (implementation notes, gotchas, exact knobs) and
@@ -17,7 +17,7 @@ over a WebSocket, and the **web dashboard** (`src/dashboard/`, Vue 3) replays
 
 ```
 URL ─▶ fetch + extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ afplay
-       (trafilatura)    (Ollama)            (CSM-1B / csm-mlx)            └▶ library (SQLite) ─▶ dashboard replay
+       (trafilatura)    (mlx-lm)            (CSM-1B / csm-mlx)            └▶ library (SQLite) ─▶ dashboard replay
 ```
 
 Unlike the real-time voice assistant this project began as, synthesis is **batch,
@@ -101,23 +101,25 @@ responsive while a read job runs because all heavy work is pushed off it:
   adapter (`cfg.lora_path`), when set, is loaded over the base weights and
   generation switches to **empty context** (the voice lives in the adapter).
 - **`Synthesizer`** (`synthesizer.py`) is a thin facade (`synthesize`,
-  `sample_rate`, `current_voice`, `swap_voice`, `supported_voices`, `load`) so the
+  `sample_rate`, `current_voice`, `swap_voice`, `set_temperature`, `load`) so the
   server stays engine-agnostic — a future engine is a factory change, not a
   rewrite. `tts.engine` is a single-value enum (`"csm"`).
 
 ## 5. LLM (`src/readback/llm/client.py`)
 
 Only **Summary mode** uses the LLM, via `LLMClient.oneshot()` — a single
-non-streaming Ollama `chat` (`think=False`, low temperature) with `<think>`
-stripping for GGUF builds that emit inline tags. Full mode skips the LLM
-entirely. This is the heaviest, most occasional step (see §1) — it runs only
-during generation, never on dashboard replay.
+non-streaming mlx-lm `generate` (low temperature) with `<think>` stripping for
+models that emit inline reasoning tags. Full mode skips the LLM entirely. This
+is the heaviest, most occasional step (see §1) — it runs only during
+generation, never on dashboard replay. The model + tokenizer are loaded lazily
+on first call and cached in-process.
 
-The model is switchable at runtime: `llm/models.py` lists the locally
-installed Ollama models with a RAM-fit verdict and a summary recommendation
-(served as `GET /api/models`), and a `model` field on the `read` WS message
-swaps `cfg.ollama.model` in place — `oneshot()` reads it per call, so no
-reload. The switch is process-wide and not written back to `config.yaml`.
+The model is switchable at runtime: `llm/models.py` scans downloaded MLX
+models in the HuggingFace cache with a RAM-fit verdict and a summary
+recommendation (served as `GET /api/models`), and a `model` field on the `read`
+WS message swaps `cfg.llm.model` in place — the LLM client detects the change
+and unloads/reloads on the next call. The switch is process-wide and not
+written back to `config.yaml`.
 
 ## 6. Server layer (`src/readback/server/`)
 
@@ -132,9 +134,9 @@ reload. The switch is process-wide and not written back to `config.yaml`.
   `DELETE /api/library/{id}` (deletes the row + its WAV). All wrap blocking
   sqlite in `asyncio.to_thread`.
 - **WS protocol** —
-  - client → `read {url, mode, voice?, model?}`, `cancel` (`model` swaps the
-    summary LLM for this and later reads; validated against installed Ollama
-    models)
+  - client → `read {url, mode, voice?, model?, vision_model?}`, `cancel`
+    (`model` swaps the summary LLM, `vision_model` the image/book OCR model, for
+    this and later reads; both validated against downloaded MLX models)
   - server → `phase {value}`, `progress {done, total}`,
     `done {title, audio_url, duration_sec, word_count, mode, text?}`, `error {message}`
   - `done.text` carries the spoken summary (Summary mode only) for the
@@ -152,15 +154,16 @@ reload. The switch is process-wide and not written back to `config.yaml`.
 
 ## 9. Pi deployment (`scripts/`)
 
-The Mac is the sole generation host (CSM-1B + Ollama require MLX/Metal). A
+The Mac is the sole generation host (CSM-1B + mlx-lm + mlx-vlm require MLX/Metal). A
 Raspberry Pi can serve as a network-accessible replay host:
 
 - **What runs on Pi** — the same FastAPI server, but TTS + LLM are never
   invoked (no CLI connects to Pi). Pi serves: library REST
   (`/api/library`, `/audio`), and the Vue dashboard (static `dist/`).
-- **Why no code changes** — all mlx/csm-mlx imports in `csm_engine.py` are lazy
-  (inside function bodies, not module-level), so the server imports and starts
-  cleanly on Pi with only `requirements-pi.txt` (excludes `csm-mlx`).
+- **Why no code changes** — all MLX-dependent imports (csm-mlx in `csm_engine.py`,
+  mlx-lm in `client.py`, mlx-vlm in `extract.py`) are lazy (inside function
+  bodies, not module-level), so the server imports and starts cleanly on Pi with
+  only `requirements-pi.txt` (excludes csm-mlx, mlx-lm, mlx-vlm).
 - **`scripts/deploy-pi.sh`** — builds the dashboard on Mac, rsyncs source +
   `dist/` to Pi (excludes `venv/`, `config.yaml`, CLI/finetune/voice dirs), sets
   up a venv with Pi-compatible deps, and starts/restarts the server via PM2.

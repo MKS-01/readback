@@ -17,9 +17,7 @@ model work (load + synth) runs on a single owned executor thread; public methods
 submit and block. `_impl` methods run ON that thread and must never re-submit.
 """
 import concurrent.futures
-import queue
-from collections.abc import Iterator
-from typing import Callable, Optional, TypeVar
+from typing import Callable, TypeVar
 
 import numpy as np
 
@@ -33,7 +31,6 @@ SUPPORTED_VOICES: tuple[tuple[str, str], ...] = (
     ("conversational_a", "Reading voice A ★"),
     ("conversational_b", "Reading voice B"),
 )
-SUPPORTED_VOICE_NAMES: tuple[str, ...] = tuple(v for v, _ in SUPPORTED_VOICES)
 _VOICE_SPEAKER: dict[str, int] = {"conversational_a": 0, "conversational_b": 1}
 
 
@@ -68,14 +65,8 @@ _PROMPTS: dict[str, tuple[str, str]] = {
     ),
 }
 
-# csm-mlx stream_generate yields every `accumulation_size` frames (80 ms each).
-STREAM_ACCUMULATION = 4
-
 # precision name → mlx dtype attr (fp32 = leave as loaded).
 _PRECISION_DTYPES = {"fp16": "float16", "bf16": "bfloat16"}
-
-# Sentinel pushed onto the engine→caller bridge queue when a streamed synth ends.
-_STREAM_DONE = object()
 
 _T = TypeVar("_T")
 
@@ -118,10 +109,6 @@ class CsmEngine:
     def current_voice(self) -> str:
         return self.cfg.speaker
 
-    @property
-    def supported_voices(self) -> tuple[tuple[str, str], ...]:
-        return voices_for(self.cfg)
-
     def load(self):
         self._run(self._load_impl)
 
@@ -148,33 +135,6 @@ class CsmEngine:
         if not text:
             return np.zeros(0, dtype=np.float32)
         return self._run(self._synthesize_impl, text)
-
-    def synthesize_stream(
-        self, text: str, should_stop: Optional[Callable[[], bool]] = None,
-    ) -> Iterator[np.ndarray]:
-        """Yield this sentence's audio in chunks as the model produces them.
-
-        Generation runs on the single MLX executor thread (MLX is not multi-thread
-        safe); chunks cross to this caller via a bounded queue. The caller MUST
-        drain to completion — pass `should_stop` (polled on the executor thread)
-        to end generation early instead of breaking the loop."""
-        text = text.strip()
-        if not text:
-            return
-        q: "queue.Queue" = queue.Queue(maxsize=8)   # backpressure cap
-        fut = self._executor.submit(
-            self._synthesize_stream_impl, text, should_stop, q,
-        )
-        while True:
-            item = q.get()
-            if item is _STREAM_DONE:
-                break
-            yield item
-        fut.result()   # surface any exception raised on the executor thread
-
-    def reset_context(self):
-        # Stateless across turns (empty context per sentence). Nothing to reset.
-        pass
 
     # ---- impls (run ON the MLX executor thread; never re-submit) ----
 
@@ -301,35 +261,3 @@ class CsmEngine:
         )
         mx.eval(audio)
         return _to_numpy(audio)
-
-    def _synthesize_stream_impl(self, text, should_stop, q) -> None:
-        """Drive csm-mlx's stream_generate on the executor thread, pushing each
-        audio chunk onto `q`. Polls `should_stop` between chunks."""
-        gen = None
-        try:
-            from csm_mlx import stream_generate
-
-            if self._model is None:
-                self._load_impl()
-            gen = stream_generate(
-                self._model,
-                text=text,
-                speaker=self._speaker_id(),
-                context=self._ref_for(self.cfg.speaker),
-                max_audio_length_ms=_max_ms_for(text, self.cfg.max_audio_length_ms),
-                accumulation_size=STREAM_ACCUMULATION,
-                sampler=self._make_sampler(),
-            )
-            for chunk in gen:
-                if should_stop is not None and should_stop():
-                    break
-                arr = _to_numpy(chunk)
-                if arr.size:
-                    q.put(arr)
-        finally:
-            if gen is not None and hasattr(gen, "close"):
-                try:
-                    gen.close()
-                except Exception:
-                    pass
-            q.put(_STREAM_DONE)

@@ -1,15 +1,13 @@
-"""Ollama client for the reader's Summary mode.
+"""MLX-LM client for the reader's Summary mode.
 
 The reader uses a single non-streaming completion (`oneshot`) to turn an article
-into a spoken-style explanation. The streaming / tool-calling machinery from the
-old voice-assistant era is gone — this module is just the one call plus the
-`<think>` stripper that keeps reasoning out of the spoken text.
+into a spoken-style explanation. The model + tokenizer are loaded lazily on first
+call via mlx-lm, running in-process on Apple Silicon (same MLX framework as
+CSM-1B TTS). The `<think>` stripper keeps reasoning tokens out of the spoken text.
 """
 import logging
 
-import ollama
-
-from readback.config import OllamaConfig
+from readback.config import LLMConfig
 
 log = logging.getLogger("readback.llm")
 
@@ -33,9 +31,8 @@ def _safe_emit_len(buf: str, needles: tuple[str, ...]) -> int:
 class _ThinkStripper:
     """Removes `<think>…</think>` spans from model output.
 
-    We set `think=False` on the Ollama call so reasoning normally lands in
-    `message.thinking`, never `content`. This is the belt-and-suspenders guard
-    for GGUF builds that still emit inline `<think>` tags in `content`."""
+    Qwen3.5 models may still emit inline `<think>` tags even without explicit
+    thinking-mode activation. This is the belt-and-suspenders guard."""
 
     def __init__(self):
         self._in_think = False
@@ -82,25 +79,65 @@ def strip_think(text: str) -> str:
 
 
 class LLMClient:
-    def __init__(self, cfg: OllamaConfig):
+    def __init__(self, cfg: LLMConfig):
         self.cfg = cfg
-        self._client = ollama.Client(host=cfg.host)
+        self._model = None
+        self._tokenizer = None
+        self._loaded_model_id: str | None = None
 
-    def oneshot(self, system_prompt: str, user_text: str) -> str:
+    def _ensure_loaded(self):
+        if self._model is not None and self._loaded_model_id == self.cfg.model:
+            return
+        from mlx_lm import load
+        if self._model is not None:
+            log.info("unloading %s", self._loaded_model_id)
+            del self._model, self._tokenizer
+            self._model = None
+            self._tokenizer = None
+        log.info("loading LLM %s", self.cfg.model)
+        self._model, self._tokenizer = load(self.cfg.model)
+        self._loaded_model_id = self.cfg.model
+        log.info("LLM ready: %s", self.cfg.model)
+
+    def oneshot(self, system_prompt: str, user_text: str, max_tokens: int = 1024) -> str:
         """Single non-streaming completion with an explicit system prompt. Used by
-        the reader's Summary mode. Returns clean text (think tags stripped)."""
+        the reader's Summary mode. Returns clean text (think tags stripped).
+
+        `max_tokens` is a hard ceiling on generation. A spoken summary is short
+        (~10-15 sentences ≈ 300-400 words ≈ 600 tokens), so the default leaves
+        headroom while bounding worst-case latency — without it the model can
+        ramble to thousands of tokens, which both stalls Summary mode AND balloons
+        the synthesized audio (the ramble gets read aloud)."""
         try:
-            response = self._client.chat(
-                model=self.cfg.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_text},
-                ],
-                stream=False,
-                think=False,
-                options={"temperature": 0.4},
+            from mlx_lm import generate
+            from mlx_lm.sample_utils import make_sampler
+
+            self._ensure_loaded()
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text},
+            ]
+            # Disable chain-of-thought. Reasoning models (Qwen3/3.5) otherwise burn
+            # the whole token budget on a visible "Thinking Process" preamble — slow,
+            # and (being UNTAGGED, so strip_think can't catch it) it gets read aloud.
+            # `enable_thinking=False` is the only reliable off-switch (the `/no_think`
+            # token is ignored by the MLX builds); fall back for templates that don't
+            # accept the kwarg so any user-picked `/model` still works.
+            try:
+                prompt = self._tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+            except TypeError:
+                prompt = self._tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True,
+                )
+            sampler = make_sampler(temp=0.4)
+            result = generate(
+                self._model, self._tokenizer, prompt=prompt,
+                max_tokens=max_tokens, sampler=sampler, verbose=False,
             )
-            return strip_think(response.message.content or "").strip()
+            return strip_think(result or "").strip()
         except Exception as e:
             log.exception("oneshot completion failed")
-            return f"Sorry, I hit an error talking to Ollama: {e}"
+            return f"Sorry, I hit an error running the LLM: {e}"

@@ -5,9 +5,8 @@ body out of arbitrary blog/news HTML, then lightly normalizes the text so the
 TTS doesn't read URLs, citation markers, or stray markup aloud.
 
 For images (.png/.jpg/.jpeg/.heic/.webp/.tiff/.bmp): the file is converted to
-JPEG via sips (macOS built-in, no deps) if needed, then base64-encoded and sent
-to the best available Ollama vision model (auto-selected via pick_vision_model)
-with a verbatim-extraction prompt.
+JPEG via sips (macOS built-in, no deps) if needed, then OCR'd via mlx-vlm
+(in-process vision model on Apple Silicon).
 """
 from __future__ import annotations
 
@@ -18,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from readback.config import OllamaConfig
+    from readback.config import LLMConfig
     from readback.llm.client import LLMClient  # noqa: F811
 
 log = logging.getLogger("readback.pipeline")
@@ -57,7 +56,7 @@ def _clean_for_tts(text: str) -> str:
 
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".tiff", ".tif", ".bmp"}
-# Formats Ollama vision can't load natively — convert to JPEG first via sips.
+# Formats mlx-vlm can't load natively — convert to JPEG first via sips.
 _NEEDS_CONVERT = {".heic", ".tiff", ".tif", ".bmp", ".webp"}
 
 def _natural_sort_key(name: str):
@@ -130,85 +129,88 @@ def _image_to_jpeg(src: Path) -> bytes:
             pass
 
 
-def _ocr_via_ollama(path: str, ollama_cfg: "OllamaConfig", model: str | None = None) -> str:
-    """Resolve, convert if needed, then OCR an image via an Ollama vision model.
+_vision_model = None
+_vision_processor = None
+_vision_config = None
+_vision_loaded_id: str | None = None
 
-    Pass `model` to skip the model-discovery call (important for multi-page batches).
-    """
-    import base64
 
-    import ollama as _ollama
+def _ensure_vision_model(model_id: str):
+    """Lazily load the mlx-vlm vision model, reusing across calls."""
+    global _vision_model, _vision_processor, _vision_config, _vision_loaded_id
+    if _vision_model is not None and _vision_loaded_id == model_id:
+        return
+    from mlx_vlm import load as vlm_load
+    from mlx_vlm.utils import load_config
+
+    if _vision_model is not None:
+        log.info("unloading vision model %s", _vision_loaded_id)
+        del _vision_model, _vision_processor
+        _vision_model = None
+        _vision_processor = None
+    log.info("loading vision model %s", model_id)
+    _vision_model, _vision_processor = vlm_load(model_id)
+    _vision_config = load_config(model_id)
+    _vision_loaded_id = model_id
+    log.info("vision model ready: %s", model_id)
+
+
+def _ocr_via_mlx(path: str, vision_model: str) -> str:
+    """Resolve, convert if needed, then OCR an image via mlx-vlm `vision_model`."""
+    from mlx_vlm import generate as vlm_generate
+    from mlx_vlm.prompt_utils import apply_chat_template
 
     abs_path = _resolve_image_path(path)
     if not abs_path.exists():
         raise ExtractError(f"\U0001f5bc️ image not found: {abs_path}")
 
-    if model is None:
-        from readback.llm.models import pick_vision_model
-        model = pick_vision_model(ollama_cfg)
-    if not model:
-        raise ExtractError(
-            "\U0001f916 no vision-capable model found in Ollama — try: ollama pull qwen3.5:4b"
-        )
+    log.info("OCR %s via %s", abs_path.name, vision_model)
 
-    log.info("OCR %s via %s", abs_path.name, model)
-
-    # Ollama vision accepts JPEG and PNG natively; convert everything else via sips.
     if abs_path.suffix.lower() in _NEEDS_CONVERT:
-        log.info("converting %s to JPEG for Ollama", abs_path.suffix)
+        log.info("converting %s to JPEG for OCR", abs_path.suffix)
+        import tempfile
         img_bytes = _image_to_jpeg(abs_path)
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        tmp.write(img_bytes)
+        tmp.close()
+        image_path = tmp.name
     else:
-        img_bytes = abs_path.read_bytes()
-
-    img_b64 = base64.b64encode(img_bytes).decode()
+        image_path = str(abs_path)
 
     try:
-        client = _ollama.Client(host=ollama_cfg.host)
-        response = client.chat(
-            model=model,
-            messages=[{
-                "role": "user",
-                "content": (
-                    "Extract all text from this image verbatim. "
-                    "Preserve line breaks and structure. Output only the text, no commentary."
-                ),
-                "images": [img_b64],
-            }],
-            stream=False,
-            # ⚠ Qwen3 vision models default to thinking mode and will loop into
-            # thousands of reasoning tokens on a dense screenshot (looks like a
-            # hang). Disable thinking, pin temperature to 0 for deterministic OCR,
-            # and cap output as a hard safety net so a runaway can never wedge a read.
-            think=False,
-            options={"temperature": 0, "num_predict": 4096},
+        _ensure_vision_model(vision_model)
+        prompt_text = (
+            "Extract all text from this image verbatim. "
+            "Preserve line breaks and structure. Output only the text, no commentary."
+        )
+        formatted_prompt = apply_chat_template(
+            _vision_processor, _vision_config, prompt_text, num_images=1,
+        )
+        result = vlm_generate(
+            _vision_model, _vision_processor, formatted_prompt,
+            [image_path], max_tokens=4096, temperature=0.0, verbose=False,
         )
     except Exception as e:
-        raise ExtractError(f"\U0001f916 OCR failed ({model}): {e}") from e
+        raise ExtractError(f"\U0001f916 OCR failed ({vision_model}): {e}") from e
+    finally:
+        if image_path != str(abs_path):
+            import os
+            try:
+                os.unlink(image_path)
+            except OSError:
+                pass
 
     from readback.llm.client import strip_think
-    text = strip_think(response.message.content or "").strip()
+    # mlx-vlm's generate() returns a GenerationResult (has .text) in current
+    # releases; older versions returned the raw string. Handle both.
+    raw = getattr(result, "text", result)
+    text = strip_think(str(raw) if raw is not None else "").strip()
     if not text:
         raise ExtractError("\U0001f5bc️ no text found in the image")
     return text
 
 
-def _title_from_text(text: str, ollama_cfg: "OllamaConfig", llm: "LLMClient | None" = None) -> str:
-    """Ask the LLM for a short title based on the OCR'd text. Falls back to 'Image'."""
-    from readback.llm.client import LLMClient
-    try:
-        client = llm or LLMClient(ollama_cfg)
-        raw = client.oneshot(
-            "You generate short titles. Output only the title, nothing else. Max 6 words.",
-            f"Give a title for this text:\n\n{text[:400]}",
-        )
-        title = raw.strip().strip('"').strip("'").strip()
-        return title or "Image"
-    except Exception:
-        log.debug("title generation failed, using fallback", exc_info=True)
-        return "Image"
-
-
-def _book_title_from_text(text: str, ollama_cfg: "OllamaConfig", llm: "LLMClient | None" = None) -> str:
+def _book_title_from_text(text: str, llm_cfg: "LLMConfig", llm: "LLMClient | None" = None) -> str:
     """Distill a book page's chapter/topic from its opening lines. Falls back to 'Book'.
 
     Books usually carry the chapter heading or topic in the first lines, so we feed
@@ -217,7 +219,7 @@ def _book_title_from_text(text: str, ollama_cfg: "OllamaConfig", llm: "LLMClient
     from readback.llm.client import LLMClient
     head = "\n".join(text.strip().splitlines()[:3])[:600]
     try:
-        client = llm or LLMClient(ollama_cfg)
+        client = llm or LLMClient(llm_cfg)
         raw = client.oneshot(
             "You identify the chapter or topic of a book page from its opening lines. "
             "Reply with ONLY the chapter name or topic, at most 8 words. No quotes, no commentary.",
@@ -244,9 +246,10 @@ def classify_source(source: str) -> str:
 
 def fetch_multi_page(
     source: str,
-    ollama_cfg: "OllamaConfig",
+    llm_cfg: "LLMConfig",
     progress_cb=None,
     llm: "LLMClient | None" = None,
+    vision_model: str = "",
 ) -> Article:
     """OCR every image in a folder/glob and stitch them into one continuous Article.
 
@@ -256,18 +259,8 @@ def fetch_multi_page(
     (the caller summarizes via `summarize_article` just like a URL article).
     `progress_cb(page_index, total)` fires before each page is OCR'd.
     """
-    from readback.llm.models import pick_vision_model
-
     images = _collect_images(source)
     total = len(images)
-
-    # Resolve the vision model once — pick_vision_model calls client.show() per
-    # installed model, so running it per-image multiplies that cost by page count.
-    vision_model = pick_vision_model(ollama_cfg)
-    if not vision_model:
-        raise ExtractError(
-            "\U0001f916 no vision-capable model found in Ollama — try: ollama pull qwen3.5:4b"
-        )
     log.info("multi-page OCR via %s (%d pages)", vision_model, total)
 
     pages: list[str] = []
@@ -276,7 +269,7 @@ def fetch_multi_page(
             progress_cb(i, total)
         log.info("OCR page %d/%d: %s", i + 1, total, img_path.name)
         try:
-            pages.append(_ocr_via_ollama(str(img_path), ollama_cfg, model=vision_model))
+            pages.append(_ocr_via_mlx(str(img_path), vision_model))
         except ExtractError:
             log.warning("skipping page %d (%s): OCR failed", i + 1, img_path.name, exc_info=True)
 
@@ -286,12 +279,8 @@ def fetch_multi_page(
     if not pages:
         raise ExtractError("\U0001f5bc️ no text found in any of the pages")
 
-    # Stitch as one continuous document: a single space at each page seam so a
-    # sentence running across a page break flows naturally (books break pages
-    # mid-sentence). Within-page paragraph breaks survive untouched.
     full_text = " ".join(p.strip() for p in pages if p.strip())
-    # Title = the chapter/topic from the first page's opening lines (book tone).
-    title = _book_title_from_text(pages[0], ollama_cfg, llm=llm)
+    title = _book_title_from_text(pages[0], llm_cfg, llm=llm)
 
     article = Article(title=title, text=_clean_for_tts(full_text), url=source)
     log.info("multi-page: %d pages, %d words, title=%r", len(pages), article.word_count, title)
@@ -327,11 +316,17 @@ def _download(url: str) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def fetch_article(source: str, ollama_cfg: "OllamaConfig | None" = None, llm: "LLMClient | None" = None) -> Article:
+def fetch_article(
+    source: str,
+    llm_cfg: "LLMConfig | None" = None,
+    llm: "LLMClient | None" = None,
+    vision_model: str = "",
+) -> Article:
     """Fetch `source` and return the extracted, TTS-ready article.
 
-    `source` may be a URL (http/https) or a local image path. Raises
-    ExtractError on a failed fetch or when no article text is found.
+    `source` may be a URL (http/https) or a local image path. `vision_model` is
+    the OCR model id (needed only for image sources). Raises ExtractError on a
+    failed fetch or when no article text is found.
     """
     source = (source or "").strip()
     if not source:
@@ -339,10 +334,10 @@ def fetch_article(source: str, ollama_cfg: "OllamaConfig | None" = None, llm: "L
 
     # --- local image (a book page, in this tool) ---
     if _is_image_path(source):
-        if ollama_cfg is None:
-            raise ExtractError("\U0001f5bc️ image OCR requires an Ollama config")
-        text = _ocr_via_ollama(source, ollama_cfg)
-        title = _book_title_from_text(text, ollama_cfg, llm=llm)
+        if not vision_model:
+            raise ExtractError("\U0001f5bc️ image OCR requires an OCR model")
+        text = _ocr_via_mlx(source, vision_model)
+        title = _book_title_from_text(text, llm_cfg, llm=llm)
         article = Article(title=title, text=_clean_for_tts(text), url=source)
         log.info("OCR extracted %r (%d words) from %s", title, article.word_count, source)
         return article

@@ -45,11 +45,6 @@
   <sub>The terminal client mid-read: seekable player, live word-by-word transcript sync.</sub>
 </p>
 
-<p align="center">
-  <strong>🔊 <a href="docs/media/sample-read.wav">Hear a sample read</a></strong><br>
-  <sub>A real Summary-mode read (local LLM + CSM-1B) in <strong>codeword</strong> — a custom-tuned clone voice</sub>
-</p>
-
 ---
 
 ## Getting started
@@ -63,9 +58,9 @@ git clone https://github.com/MKS-01/readback.git && cd readback
 bash scripts/setup.sh
 ```
 
-`setup.sh` is idempotent — safe to re-run. It checks platform, creates `.venv`, installs readback + CLI + dashboard, and optionally pulls the Ollama model and CSM-1B weights (~6 GB).
+`setup.sh` is idempotent — safe to re-run. It checks platform, creates `.venv`, installs readback + CLI + dashboard, and optionally pre-downloads the MLX summary model and CSM-1B weights (~6 GB).
 
-Needs [Bun](https://bun.sh/) and [Ollama](https://ollama.ai/) (for Summary mode) — the script tells you if either is missing. Then:
+Needs [Bun](https://bun.sh/) — the script tells you if it's missing. Then:
 
 ```bash
 readback-cli            # from anywhere; auto-starts the server
@@ -77,19 +72,15 @@ Paste a URL → audio plays in your shell.
 <summary><strong>Prefer to set it up by hand?</strong></summary>
 
 ```bash
-# 1. Ollama for Summary mode (skip if you only want Full mode)
-ollama serve &                          # or launch the desktop app
-ollama pull qwen3.5:9b                  # default; any chat model works
-
-# 2. Install the server
+# 1. Install the server
 git clone https://github.com/MKS-01/readback.git && cd readback
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e .                        # csm-mlx is a git dep, pulled automatically
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e .                        # csm-mlx + mlx-lm are git/PyPI deps, pulled automatically
 
-# 3. Build + install the terminal client → ~/.local/bin/readback-cli
+# 2. Build + install the terminal client → ~/.local/bin/readback-cli
 cd src/cli && ./install.sh && cd ..
 
-# 4. Read something
+# 3. Read something
 readback-cli                            # from anywhere; auto-starts the server
 ```
 </details>
@@ -101,27 +92,12 @@ readback-cli                            # from anywhere; auto-starts the server
 The CLI auto-starts the server and kills it on exit. It's a full terminal player:
 
 - **space** pause, **←/→** seek ±5 s, **t** toggle transcript (word-by-word highlight synced to the voice)
-- `/voice`, `/model` (RAM-fit check), `/mode`, `/lib` (browse + replay past reads), `/help`
+- `/voice`, `/model` (summary LLM, RAM-fit check), `/vision` (image/book OCR model), `/mode`, `/lib` (browse + replay past reads), `/help`
 - `q` to quit (or any time the input field is empty)
 
 macOS only (`afplay` playback). Details: [`src/cli/README.md`](src/cli/README.md).
 
-<p align="center">
-  <img src="docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts and a recommendation" width="640"><br>
-  <sub><code>/model</code> — every local Ollama model, sized up against your Mac's RAM before you commit.</sub>
-</p>
-
-<p align="center">
-  <img src="docs/media/cli-lib.png" alt="readback CLI — /lib library browser with selected-item preview" width="640"><br>
-  <sub><code>/lib</code> — browse past reads; metadata and a summary preview appear for the selected item.</sub>
-</p>
-
-<p align="center">
-  <img src="docs/media/cli-help.png" alt="readback CLI — /help command reference" width="640"><br>
-  <sub><code>/help</code> — every command and player key at a glance.</sub>
-</p>
-
-First read downloads CSM-1B weights (~6 GB) and warms up the MLX graph — slow once, fast after. See [SETUP.md](docs/SETUP.md) for details.
+First read downloads CSM-1B weights (~6 GB) and the summary LLM (~5.5 GB), then warms up the MLX graph — slow once, fast after. (The vision OCR model, ~5 GB, downloads lazily the first time you read an image or book scan.) See [SETUP.md](docs/SETUP.md) for details.
 
 ---
 
@@ -161,7 +137,7 @@ flowchart LR
     DB --> WEB["Dashboard<br/>search + replay anytime"]
 ```
 
-1. **Extract** — `trafilatura` pulls article text (browser-UA fallback for 403s). Images/book scans → Ollama vision OCR. Folders/globs → multi-page: OCR'd in filename order and stitched into one document.
+1. **Extract** — `trafilatura` pulls article text (browser-UA fallback for 403s). Images/book scans → MLX vision OCR. Folders/globs → multi-page: OCR'd in filename order and stitched into one document.
 2. **Summarize** *(optional)* — local LLM rewrites it as a spoken explanation. Full mode skips this entirely.
 3. **Synthesize** — sentence-aware chunks → CSM-1B → silence-trimmed → joined with small gaps.
 4. **Serve** — WAV over HTTP; progress streams live over the WebSocket.
@@ -176,8 +152,8 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system view.
 
 | Layer | Technology |
 |---|---|
-| **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback); **Ollama vision OCR** for images / book scans |
-| **Summary (optional)** | [Ollama](https://ollama.ai/) — default `qwen3.5:9b`; any pulled chat model works |
+| **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback); **mlx-vlm** vision OCR for images / book scans |
+| **Summary (optional)** | [mlx-lm](https://github.com/ml-explore/mlx-lm) — default `Qwen3.5-9B-4bit`; any MLX chat model works |
 | **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, fp32 |
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV, REST library |
@@ -216,8 +192,8 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 
 | Key | What | Default |
 |---|---|---|
-| `ollama.model` | Ollama model for Summary mode | `qwen3.5:9b` |
-| `ollama.host` | Ollama endpoint | `http://localhost:11434` |
+| `llm.model` | MLX model for Summary mode (HuggingFace ID) | `mlx-community/Qwen3.5-9B-4bit` |
+| `ocr.model` | MLX vision model for image / book-scan OCR (its own section) | `mlx-community/Qwen2.5-VL-7B-Instruct-4bit` |
 | `tts.csm.speaker` | Active voice (`conversational_a`/`_b` or a clone `name`) | `codeword` |
 | `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `fp32` |
 | `tts.csm.temperature` | Delivery: lower = composed, higher = livelier | `0.7` |
@@ -237,7 +213,7 @@ Audio + library DB default to a **`readback-audio-db/`** folder beside the repo.
 
 ## Pi deployment
 
-Generation stays on the Mac (CSM-1B + Ollama need Apple Silicon). A Raspberry Pi runs the lightweight read-only server — library REST, Vue dashboard, and audio serving — so your reads are accessible from **any browser on the network**.
+Generation stays on the Mac (CSM-1B + MLX need Apple Silicon). A Raspberry Pi runs the lightweight read-only server — library REST, Vue dashboard, and audio serving — so your reads are accessible from **any browser on the network**.
 
 The Pi runs readback under [PiZoW](https://github.com/MKS-01/pizow) (PM2, survives reboots, ~68 MB).
 

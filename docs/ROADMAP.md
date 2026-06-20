@@ -11,6 +11,22 @@ intentionally lower priority.
 
 ## Recently shipped
 
+- **Explainer video (Remotion)** — a 15 s programmatic "how it works" video
+  (`src/video/`, React/TS, on-brand Ghost tokens): hero → animated pipeline →
+  terminal mock → live waveform of the real sample read → outro. Renders to
+  `docs/media/how-it-works.{mp4,gif}`. (Not embedded in the README right now;
+  rebuild/preview via `bun run studio` in `src/video/`.)
+- **Summary/audio speedup — disabled LLM chain-of-thought** 🏁 _key milestone_.
+  Qwen3.5 defaulted to thinking and spent its whole token budget on an untagged
+  "Thinking Process:" monologue — slow, truncated before the real answer, and
+  (untagged, so the stripper missed it) read aloud. `enable_thinking=False` on the
+  chat template cut a 215-word article from **~76 s / 2760 words → ~4 s / ~190
+  words**; since synthesis time scales with summary length, audio dropped
+  proportionally. Plus a `max_tokens` 4096→1024 safety bound and a hard ~250-word
+  prompt ceiling.
+- **Eager model warm-up** — the server lifespan kicks off `ensure_loaded()` at
+  boot so CSM + LLM weights are warm before the first read, hiding the cold-start
+  "loading models" stall.
 - **Loudness normalization** — every read is peak-normalized to 0.95 so clone
   voices no longer come out ~18 dB quieter than the built-ins (`_peak_normalize`
   in `speak.py`).
@@ -41,10 +57,12 @@ intentionally lower priority.
 
 ## ⚡ CLI — tuning & performance — priority
 
+- [x] **Summary mode no longer runs away** — `enable_thinking=False` + `max_tokens` cap + prompt length ceiling; the LLM is no longer the bottleneck (~4 s summaries, audio shrinks with the shorter text)
+- [x] Trim startup / model warm-up — server eagerly loads CSM + LLM at boot so the first read isn't cold (`ensure_loaded()` in the lifespan hook)
 - [ ] Faster synthesis — tune the controllable knobs (precision, chunking, warm-up); ultimately bounded by your Mac's GPU / unified memory
 - [ ] Cache by (url, mode, voice) so re-reading is instant
-- [ ] Trim startup / model warm-up and surface clearer progress (% + ETA, not just per-chunk)
-- [ ] Parallelize multi-page OCR + the map-phase summary calls across a small Ollama-concurrent pool — both are sequential today; the win scales with page count (try after book-scan testing)
+- [ ] Surface clearer progress (% + ETA, not just per-chunk)
+- [ ] Parallelize multi-page OCR + the map-phase summary calls — both are sequential today; the win scales with page count (mlx-lm's `generate()` supports batched prompts natively)
 
 ## 🍓 Pi — shipped
 
@@ -56,10 +74,12 @@ intentionally lower priority.
 
 ## 📄 More input sources
 
-- [x] **Image OCR** — drop an image path; an Ollama vision model extracts the text and reads it aloud (`_ocr_via_ollama`)
+- [x] **Image OCR** — drop an image path; mlx-vlm vision model extracts the text and reads it aloud (`_ocr_via_mlx`)
 - [x] **Multi-page / book scans** — a folder or glob of page images is OCR'd in filename order and stitched into one continuous document (`fetch_multi_page`)
 - [x] **Source-aware tones** — a URL reads as a livelier article; an image/folder reads as a measured book that opens by naming its chapter/topic (`pipeline/tones.py`, auto by source)
 - [ ] `/tone` override + persisted pref, and a 3rd tone (technical paper / news) — auto-only with two tones today
+- [x] `/vision` switch — per-read OCR-model picker (mirror of `/model`), so a quick snapshot can use a light 3B while dense book scans use the 7B (`handlePickModel`/`ModelList kind`, `read.vision_model`)
+- [ ] Auto-pick the OCR model by source (single image → light, multi-page → accurate) — manual `/vision` only today
 - [ ] Read **local documents**, not just URLs — `.txt` and `.pdf` → voice
 - [ ] Paste raw text directly as a source
 
@@ -68,4 +88,5 @@ intentionally lower priority.
 - [x] Automation + testing — `pytest` suite (pure logic: chunking, silence-tidy, text scrub, library, think-stripper) + GitHub Actions CI on Python 3.10–3.12
 - [ ] Broaden coverage — server/WS integration tests, an end-to-end synth smoke test on a macOS runner
 - [x] Chunked summarization for very long articles — map-reduce in `summarize.py` (batches → condense → combine), so book scans summarize end-to-end instead of truncating at `summary_max_chars`
+- [ ] Trial larger/newer summary models for quality (Qwen3-30B-A3B, Qwen2.5-32B, Gemma-2-27B…) — shortlist + eval method in [PLAN.md](PLAN.md) (2026-06-20)
 - [ ] UX niceties (lower priority): extracted-article preview before synth, download filename = article title, nicer error states for paywalled / JS-only pages

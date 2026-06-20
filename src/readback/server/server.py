@@ -12,7 +12,9 @@ served from `cfg.reader.output_dir`.
 
 WS protocol (/ws):
   client → {"type":"read", "url": str, "mode": "full"|"summary", "voice"?: str,
-            "model"?: str}   # model: swap the summary LLM (validated vs Ollama)
+            "model"?: str, "vision_model"?: str}
+            # model: swap the summary LLM; vision_model: swap the image/book OCR
+            # model — both per-read, validated vs downloaded MLX models
            {"type":"cancel"}   # abort the in-flight read job (stops synthesis)
   server → {"type":"phase",    "value":"loading"|"fetching"|"summarizing"|"synthesizing"}
            # value is a free-form display string; multi-page OCR streams
@@ -79,7 +81,7 @@ class ReaderModels:
     def _load_blocking(self):
         if self._loaded:
             return
-        self.llm = LLMClient(self.cfg.ollama)
+        self.llm = LLMClient(self.cfg.llm)
         self.synth = Synthesizer(self.cfg.tts)
         self.synth.load()
         self._loaded = True
@@ -131,15 +133,28 @@ async def _run_read_job(
     synth, llm = models.synth, models.llm
     assert synth is not None and llm is not None
 
-    # Optional model switch before fetch (affects which LLM summarizes the content).
+    # Optional per-read model switches before fetch: `model` is the summary LLM,
+    # `vision_model` is the image/book OCR model. Both validate against downloaded
+    # models (scan the HF cache once if either changed) and mutate cfg in place —
+    # the LLMClient / vision loader detect the change and reload on next use.
     model = (payload.get("model") or "").strip()
-    if model and model != cfg.ollama.model:
-        installed = await asyncio.to_thread(installed_model_names, cfg.ollama)
-        if model in installed:
-            cfg.ollama.model = model
-            log.info("summary model → %s", model)
-        else:
-            log.warning("ignoring unknown model %r", model)
+    vision_model = (payload.get("vision_model") or "").strip()
+    if (model and model != cfg.llm.model) or (
+        vision_model and vision_model != cfg.ocr.model
+    ):
+        installed = await asyncio.to_thread(installed_model_names, cfg.llm)
+        if model and model != cfg.llm.model:
+            if model in installed:
+                cfg.llm.model = model
+                log.info("summary model → %s", model)
+            else:
+                log.warning("ignoring unknown model %r", model)
+        if vision_model and vision_model != cfg.ocr.model:
+            if vision_model in installed:
+                cfg.ocr.model = vision_model
+                log.info("vision model → %s", vision_model)
+            else:
+                log.warning("ignoring unknown vision model %r", vision_model)
 
     # 1) Fetch + extract (URL, single image, or multi-page folder/glob).
     await send({"type": "phase", "value": "fetching"})
@@ -154,7 +169,7 @@ async def _run_read_job(
             )
         try:
             article = await asyncio.to_thread(
-                fetch_multi_page, url, cfg.ollama, _page_progress, llm,
+                fetch_multi_page, url, cfg.llm, _page_progress, llm, cfg.ocr.model,
             )
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
@@ -165,7 +180,7 @@ async def _run_read_job(
             return
     else:
         try:
-            article = await asyncio.to_thread(fetch_article, url, cfg.ollama, llm)
+            article = await asyncio.to_thread(fetch_article, url, cfg.llm, llm, cfg.ocr.model)
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
             return
@@ -303,6 +318,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        asyncio.create_task(models.ensure_loaded())
         yield
 
     app = FastAPI(lifespan=lifespan)
@@ -315,14 +331,15 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
         return {
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
-            "model": cfg.ollama.model,
+            "model": cfg.llm.model,
+            "vision_model": cfg.ocr.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),   # where WAVs live (CLI same-machine shortcut)
         }
 
     @app.get("/api/models")
     async def api_models():
-        return await asyncio.to_thread(list_models, cfg.ollama)
+        return await asyncio.to_thread(list_models, cfg.llm, cfg.ocr.model)
 
     # ── Library (dashboard) ──────────────────────────────────────────────
     @app.get("/api/library")
@@ -362,7 +379,8 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "type": "config",
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
-            "model": cfg.ollama.model,
+            "model": cfg.llm.model,
+            "vision_model": cfg.ocr.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),
         })

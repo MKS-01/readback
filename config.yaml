@@ -2,10 +2,15 @@
 # Paste a URL → fetch + extract the article → (optional LLM summary) → CSM-1B TTS
 # → audio you play in-browser, in the terminal CLI, or download. All on-device.
 
-ollama:
-  # Used only by "summary" mode (turns the article into a spoken explanation).
-  model: "qwen3.5:9b"
-  host: "http://localhost:11434"
+llm:
+  # Summary mode (spoken explanation) + title generation. Runs in-process via
+  # mlx-lm — no external daemon needed.
+  model: "mlx-community/Qwen3.5-9B-4bit"
+
+ocr:
+  # Vision model (mlx-vlm) for image / book-scan OCR. Switchable per-read via the
+  # CLI /vision command; loaded lazily on the first image read.
+  model: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
 
 tts:
   # CSM-1B (Sesame) via csm-mlx (senstella). Two voices map to CSM speaker IDs;

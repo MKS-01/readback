@@ -1,8 +1,8 @@
-"""Local Ollama model discovery for the summary LLM.
+"""Local MLX model discovery for the summary LLM.
 
-Lists the models installed in Ollama (`/api/tags` via `Client.list()`) and
-attaches a RAM-fit verdict per model so a client can warn before switching to
-something that would swap/thrash, plus a recommendation for summarization.
+Lists MLX models downloaded to the HuggingFace cache and attaches a RAM-fit
+verdict per model so a client can warn before switching to something that would
+swap/thrash, plus a recommendation for summarization.
 
 Fit heuristic (deliberately simple): a model needs roughly its on-disk size in
 unified memory for weights, plus KV cache and runtime overhead — estimated as
@@ -15,20 +15,24 @@ memory, so a model is only a comfortable fit well below total RAM:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
+from pathlib import Path
 
-import ollama
-
-from readback.config import OllamaConfig
+from readback.config import LLMConfig
 
 log = logging.getLogger("readback.llm")
 
 _GIB = 1024 ** 3
 
-# Models that can't summarize at all (embedding / reranker families).
-_NON_CHAT_MARKERS = ("embed", "bge", "minilm", "rerank")
+_NON_CHAT_MARKERS = (
+    "embed", "bge", "minilm", "rerank",
+    "whisper", "parakeet", "csm-1b", "csm_1b", "tts",
+    "faster-whisper", "moshi",
+)
+_VISION_MARKERS = ("VL", "vision", "vlm")
 
 
 def _total_ram_bytes() -> int:
@@ -55,122 +59,142 @@ def _is_chat_model(name: str) -> bool:
     return not any(m in low for m in _NON_CHAT_MARKERS)
 
 
-# Preferred OCR models in priority order — smallest/fastest first, Qwen excels at text extraction.
-_VISION_PREF = ["qwen3.5:4b", "gemma4:12b", "gemma4:e4b", "gemma4:26b"]
+def _is_vision_model(name: str) -> bool:
+    return any(m in name for m in _VISION_MARKERS)
 
 
-def pick_vision_model(cfg: OllamaConfig) -> str | None:
-    """Return the name of the best available vision-capable Ollama model, or None.
+def _hf_cache_dir() -> Path:
+    return Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 
-    Queries each installed model's capabilities via the Ollama API. Preference
-    order: qwen3.5:4b → gemma4:12b → gemma4:e4b → gemma4:26b → first vision
-    model found by size (smallest first).
+
+def _short_name(model_id: str) -> str:
+    """Extract a display-friendly short name from a HF model ID.
+    'mlx-community/Qwen3.5-9B-4bit' → 'Qwen3.5-9B-4bit'"""
+    return model_id.rsplit("/", 1)[-1] if "/" in model_id else model_id
+
+
+def _scan_downloaded_models() -> list[dict]:
+    """Scan the HuggingFace cache for downloaded MLX models.
+
+    Returns a list of dicts with model_id, size_bytes, and metadata from
+    config.json when available.
     """
-    try:
-        client = ollama.Client(host=cfg.host)
-        resp = client.list()
-        installed = {m.model: m for m in resp.models if m.model}
-    except Exception:
-        log.warning("could not list Ollama models for vision selection", exc_info=True)
-        return None
+    cache_dir = _hf_cache_dir()
+    if not cache_dir.exists():
+        return []
 
-    # Check preferred models first
-    for name in _VISION_PREF:
-        if name not in installed:
+    models = []
+    for entry in cache_dir.iterdir():
+        if not entry.name.startswith("models--"):
             continue
-        try:
-            info = client.show(name)
-            if "vision" in (getattr(info, "capabilities", None) or []):
-                return name
-        except Exception:
-            pass
+        model_id = entry.name.removeprefix("models--").replace("--", "/")
 
-    # Fall back: any vision-capable model, smallest first
-    candidates: list[tuple[int, str]] = []
-    for name, m in installed.items():
-        if name in _VISION_PREF:
-            continue  # already checked
-        try:
-            info = client.show(name)
-            if "vision" in (getattr(info, "capabilities", None) or []):
-                candidates.append((int(m.size or 0), name))
-        except Exception:
-            pass
-    if candidates:
-        return min(candidates)[1]
-    return None
+        snapshots_dir = entry / "snapshots"
+        if not snapshots_dir.exists():
+            continue
+        snapshot_dirs = sorted(snapshots_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not snapshot_dirs:
+            continue
+        snapshot = snapshot_dirs[0]
+
+        config_path = snapshot / "config.json"
+        params = None
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    cfg = json.load(f)
+                params = cfg.get("num_parameters") or cfg.get("num_params")
+            except Exception:
+                pass
+
+        total_size = 0
+        for f in snapshot.rglob("*"):
+            if f.is_file() and f.suffix in (".safetensors", ".bin", ".npz"):
+                total_size += f.stat().st_size
+
+        if total_size == 0:
+            continue
+
+        models.append({
+            "model_id": model_id,
+            "size_bytes": total_size,
+            "params": params,
+        })
+
+    return models
 
 
-def installed_model_names(cfg: OllamaConfig) -> list[str]:
-    """Names of the models installed in Ollama (empty list if unreachable)."""
+def installed_model_names(cfg: LLMConfig) -> list[str]:
+    """Names (HF IDs) of downloaded MLX models (empty list if none found)."""
     try:
-        resp = ollama.Client(host=cfg.host).list()
-        return [m.model for m in resp.models if m.model]
+        return [m["model_id"] for m in _scan_downloaded_models()]
     except Exception:
-        log.warning("could not list Ollama models", exc_info=True)
+        log.warning("could not scan downloaded models", exc_info=True)
         return []
 
 
-def list_models(cfg: OllamaConfig) -> dict:
-    """Installed models + fit verdicts + a summarization recommendation.
+def list_models(cfg: LLMConfig, vision_model: str = "") -> dict:
+    """Downloaded models + fit verdicts + a summarization recommendation.
 
-    Returns `{"models": [...], "recommended": str|None, "current": str,
-    "total_ram_gb": int}`; on an unreachable Ollama, `models` is empty and an
-    `error` message is added instead.
+    `vision_model` is the active OCR model id (from `cfg.ocr.model`), surfaced as
+    `current_vision` so the CLI `/vision` picker can mark it. Returns
+    `{"models": [...], "recommended": str|None, "current": str,
+    "current_vision": str, "total_ram_gb": int}`; on error, `models` is empty and
+    an `error` message is added instead.
     """
     total_ram = _total_ram_bytes()
     out: dict = {
         "models": [],
         "recommended": None,
         "current": cfg.model,
+        "current_vision": vision_model,
         "total_ram_gb": round(total_ram / _GIB),
     }
     try:
-        resp = ollama.Client(host=cfg.host).list()
+        raw = _scan_downloaded_models()
     except Exception as e:
-        log.warning("could not list Ollama models: %s", e)
-        out["error"] = f"Couldn't reach Ollama at {cfg.host}: {e}"
+        log.warning("could not scan models: %s", e)
+        out["error"] = f"Couldn't scan HuggingFace cache: {e}"
         return out
 
-    # Fetch capabilities for all models in one pass (one show() call per model).
-    capabilities: dict[str, list[str]] = {}
-    for m in resp.models:
-        if not m.model:
-            continue
-        try:
-            info = ollama.Client(host=cfg.host).show(m.model)
-            capabilities[m.model] = list(getattr(info, "capabilities", None) or [])
-        except Exception:
-            capabilities[m.model] = []
+    default_family = _short_name(cfg.model).split("-")[0].lower() if cfg.model else ""
 
-    # Extract the default model's family prefix (e.g. "qwen3.5" from "qwen3.5:9b")
-    default_family = cfg.model.split(":")[0] if ":" in cfg.model else ""
+    best_family: tuple[int, str] | None = None
+    best_any: tuple[int, str] | None = None
+    for m in raw:
+        model_id = m["model_id"]
+        size = m["size_bytes"]
+        short = _short_name(model_id)
+        is_vision = _is_vision_model(short)
+        is_chat = _is_chat_model(short) and not is_vision
 
-    best_family: tuple[int, str] | None = None  # largest good-fit in the default's family
-    best_any: tuple[int, str] | None = None      # largest good-fit overall (fallback)
-    for m in resp.models:
-        name = m.model or ""
-        if not name:
+        if not is_chat and not is_vision:
             continue
-        size = int(m.size or 0)
-        details = m.details
+
         fit = _fit(size, total_ram)
-        caps = capabilities.get(name, [])
+        params_str = None
+        if m["params"]:
+            p = m["params"]
+            if p >= 1_000_000_000:
+                params_str = f"{p / 1_000_000_000:.1f}B"
+            elif p >= 1_000_000:
+                params_str = f"{p / 1_000_000:.0f}M"
+
         out["models"].append({
-            "name": name,
+            "name": model_id,
             "size_gb": round(size / _GIB, 1),
-            "params": (details.parameter_size if details else None) or None,
-            "quant": (details.quantization_level if details else None) or None,
+            "params": params_str,
             "fit": fit,
-            "chat": _is_chat_model(name),
-            "vision": "vision" in caps,
+            "chat": is_chat,
+            "vision": is_vision,
         })
-        if fit == "good" and _is_chat_model(name):
+        if fit == "good" and is_chat:
             if best_any is None or size > best_any[0]:
-                best_any = (size, name)
-            if default_family and name.startswith(default_family + ":"):
+                best_any = (size, model_id)
+            family = short.split("-")[0].lower()
+            if default_family and family == default_family:
                 if best_family is None or size > best_family[0]:
-                    best_family = (size, name)
+                    best_family = (size, model_id)
 
     out["models"].sort(key=lambda m: m["size_gb"], reverse=True)
     pick = best_family or best_any

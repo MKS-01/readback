@@ -21,7 +21,7 @@ gotchas, and exact knobs.
 ## Hardware
 
 - Apple M5 Pro, 48 GB unified memory (primary target). No CUDA.
-- **MLX/Metal (20-core GPU)** runs CSM-1B TTS; **Ollama** runs the summary LLM.
+- **MLX/Metal (20-core GPU)** runs CSM-1B TTS + the summary LLM (mlx-lm) + vision OCR (mlx-vlm) — all in-process.
 - **MLX is not multi-thread safe** — its default GPU stream binds to the thread
   that first touches the device, so `CsmEngine` owns a single-thread executor and
   runs all model work on it (see TTS section).
@@ -30,15 +30,16 @@ gotchas, and exact knobs.
 
 - **Extraction**: `trafilatura` (URL → clean article text) + a browser-UA urllib
   fallback for sites that 403 the default agent. Local images (`.png/.jpg/.heic/…`)
-  → Ollama vision OCR (`pick_vision_model` auto-selects). Folder or glob → multi-page
+  → mlx-vlm vision OCR (config-driven model). Folder or glob → multi-page
   mode: pages OCR'd in natural-filename order and stitched into one continuous
   Article (a scanned page is a page, not a chapter — no synthetic headers), then
   summarized/read like any article.
- - **LLM**: Ollama, default **`qwen3.5:9b`** (`think=False` + `<think>`
-  stripping). Used **only by Summary mode** (`LLMClient.oneshot`) + title
-  generation. OCR auto-selects via `pick_vision_model` (prefers `qwen3.5:4b`
-  for speed). `/model` can switch per-read; `qwen3.5:27b` is the quality
-  option (good fit on 48 GB, just slower).
+ - **LLM**: **mlx-lm** (in-process on MLX/Metal), default
+  **`mlx-community/Qwen3.5-9B-4bit`** (chain-of-thought disabled via
+  `enable_thinking=False`; `<think>` stripping as backup — see LLM section). Used
+  **only by Summary mode** (`LLMClient.oneshot`) + title generation. Vision OCR
+  uses **mlx-vlm** (default `mlx-community/Qwen2.5-VL-7B-Instruct-4bit`).
+  `/model` can switch per-read; any downloaded MLX chat model works.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +
   clone-condition voices + optional LoRA fine-tuning. English-best.
@@ -52,8 +53,8 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v3.2.0; csm-mlx (git dep) + ollama + trafilatura + fastapi
-├── config.yaml                # user-editable: ollama / tts.csm / reader blocks (cwd-resolved)
+├── pyproject.toml             # v3.2.0; csm-mlx (git dep) + mlx-lm + mlx-vlm + trafilatura + fastapi
+├── config.yaml                # user-editable: llm / tts.csm / reader blocks (cwd-resolved)
 ├── .env.example               # Pi deployment config template (PI_USER/PI_HOST/PI_PATH/PI_PORT etc.)
 │                              # ⚠ copy to .env (gitignored) and fill in real values — never commit .env
 ├── config.pi.example.yaml     # Pi config template: built-in speaker, same relative reader paths as Mac,
@@ -61,12 +62,12 @@ readback/
 │                              # config.yaml on Pi on first deploy only; subsequent deploys preserve edits.
 ├── requirements-pi.txt        # Pi-compatible deps — excludes csm-mlx (MLX/Metal = Apple Silicon only).
 │                              # Only what's actually imported at server startup: fastapi, uvicorn,
-│                              # pydantic, pyyaml, python-multipart, ollama, numpy. trafilatura/
+│                              # pydantic, pyyaml, python-multipart, numpy. trafilatura/
 │                              # soundfile/huggingface-hub are lazy imports (never called on Pi).
 ├── scripts/
 │   ├── setup.sh               # one-command first-time setup (the README "Getting started"
 │   │                          # path): platform/Python check → .venv + pip install -e . →
-│   │                          # CLI + dashboard build (Bun) → optional Ollama model pull +
+│   │                          # CLI + dashboard build (Bun) → optional MLX model download +
 │   │                          # CSM-1B weight pre-warm. Idempotent; reads default model from
 │   │                          # config.yaml. macOS/Apple-Silicon only.
 │   ├── deploy-pi.sh           # build dashboard → rsync source+dist → venv+pip → PM2 start/restart.
@@ -134,6 +135,10 @@ readback/
     │                          # links) — deep docs live in the repo, not duplicated here.
     │                          # NOT a web client; media/ gitignored (preview of docs/media).
     │                          # Deployed by pages.yml; refresh via the landing-page skill.
+    ├── video/                 # Remotion explainer for the README (how it works) —
+    │                          # React/TS video; reuses Ghost tokens (theme.ts). NOT shipped.
+    │                          # `bun run studio` to preview, `render`/`gif` → docs/media/
+    │                          # how-it-works.{mp4,gif}. node_modules + public/*.wav gitignored.
     ├── cli/                   # terminal client (Bun + Ink); sole /ws client
     │   ├── package.json       # readback-cli (version-synced); ink + ink-text-input
     │   ├── install.sh         # one-command build: bun compile → ~/.local/bin/readback-cli
@@ -144,16 +149,17 @@ readback/
     │                          # BusyView,PlayerView,ModelList,LibraryView}.tsx
     └── readback/              # python package (src layout; wheel packages src/readback)
         ├── __main__.py        # `readback` CLI: argparse --host/--port/--model/--config, uvicorn boot
-        ├── config.py          # Pydantic config: OllamaConfig / CsmTTSConfig (+ CsmVoicePrompt)
-        │                      # / ReaderConfig; load() resolves clone wav + lora + library_db
+        ├── config.py          # Pydantic config: LLMConfig / OcrConfig / CsmTTSConfig
+        │                      # (+ CsmVoicePrompt) / ReaderConfig; load() resolves clone wav +
+        │                      # lora + library_db, migrates old llm.vision_model → ocr.model
         ├── library.py         # SQLite read library (stdlib sqlite3): Library class
         │                      # (add/list/get/delete over a `reads` table) — powers the dashboard
         ├── llm/
         │   ├── client.py      # LLMClient.oneshot() for summary + the <think> stripper
-        │   └── models.py      # Ollama model listing + RAM-fit verdict (GET /api/models)
+        │   └── models.py      # MLX model listing (HF cache scan) + RAM-fit verdict (GET /api/models)
         ├── pipeline/
         │   ├── extract.py     # fetch_article (URL/image) + fetch_multi_page (folder/glob);
-        │   │                  # trafilatura + UA fallback; Ollama vision OCR; TTS-prep scrub
+        │   │                  # trafilatura + UA fallback; mlx-vlm vision OCR; TTS-prep scrub
         │   ├── tones.py       # reading tones: Tone(summary_system, temperature);
         │   │                  # ARTICLE (URL) / BOOK (image) + tone_for(kind)
         │   ├── summarize.py   # summarize_article: LLM oneshot/map-reduce → spoken
@@ -183,9 +189,12 @@ readback/
   — it feeds the client transcript panel; the full article isn't shipped back (it's
   on the source page). `timings` = `{fetch, summarize, synthesize, write, total}`
   (seconds, rounded to 1 dp) — server-side instrumentation for profiling reads.
-- Models (`Synthesizer` + `LLMClient`) load lazily on first read via
-  `ReaderModels.ensure_loaded` (downloads the CSM checkpoint the first time).
-  The `LLMClient` instance is reused across the pipeline (passed into
+- Models (`Synthesizer` + `LLMClient`) load via `ReaderModels.ensure_loaded`
+  (downloads the CSM checkpoint the first time). The **lifespan hook kicks off
+  `ensure_loaded()` as a background task at server boot** so weights are warm
+  before the first read (the CLI spawns the server seconds ahead of the first
+  URL); the first read still awaits the same guarded `ensure_loaded` if it lands
+  early. The `LLMClient` instance is reused across the pipeline (passed into
   `fetch_article`/`fetch_multi_page` for title generation, avoiding per-call
   reinstantiation). `set_temperature` and `swap_voice` are plain attribute
   mutations (no `asyncio.to_thread` needed — they don't touch MLX).
@@ -210,11 +219,10 @@ readback/
 - **Extract** (`extract.py`): trafilatura first, browser-UA urllib fallback on
   empty/403. `_clean_for_tts` strips `https?://…`, `[12]` citation markers, and
   collapses whitespace. Missing title → slug from the URL tail. Local images →
-  `_ocr_via_ollama` (sips converts HEIC/TIFF/BMP/WebP → JPEG; base64 → Ollama vision;
-  `pick_vision_model` auto-selects). **Multi-page** (`_is_multi_page` → folder or
+  `_ocr_via_mlx` (sips converts HEIC/TIFF/BMP/WebP → JPEG; mlx-vlm vision model
+  from `cfg.ocr.model`). **Multi-page** (`_is_multi_page` → folder or
   glob): `_collect_images` natural-sorts by filename, `fetch_multi_page` OCRs each
-  page (resolving the vision model **once** up front, not per image — `client.show()`
-  is per-model and per-image selection multiplied that cost by page count) and joins
+  page (the vision model is loaded once and cached across calls) and joins
   the pages with a single space at each seam (a book sentence runs across page
   breaks; within-page paragraphs survive). Returns one continuous Article — the
   server then summarizes/reads it through the **same** step 2 as a URL article (no
@@ -225,7 +233,10 @@ readback/
   or `"article"` (URL); `tone_for(kind)` → `BOOK` (measured, **0.6**, opens by
   naming the chapter/topic) or `ARTICLE` (livelier explainer, **0.8**). Auto,
   server-side, invisible to the CLI — **no `/tone` override or config yet** (room
-  for a 3rd tone). ⚠ Tone shifts *delivery temperature*, NOT the voice — the user's
+  for a 3rd tone). Both `summary_system` prompts carry a **hard ~250-word
+  (10–15 sentence) length ceiling** so the spoken summary stays a briefing, not a
+  retelling (paired with `oneshot`'s `max_tokens` bound). ⚠ Tone shifts
+  *delivery temperature*, NOT the voice — the user's
   `/voice` is untouched. Book sources also take their **title from the first ~3 OCR
   lines** (`_book_title_from_text`), which the BOOK prompt then leads with.
 - **Summarize** (`summarize.py`): short body (≤ `reader.summary_max_chars`, default
@@ -277,15 +288,15 @@ readback/
   is applied over the base weights after the dtype cast.
 - **Voices**: `SUPPORTED_VOICES` = 2 built-ins (`conversational_a` ★ female,
   `conversational_b` male). `voices_for(cfg)` = built-ins + `cfg.voices` clones;
-  used by both the engine's `supported_voices` and the server's picker.
+  used by both the engine and the server's picker.
   `swap_voice` validates against `voices_for`. `temperature` tunes **delivery**
   (lower = composed/measured, higher = livelier); **below ~0.55 with a short
   (<5 s) reference the clone destabilizes** (rambles/repeats). `set_temperature`
   (engine + Synthesizer) sets it per-read — `_make_sampler` reads `cfg.temperature`
   fresh each synth, so it takes effect on the next call with no reload (the server
   uses it to apply the reading tone; see Tones).
-- **`synthesize_stream`** exists (csm-mlx `stream_generate`) but the reader uses
-  batch `synthesize` (offline — no streaming benefit).
+- The reader synthesizes in **batch only** (`synthesize`); offline reads get no
+  benefit from streaming, so the csm-mlx `stream_generate` path was removed.
 
 ### Voice cloning & fine-tuning
 
@@ -306,7 +317,13 @@ readback/
 
 ### Config (`config.py`)
 
-- `OllamaConfig{model, host}` — summary uses its own prompt via `oneshot`.
+- `LLMConfig{model}` (`llm:`) — HuggingFace ID for mlx-lm (summary + title gen).
+- `OcrConfig{model}` (`ocr:`) — HuggingFace ID for mlx-vlm (image / book-scan OCR).
+  ⚠ OCR has its **own** top-level section (not under `llm:`) — different job,
+  different model family. `Config.load()` auto-migrates an old `llm.vision_model`
+  → `ocr.model`. On the wire the field stays `vision_model` (WS read /
+  `/api/config`) and `current_vision` (`/api/models`) — only the YAML/config
+  object moved.
 - `CsmTTSConfig{precision, speaker, temperature, top_k, max_audio_length_ms,
   ref_max_sec, voices, lora_path}`. The checkpoint (`senstella/csm-1b-mlx`) is
   fixed in the engine.
@@ -325,17 +342,33 @@ readback/
 
 ### LLM (`llm/client.py`)
 
-- The reader uses only **`oneshot(system, user)`** — one non-streaming Ollama
-  `chat`, `think=False`, `temperature=0.4`, `<think>` stripped.
+- The reader uses only **`oneshot(system, user, max_tokens=1024)`** — one
+  non-streaming mlx-lm `generate`, `temperature=0.4`, `<think>` stripped.
+- ⚠ **`enable_thinking=False` is passed to `apply_chat_template`** — this is the
+  single biggest summary/audio speed lever. Qwen3/3.5 default to chain-of-thought
+  and otherwise spend the WHOLE token budget on a visible "Thinking Process:"
+  preamble (UNTAGGED, so `_ThinkStripper` can't catch it → it gets read aloud) and
+  get truncated before the real answer. With it off a 215-word article summarizes
+  in **~4 s / ~190 words** instead of **~76 s / ~2760 words**. The `/no_think`
+  token is ignored by the MLX builds — only the template kwarg works. Wrapped in
+  try/except so a model whose template rejects the kwarg still runs (any
+  user-picked `/model`).
+- ⚠ **`max_tokens=1024`** (was 4096) caps runaway generation — a spoken summary is
+  ~190–250 words ≈ <600 tokens, so it's a safety bound, not a target. Belt to the
+  `enable_thinking=False` suspenders.
 - `_ThinkStripper` removes `<think>…</think>` across chunk boundaries. The
   streaming/tool-calling methods and the `tools/` module were removed in the
   v0.8.0 cleanup.
-- `llm/models.py` (`GET /api/models` + the `read` message's `model` field):
-  lists installed Ollama models with a RAM-fit verdict (need ≈ size×1.2+1 GiB;
-  good ≤50% / tight ≤75% of total RAM via `sysctl hw.memsize`) and recommends
-  the largest good-fit chat model. A per-read `model` mutates
-  `cfg.ollama.model` in place (process-wide, like `swap_voice`; **not** written
-  back to `config.yaml`) — `oneshot()` picks it up per call, no reload.
+- `llm/models.py` (`GET /api/models` + the `read` message's `model`/`vision_model`
+  fields): scans downloaded MLX models in the HuggingFace cache with a RAM-fit
+  verdict (need ≈ size×1.2+1 GiB; good ≤50% / tight ≤75% of total RAM via
+  `sysctl hw.memsize`) and recommends the largest good-fit chat model. Each model
+  is tagged `chat`/`vision`; the response carries `current` (summary) +
+  `current_vision`. A per-read `model` mutates `cfg.llm.model` and `vision_model`
+  mutates `cfg.ocr.model`, in place (process-wide, like `swap_voice`;
+  **not** written back to `config.yaml`) — the LLM client / vision loader detect
+  the change and reload on next use (`oneshot()` / `_ocr_via_mlx`). The read job
+  scans installed models once when either changed.
 
 ### CLI (`src/cli/`)
 
@@ -359,18 +392,24 @@ readback/
 - **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
   (`input` | `busy` | `player` | `library` | `quitting`), so key handlers only
   land on the active screen. Slash commands: `/voice`, `/mode`, `/model` (lists
-  local Ollama models via `GET /api/models` with a RAM-fit verdict + summary
-  recommendation, switches the summary LLM per-read), `/library` (alias `/lib` —
+  downloaded MLX **chat** models via `GET /api/models` with a RAM-fit verdict +
+  summary recommendation, switches the summary LLM per-read), `/vision` (same
+  flow filtered to **vision** models — switches the image/book OCR model
+  per-read; `handlePickModel(kind)` + `ModelList kind` serve both, no
+  recommendation marker for vision), `/library` (alias `/lib` —
   `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, Enter to
   replay, `d` twice to delete), `/help`, `/quit`; esc cancels a read.
   `q` when the URL input field is empty triggers quit — intercepted in
   `UrlInput.onChange` before the controlled value updates. Quit path:
   `dispatch("quitting")` → braille spinner renders for 300 ms → `shutdown()` +
   `exit()` (the delay lets Ink paint one frame before tearing down).
-  **Input guard** (`handleSubmit`): slash commands are single-segment
-  (`/voice`, `/model`, etc. — no second `/`, no glob chars). Multi-segment
-  absolute paths (`/Users/…`), globs (`*`/`?`), and tilde paths (`~/…`) all
-  bypass the command check and route to the server as local sources.
+  **Input guard** (`handleSubmit`): an input is a command iff its FIRST token is
+  a known command word (`KNOWN_COMMANDS`, kept in sync with `handleCommand`'s
+  switch). ⚠ Match on the first token only — the arg may contain a `/` (e.g.
+  `/model mlx-community/Qwen…`), so the old "no second `/`" heuristic wrongly
+  routed `/model <hf-id>` to the read pipeline. Absolute paths (`/Users/…`),
+  globs (`*`/`?`), and tilde paths (`~/…`) have a non-command first token and
+  route to the server as local sources.
 - **Playback = `afplay`** (macOS-only): pause **SIGKILLs** the afplay process
   and records the elapsed position; resume restarts afplay from that position via
   the same WAV-slice mechanism seek uses (`restartAt`). ⚠ The old
@@ -406,7 +445,7 @@ readback/
   runtime `DEV` check the bundler can't eliminate. The binary is named
   `readback-cli` (not `readback`) so the server-lookup fallback
   `Bun.which("readback")` can't spawn the CLI itself.
-- **Prefs** (voice/mode/model) persist to `~/.readback/cli.json`. Theme = the
+- **Prefs** (voice/mode/model/visionModel) persist to `~/.readback/cli.json`. Theme = the
   Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel —
   inherited from the deleted web UI)
   plus CLI-only fit colors (#5dd17a green / #e6c35a yellow, `/model` list only)
@@ -478,9 +517,11 @@ readback/
 - **Brief silence on resume.** Pause kills afplay and resume restarts it from a
   sliced WAV (~50 ms). This is intentional — the old SIGSTOP/SIGCONT was faster
   but caused audible buffer bleed (0.5 s of repeated audio).
-- **`<think>` leaks only on qwen3.** qwen3 (not qwen3.5) ignores `think=False`
-  and emits untagged reasoning. The default `qwen3.5:9b` and `gemma4:26b` are
-  clean; the `_ThinkStripper` is belt-and-suspenders for any model.
+- **Untagged reasoning IS emitted by Qwen3.5-9B-4bit** (corrects an earlier
+  claim that it's "clean"). Left unchecked it writes a plain-text "Thinking
+  Process:" preamble with no `<think>` tags, so `_ThinkStripper` can't catch it.
+  The fix is `enable_thinking=False` on the chat template (see LLM section) — NOT
+  the stripper, which only handles tagged `<think>…</think>`.
 
 ## Remaining cleanup candidates (tracked in docs/ROADMAP.md)
 
@@ -489,14 +530,14 @@ readback/
 
 The v0.8.0 cleanup removed the dead `tools/` module, the streaming/tool-calling
 LLM plumbing, the legacy vanilla-JS static bundle, the inert `CsmTTSConfig`
-fields (`speed`/`model`/`watermark`/`context_turns`), `OllamaConfig.system_prompt`,
+fields (`speed`/`model`/`watermark`/`context_turns`), `OllamaConfig.system_prompt` (v3.8.0 replaced Ollama entirely with mlx-lm + mlx-vlm),
 and the Qwen→CSM config migration.
 
 ## Install & verification
 
 ```bash
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e .                          # csm-mlx is a git dep (allow-direct-references)
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e .                          # csm-mlx + mlx-lm + mlx-vlm pulled automatically
 readback                                  # starts the server (or: python -m readback)
 cd src/cli && bun run start                   # terminal CLI from source (auto-spawns the server)
 cd src/cli && ./install.sh                    # or: standalone binary → ~/.local/bin/readback-cli
@@ -510,15 +551,16 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v3.7.0** — design system consistency pass (**minor** — presentational
-only; no protocol/API/config change). New `src/design-system/tokens/` with 5
-canonical token CSS files (colors, typography, spacing, motion, base). Dashboard
-CSS imports from tokens; landing page inlines the same values. All raw px
-`font-size` replaced with `var(--text-*)` tokens (7-rung scale); play button
-standardised to `var(--control-h)` 40px; inline `rgba()` replaced with semantic
-tint tokens. New `design-system` skill.
+Current: **v4.0.0** — full MLX LLM stack (**major** — Ollama removed). Summary
+LLM and vision OCR now run in-process via `mlx-lm` + `mlx-vlm` on Apple
+Silicon, unifying with CSM-1B TTS under one framework. `OllamaConfig` →
+`LLMConfig`; config key `ollama:` → `llm:` (old key auto-migrated); `ollama`
+dep replaced by `mlx-lm` + `mlx-vlm`; no external daemon needed. +25–30%
+generation speed. Model discovery scans HF cache instead of Ollama API. New
+`upgrade-deps` skill.
 
-Previously: **v3.6.0** — optimisation + UI polish. Default model → `qwen3.5:9b`;
+Previously: **v3.7.0** — design system consistency pass. **v3.6.0** — optimisation
++ UI polish. Default model → `qwen3.5:9b`;
 `LLMClient` reused; server timings; CLI kill+restart pause; UI polish across CLI +
 dashboard. New: `HelpView.tsx`, `ghost-design-system` skill, `drive-cli` skill.
 
@@ -536,7 +578,7 @@ clone voice; loudness normalization (`_peak_normalize` → 0.95); instant CLI qu
 
 Previously: **v3.2.0** — Pi deployment (**minor** — additive deployment tooling; no
 protocol/API/config change). Split deploy: the Mac stays the generation host
-(CSM-1B + Ollama, Apple Silicon only) while a Raspberry Pi runs the lightweight
+(CSM-1B + MLX LLM, Apple Silicon only) while a Raspberry Pi runs the lightweight
 read-only server (library REST + Vue dashboard + `/audio`) under
 [PiZoW](https://github.com/MKS-01/pizow); `scripts/deploy-pi.sh` + `sync-pi.sh`,
 `requirements-pi.txt`, `config.pi.example.yaml`, `.env.example`; mlx/csm-mlx imports

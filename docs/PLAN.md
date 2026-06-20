@@ -6,6 +6,179 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-20 — OCR config → its own `ocr:` section
+
+**Status: done** — branch `llm-migration`. Moved the OCR vision model out of
+`llm:` into a dedicated top-level `ocr:` block (different job from the summary
+LLM). `LLMConfig{model}` + new `OcrConfig{model}`; `Config.load()` auto-migrates
+an old `llm.vision_model` → `ocr.model`. The OCR model id is now threaded
+explicitly through `_ocr_via_mlx` / `fetch_article` / `fetch_multi_page`
+(`vision_model` arg) and `list_models(cfg.llm, cfg.ocr.model)`; the read job's
+`/vision` switch mutates `cfg.ocr.model`. **Wire protocol unchanged** — the field
+stays `vision_model` (WS read, `/api/config`) / `current_vision` (`/api/models`),
+so the CLI needed zero changes. config.yaml restructured.
+
+**Verified.** 49 pytest pass; migration test (old `llm.vision_model` → `ocr.model`);
+FastAPI TestClient confirms `vision_model`/`current_vision`; real OCR through
+`fetch_article(..., cfg.ocr.model)` returns clean text. Docs synced.
+
+---
+
+## 2026-06-20 — `/vision` switch (per-read OCR model picker)
+
+**Status: done** — branch `llm-migration`. A CLI `/vision` command mirrors
+`/model` but for the image/book OCR model, so OCR quality is switchable per-read
+(light 3B for a quick snapshot, 7B for dense scans) instead of config-only.
+
+**What shipped.** Server: `read` accepts `vision_model` (validated vs downloaded
+models, mutates `cfg.llm.vision_model` in place; read job scans installed once if
+either `model` or `vision_model` changed); `/api/config` + WS `config` carry
+`vision_model`; `/api/models` carries `current_vision` (every model already
+tagged `chat`/`vision`). CLI: `/vision [name]` via a shared `handlePickModel(kind)`;
+`ModelList` gained a `kind` prop (filters chat vs vision, no recommendation marker
+for vision); `vision_model` flows through `ws.read(...)`; pref `visionModel`
+persists to `~/.readback/cli.json`; `/help` + KNOWN_COMMANDS updated. `/model` now
+lists chat-only, `/vision` vision-only.
+
+**Verified.** `tsc --noEmit` clean, `bun build` compiles, 49 pytest pass, FastAPI
+TestClient confirms `vision_model`/`current_vision` on the REST surface and the
+chat/vision split. Not yet driven end-to-end against a real image (mirrors the
+proven `/model` path). Follow-up: auto-pick OCR model by source (ROADMAP).
+
+---
+
+## 2026-06-20 — Summary-LLM model experiments (quality/accuracy backlog)
+
+**Status: proposed** — a shortlist of MLX models to trial for Summary mode, now
+that the LLM is no longer the bottleneck (chain-of-thought disabled, ~4 s
+summaries). Goal: find the best faithfulness/prose vs speed point for article +
+book-scan summarization. No code change — `/model` already switches per-read; this
+is a download-and-compare exercise. Default stays `Qwen3.5-9B-4bit`.
+
+### Context
+
+Target hardware: M5 Pro, 48 GB unified. CSM-1B (~6 GB) is always resident, so the
+practical LLM budget is ~30 GB to stay comfortable (≤50% fit), ~36 GB before it
+gets tight. 4-bit MLX builds (`mlx-community/*`) only. Quality for this task =
+faithful, well-ordered spoken prose under the ~250-word ceiling — instruction
+-following and grounding matter more than raw size past ~9B.
+
+### Candidates (summary LLM)
+
+| model | ~size | why try it | verdict for 48 GB |
+|---|---|---|---|
+| `Qwen3.5-9B-4bit` (current) | 5.5 GB | strong baseline, fast | keep as default |
+| `Qwen3-30B-A3B-4bit` (MoE) | ~17 GB | near-32B quality, only ~3B active → fast; best "quality+speed" bet | **top experiment** |
+| `Qwen2.5-32B-Instruct-4bit` | ~18 GB | dense/technical faithfulness upgrade | good fit, ~2-3× slower |
+| `gemma-2-27b-it-4bit` | ~16 GB | excellent natural narration/prose for read-aloud | good fit |
+| `Mistral-Small-3.1-24B-Instruct-4bit` | ~13 GB | efficient, strong instruction-following | good fit, lighter |
+| `Phi-4-14B-4bit` | ~8 GB | reasoning-dense at small size; modest step up from 9B | comfortable |
+| `c4ai-command-r-08-2024-4bit` (Cohere) | ~20 GB | **purpose-built for grounded summarization/RAG** — most on-task for faithfulness | good fit; ⚠ non-commercial license (OK for personal use) |
+| `glm-4-9b-chat-4bit` (Zhipu) | ~5-6 GB | same-weight-class alternative to the Qwen default — cheap A/B sanity check | comfortable |
+| `Llama-3.3-70B-Instruct-4bit` | ~40 GB | ceiling quality | ⚠ tight alongside CSM — edge of envelope, expect swap pressure |
+
+⚠ **Avoid reasoning-first families** (DeepSeek-R1 distills etc.) — they emit
+chain-of-thought by design and many ignore the off-switch, fighting the
+`enable_thinking=False` fix that makes Summary mode fast/clean.
+⚠ Exact `mlx-community/*` tags drift — verify the repo exists on HF before download.
+
+### Candidate (vision OCR, separate `cfg.vision_model`)
+
+| model | ~size | why try it |
+|---|---|---|
+| `Qwen2.5-VL-7B-Instruct-4bit` | ~5 GB | OCR-accuracy upgrade over the default 3B for dense/low-quality book scans |
+
+### How to evaluate
+
+1. `huggingface-cli download <id>` (or let the first `/model` switch pull it).
+2. Read one representative URL article AND one multi-page book scan through each
+   model in Summary mode, same voice/tone.
+3. Compare on: faithfulness (no invented facts), ordering/coverage, prose
+   naturalness when spoken, and the server's `summarize` timing (already logged).
+4. Promote the winner to `config.yaml`'s `llm.model` default if it beats the 9B
+   on quality without an unacceptable speed hit.
+
+### Out of scope
+
+- Auto-selecting a model by source length/type (manual `/model` for now).
+- Any change to the fit heuristic or picker UI.
+
+---
+
+## 2026-06-20 — Replace Ollama with mlx-lm + mlx-vlm (full MLX LLM stack)
+
+**Status: done** — branch `llm-migration`, v4.0.0. Removed Ollama entirely; summary/title/OCR all run in-process via mlx-lm + mlx-vlm on Apple's MLX framework, unifying with CSM-1B. `OllamaConfig` → `LLMConfig`, config key `ollama:` → `llm:` (old key auto-migrated), `ollama` dep replaced by `mlx-lm` + `mlx-vlm`. Model discovery scans HF cache. Non-chat models (whisper, parakeet, CSM, TTS) filtered from `/model` picker. Smoke-tested: Full + Summary mode end-to-end. All docs updated. 49 tests pass.
+
+### Context
+
+Ollama wraps llama.cpp behind a daemon — ~15–20% overhead vs raw inference, requires a separate background process, and is a different framework from the CSM-1B TTS engine (which already runs on MLX). Replacing it with `mlx-lm` (text generation) and `mlx-vlm` (vision/OCR) means:
+- **+25–30% generation speed** (~100 tok/s vs ~78 tok/s on a 7B 4-bit model, M5 Pro).
+- **No daemon** — in-process calls, no `ollama serve` requirement.
+- **Framework alignment** — both LLM and TTS share MLX/Metal unified memory, avoiding the Ollama↔MLX memory fragmentation.
+- **One fewer system dependency** for setup.
+
+The current Ollama surface is contained: `LLMClient.oneshot()` (summary + title gen), `pick_vision_model` + `_ocr_via_ollama` (image OCR), and model listing for the CLI `/model` picker.
+
+Trade-off: MLX models are HuggingFace safetensors (not GGUF) — a one-time ~4.5 GB download per model. Existing Ollama blobs can't be reused. Model discovery changes from querying a server API to scanning the local HF cache.
+
+### Design
+
+1. **Config** — rename `OllamaConfig` → `LLMConfig`. Fields: `model: str` (HF ID, default `mlx-community/Qwen3.5-9B-4bit`), `vision_model: str` (HF ID, default `mlx-community/Qwen2.5-VL-3B-Instruct-4bit`). Drop `host` (no server). Top-level key stays `ollama` in `config.yaml` for now → renamed to `llm` (breaking config change, but minor — only one user).
+
+2. **`llm/client.py`** — replace `ollama.Client.chat()` with `mlx_lm.load()` + `mlx_lm.generate()`. The model + tokenizer are loaded lazily on first call (like CSM). Chat template applied via `tokenizer.apply_chat_template()`. `_ThinkStripper` stays (belt-and-suspenders for Qwen3.5 models). `temperature` and `top_k` passed to `generate()`. Model swap = unload current + load new (heavier than Ollama's server-side swap, but infrequent — `/model` is a per-session action).
+
+3. **`llm/models.py`** — replace Ollama API calls with HF cache scanning. `list_models()` scans `~/.cache/huggingface/hub/models--mlx-community--*` for downloaded MLX models, reads their `config.json` for parameter count, computes RAM-fit verdicts (same heuristic). `pick_vision_model()` replaced by a config-driven default (`cfg.vision_model`). `installed_model_names()` returns HF IDs of downloaded models.
+
+4. **`pipeline/extract.py`** — `_ocr_via_ollama` → `_ocr_via_mlx`. Uses `mlx_vlm.load()` + `mlx_vlm.generate()` with the vision model. Image passed as a local file path (mlx-vlm supports this natively). The vision model is loaded lazily and cached (same pattern as the text LLM). `pick_vision_model` calls removed — the vision model is config-driven.
+
+5. **`server/server.py`** — wire `cfg.llm` (renamed from `cfg.ollama`). Model swap logic updated: validate against downloaded models, then trigger unload/reload on `LLMClient`. `ReaderModels.ensure_loaded` loads the text LLM alongside CSM (vision model loads lazily on first OCR).
+
+6. **Thread safety** — the pipeline is sequential (fetch → summarize → synthesize), so the text LLM and CSM never run concurrently. The LLM runs via `asyncio.to_thread` (same as today's Ollama calls). Both models share unified memory (~4.5 GB LLM + ~2 GB CSM = ~6.5 GB of 48 GB — comfortable). No shared MLX executor needed — they're separate models on separate threads at separate times.
+
+7. **Dependencies** — `pyproject.toml`: replace `ollama>=0.6.0` with `mlx-lm` + `mlx-vlm`. Both are lazy imports in the modules that use them (same pattern as `csm-mlx`), so the Pi server boots without them. `requirements-pi.txt`: remove `ollama` (Pi never runs LLM/OCR).
+
+8. **`config.yaml`** — update the `ollama:` block to `llm:` with new defaults. `setup.sh` updated: instead of pulling an Ollama model, pre-download the default MLX model via `huggingface-cli download mlx-community/Qwen3.5-9B-4bit`.
+
+9. **CLI `/model` picker** — the list now shows downloaded MLX models (HF IDs) instead of Ollama model names. The recommendation logic (largest good-fit chat model) stays. Vision models filtered out. The display adapts: HF IDs are longer, so show a short alias (e.g. `Qwen3.5-9B-4bit` from `mlx-community/Qwen3.5-9B-4bit`).
+
+### Files
+
+- `src/readback/config.py` (modified): `OllamaConfig` → `LLMConfig`, new fields
+- `src/readback/llm/client.py` (modified): mlx-lm load/generate, lazy model management
+- `src/readback/llm/models.py` (modified): HF cache scanning, drop Ollama API calls
+- `src/readback/pipeline/extract.py` (modified): `_ocr_via_mlx` replacing `_ocr_via_ollama`
+- `src/readback/server/server.py` (modified): wire `cfg.llm`, model swap, ensure_loaded
+- `src/readback/__main__.py` (modified): `cfg.ollama` → `cfg.llm`
+- `pyproject.toml` (modified): swap deps
+- `requirements-pi.txt` (modified): remove `ollama`
+- `config.yaml` (modified): `ollama:` → `llm:` block
+- `scripts/setup.sh` (modified): HF download instead of ollama pull
+
+### Out of scope
+
+- Parallel map-reduce (sequential for now — same as Ollama era)
+- LLM LoRA fine-tuning via mlx-lm (capability exists but not wired)
+- Batched/concurrent LLM+TTS (pipeline stays sequential)
+- Ollama fallback/compatibility mode (hard cut)
+- New CLI commands or protocol changes (transparent swap)
+- Dashboard changes (it doesn't touch the LLM)
+
+### Verification
+
+1. `pip install -e .` succeeds with mlx-lm + mlx-vlm deps, no ollama dep
+2. `readback` starts — no Ollama process needed; `GET /api/config` responds
+3. Paste a URL, Summary mode → LLM summarizes via mlx-lm, audio plays (quality parity with Ollama)
+4. Paste a URL, Full mode → unchanged (no LLM involved)
+5. Drop an image path → OCR via mlx-vlm, text extracted, audio plays
+6. Folder of images → multi-page OCR via mlx-vlm, map-reduce summary works
+7. `/model` → lists downloaded MLX models with RAM-fit verdicts + recommendation
+8. `/model mlx-community/Qwen3.5-4B-4bit` → switches model, next summary uses it
+9. `grep -r "ollama" src/readback/` → zero hits (full removal)
+10. Pi: `pip install -r requirements-pi.txt` succeeds without mlx-lm/mlx-vlm; server boots, dashboard works
+11. `pytest` → existing tests pass (no MLX in the test suite)
+
+---
+
 ## 2026-06-20 — Design system consistency pass
 
 **Status: done** — branch `design-revamp`. Established a shared design token

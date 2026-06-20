@@ -18,7 +18,7 @@ def main():
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8000, type=int)
-    parser.add_argument("--model", default=None, help="Override Ollama model")
+    parser.add_argument("--model", default=None, help="Override LLM model (HuggingFace ID)")
     parser.add_argument("--config", dest="config_path", type=Path, default=Path("config.yaml"))
 
     args = parser.parse_args()
@@ -29,7 +29,7 @@ def main():
 
     cfg = Config.load(args.config_path)
     if args.model:
-        cfg.ollama.model = args.model
+        cfg.llm.model = args.model
 
     local_url   = f"http://127.0.0.1:{args.port}"
     network_url = f"http://{_local_ip()}:{args.port}" if args.host == "0.0.0.0" else None

@@ -7,6 +7,8 @@ const CMDS: Array<[cmd: string, desc: string]> = [
   ["/voice <id>",     "switch voice"],
   ["/model",          "list models (RAM fit + suggestion)"],
   ["/model <name>",   "switch summary model"],
+  ["/vision",         "list vision (OCR) models"],
+  ["/vision <name>",  "switch image/book OCR model"],
   ["/mode",           "show current mode"],
   ["/mode full",      "read the whole article"],
   ["/mode summary",   "spoken summary (local LLM)"],

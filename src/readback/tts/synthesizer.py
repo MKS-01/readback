@@ -1,28 +1,18 @@
 """Synthesizer — TTS facade.
 
-CSM-1B (mlx-audio) is the sole engine (Qwen3-TTS was replaced; reference-audio
-cloning was removed in v0.7.x — two preset voices only). This thin facade keeps
-the surface the web server depends on (`synthesize`, `sample_rate`,
-`current_voice`, `swap_voice`, `load`, `reset_context`, `SUPPORTED_VOICES`) so a
-future engine (e.g. a MisoTTS-8B MLX port) is a factory change, not a server
-rewrite.
+CSM-1B is the sole engine. This thin facade keeps the surface the server depends
+on (`synthesize`, `sample_rate`, `current_voice`, `swap_voice`,
+`set_temperature`, `load`) so a future engine (e.g. a MisoTTS-8B MLX port) is a
+factory change, not a server rewrite.
 """
 from __future__ import annotations
 
 import numpy as np
 
 from readback.config import TTSConfig
-from readback.tts.csm_engine import (
-    SUPPORTED_VOICES,
-    SUPPORTED_VOICE_NAMES,
-    CsmEngine,
-)
+from readback.tts.csm_engine import CsmEngine
 
-__all__ = [
-    "Synthesizer",
-    "SUPPORTED_VOICES",
-    "SUPPORTED_VOICE_NAMES",
-]
+__all__ = ["Synthesizer"]
 
 
 class Synthesizer:
@@ -43,11 +33,6 @@ class Synthesizer:
     def current_voice(self) -> str:
         return self._engine.current_voice
 
-    @property
-    def supported_voices(self) -> tuple[tuple[str, str], ...]:
-        """Preset speakers as (id, label) pairs."""
-        return self._engine.supported_voices
-
     def swap_voice(self, voice: str) -> str:
         return self._engine.swap_voice(voice)
 
@@ -59,11 +44,3 @@ class Synthesizer:
 
     def synthesize(self, text: str) -> np.ndarray:
         return self._engine.synthesize(text)
-
-    def synthesize_stream(self, text: str, should_stop=None):
-        """Yield the sentence's audio in chunks as the engine produces them.
-        Caller must drain fully; use `should_stop` to end early (see engine)."""
-        return self._engine.synthesize_stream(text, should_stop)
-
-    def reset_context(self):
-        self._engine.reset_context()

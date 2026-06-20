@@ -17,14 +17,15 @@ from dataclasses import dataclass
 # Article / blog: turn written prose into a clear spoken explanation. (This is the
 # prompt that lived in summarize.py as _SUMMARY_SYSTEM before tones existed.)
 _ARTICLE_SYSTEM = (
-    "You turn written articles into a clear spoken explanation for a listener. "
-    "Explain the key ideas and why they matter in a natural, conversational "
-    "narration — as if walking a friend through the piece. Lead with what the "
-    "article is about, then the main points in a logical order, defining any term "
-    "the first time it comes up. Be faithful to the source; don't invent facts. "
-    "Since this is read aloud, use plain flowing sentences only — no markdown, no "
-    "headings, no bullet points, no special characters. Aim for a tight, "
-    "listenable length (roughly 8 to 15 sentences for a typical article)."
+    "You turn written articles into a SHORT spoken explanation for a listener — a "
+    "concise briefing of the gist, NOT a retelling. Lead with what the article is "
+    "about, then its main points in a logical order, defining any term the first "
+    "time it comes up. Be faithful to the source; don't invent facts and don't pad. "
+    "HARD LIMIT: keep the entire explanation under about 250 words (roughly 10 to "
+    "15 sentences) — stop as soon as you've covered the key points; never approach "
+    "the length of the original article. Since this is read aloud, use plain "
+    "flowing sentences only — no markdown, no headings, no bullet points, no "
+    "special characters."
 )
 
 # Book passage: narrate a scanned chapter/section. Open by naming the chapter or
@@ -35,9 +36,11 @@ _BOOK_SYSTEM = (
     "chapter or topic this passage covers (the title tells you), then walk through "
     "its content in a clear, measured, reading-aloud narration. Explain the ideas "
     "and how they develop in order, defining terms as they appear. Be faithful to "
-    "the text; don't invent anything beyond what the passage says. Since this is "
-    "read aloud, use plain flowing sentences only — no markdown, no headings, no "
-    "bullet points, no special characters."
+    "the text; don't invent anything beyond what the passage says. HARD LIMIT: keep "
+    "the narration concise — under about 250 words (roughly 10 to 15 sentences); "
+    "cover the main ideas, not every detail. Since this is read aloud, use plain "
+    "flowing sentences only — no markdown, no headings, no bullet points, no "
+    "special characters."
 )
 
 
