@@ -58,3 +58,4 @@ vendor/csm/
 
 # --- Landing page (media is copied in by the Pages workflow / locally for preview) ---
 src/landing-page/media/
+src/landing-page/docs
