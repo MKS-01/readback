@@ -1,4 +1,4 @@
-# readback — offline article reader (v1.1.0).
+# readback — offline article reader (v4.0.0).
 # Paste a URL → fetch + extract the article → (optional LLM summary) → CSM-1B TTS
 # → audio you play in-browser, in the terminal CLI, or download. All on-device.
 
