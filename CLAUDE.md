@@ -183,9 +183,12 @@ readback/
   — it feeds the client transcript panel; the full article isn't shipped back (it's
   on the source page). `timings` = `{fetch, summarize, synthesize, write, total}`
   (seconds, rounded to 1 dp) — server-side instrumentation for profiling reads.
-- Models (`Synthesizer` + `LLMClient`) load lazily on first read via
-  `ReaderModels.ensure_loaded` (downloads the CSM checkpoint the first time).
-  The `LLMClient` instance is reused across the pipeline (passed into
+- Models (`Synthesizer` + `LLMClient`) load via `ReaderModels.ensure_loaded`
+  (downloads the CSM checkpoint the first time). The **lifespan hook kicks off
+  `ensure_loaded()` as a background task at server boot** so weights are warm
+  before the first read (the CLI spawns the server seconds ahead of the first
+  URL); the first read still awaits the same guarded `ensure_loaded` if it lands
+  early. The `LLMClient` instance is reused across the pipeline (passed into
   `fetch_article`/`fetch_multi_page` for title generation, avoiding per-call
   reinstantiation). `set_temperature` and `swap_voice` are plain attribute
   mutations (no `asyncio.to_thread` needed — they don't touch MLX).
@@ -224,7 +227,10 @@ readback/
   or `"article"` (URL); `tone_for(kind)` → `BOOK` (measured, **0.6**, opens by
   naming the chapter/topic) or `ARTICLE` (livelier explainer, **0.8**). Auto,
   server-side, invisible to the CLI — **no `/tone` override or config yet** (room
-  for a 3rd tone). ⚠ Tone shifts *delivery temperature*, NOT the voice — the user's
+  for a 3rd tone). Both `summary_system` prompts carry a **hard ~250-word
+  (10–15 sentence) length ceiling** so the spoken summary stays a briefing, not a
+  retelling (paired with `oneshot`'s `max_tokens` bound). ⚠ Tone shifts
+  *delivery temperature*, NOT the voice — the user's
   `/voice` is untouched. Book sources also take their **title from the first ~3 OCR
   lines** (`_book_title_from_text`), which the BOOK prompt then leads with.
 - **Summarize** (`summarize.py`): short body (≤ `reader.summary_max_chars`, default
@@ -325,8 +331,20 @@ readback/
 
 ### LLM (`llm/client.py`)
 
-- The reader uses only **`oneshot(system, user)`** — one non-streaming mlx-lm
-  `generate`, `temperature=0.4`, `<think>` stripped.
+- The reader uses only **`oneshot(system, user, max_tokens=1024)`** — one
+  non-streaming mlx-lm `generate`, `temperature=0.4`, `<think>` stripped.
+- ⚠ **`enable_thinking=False` is passed to `apply_chat_template`** — this is the
+  single biggest summary/audio speed lever. Qwen3/3.5 default to chain-of-thought
+  and otherwise spend the WHOLE token budget on a visible "Thinking Process:"
+  preamble (UNTAGGED, so `_ThinkStripper` can't catch it → it gets read aloud) and
+  get truncated before the real answer. With it off a 215-word article summarizes
+  in **~4 s / ~190 words** instead of **~76 s / ~2760 words**. The `/no_think`
+  token is ignored by the MLX builds — only the template kwarg works. Wrapped in
+  try/except so a model whose template rejects the kwarg still runs (any
+  user-picked `/model`).
+- ⚠ **`max_tokens=1024`** (was 4096) caps runaway generation — a spoken summary is
+  ~190–250 words ≈ <600 tokens, so it's a safety bound, not a target. Belt to the
+  `enable_thinking=False` suspenders.
 - `_ThinkStripper` removes `<think>…</think>` across chunk boundaries. The
   streaming/tool-calling methods and the `tools/` module were removed in the
   v0.8.0 cleanup.
@@ -479,9 +497,11 @@ readback/
 - **Brief silence on resume.** Pause kills afplay and resume restarts it from a
   sliced WAV (~50 ms). This is intentional — the old SIGSTOP/SIGCONT was faster
   but caused audible buffer bleed (0.5 s of repeated audio).
-- **`<think>` leaks only on qwen3.** qwen3 (not qwen3.5) emits untagged
-  reasoning. The default `Qwen3.5-9B-4bit` is clean; the `_ThinkStripper` is
-  belt-and-suspenders for any model.
+- **Untagged reasoning IS emitted by Qwen3.5-9B-4bit** (corrects an earlier
+  claim that it's "clean"). Left unchecked it writes a plain-text "Thinking
+  Process:" preamble with no `<think>` tags, so `_ThinkStripper` can't catch it.
+  The fix is `enable_thinking=False` on the chat template (see LLM section) — NOT
+  the stripper, which only handles tagged `<think>…</think>`.
 
 ## Remaining cleanup candidates (tracked in docs/ROADMAP.md)
 

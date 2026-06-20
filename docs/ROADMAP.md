@@ -11,6 +11,17 @@ intentionally lower priority.
 
 ## Recently shipped
 
+- **Summary/audio speedup — disabled LLM chain-of-thought** 🏁 _key milestone_.
+  Qwen3.5 defaulted to thinking and spent its whole token budget on an untagged
+  "Thinking Process:" monologue — slow, truncated before the real answer, and
+  (untagged, so the stripper missed it) read aloud. `enable_thinking=False` on the
+  chat template cut a 215-word article from **~76 s / 2760 words → ~4 s / ~190
+  words**; since synthesis time scales with summary length, audio dropped
+  proportionally. Plus a `max_tokens` 4096→1024 safety bound and a hard ~250-word
+  prompt ceiling.
+- **Eager model warm-up** — the server lifespan kicks off `ensure_loaded()` at
+  boot so CSM + LLM weights are warm before the first read, hiding the cold-start
+  "loading models" stall.
 - **Loudness normalization** — every read is peak-normalized to 0.95 so clone
   voices no longer come out ~18 dB quieter than the built-ins (`_peak_normalize`
   in `speak.py`).
@@ -41,9 +52,11 @@ intentionally lower priority.
 
 ## ⚡ CLI — tuning & performance — priority
 
+- [x] **Summary mode no longer runs away** — `enable_thinking=False` + `max_tokens` cap + prompt length ceiling; the LLM is no longer the bottleneck (~4 s summaries, audio shrinks with the shorter text)
+- [x] Trim startup / model warm-up — server eagerly loads CSM + LLM at boot so the first read isn't cold (`ensure_loaded()` in the lifespan hook)
 - [ ] Faster synthesis — tune the controllable knobs (precision, chunking, warm-up); ultimately bounded by your Mac's GPU / unified memory
 - [ ] Cache by (url, mode, voice) so re-reading is instant
-- [ ] Trim startup / model warm-up and surface clearer progress (% + ETA, not just per-chunk)
+- [ ] Surface clearer progress (% + ETA, not just per-chunk)
 - [ ] Parallelize multi-page OCR + the map-phase summary calls — both are sequential today; the win scales with page count (mlx-lm's `generate()` supports batched prompts natively)
 
 ## 🍓 Pi — shipped

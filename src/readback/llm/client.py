@@ -99,9 +99,15 @@ class LLMClient:
         self._loaded_model_id = self.cfg.model
         log.info("LLM ready: %s", self.cfg.model)
 
-    def oneshot(self, system_prompt: str, user_text: str) -> str:
+    def oneshot(self, system_prompt: str, user_text: str, max_tokens: int = 1024) -> str:
         """Single non-streaming completion with an explicit system prompt. Used by
-        the reader's Summary mode. Returns clean text (think tags stripped)."""
+        the reader's Summary mode. Returns clean text (think tags stripped).
+
+        `max_tokens` is a hard ceiling on generation. A spoken summary is short
+        (~10-15 sentences ≈ 300-400 words ≈ 600 tokens), so the default leaves
+        headroom while bounding worst-case latency — without it the model can
+        ramble to thousands of tokens, which both stalls Summary mode AND balloons
+        the synthesized audio (the ramble gets read aloud)."""
         try:
             from mlx_lm import generate
             from mlx_lm.sample_utils import make_sampler
@@ -111,13 +117,25 @@ class LLMClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_text},
             ]
-            prompt = self._tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True,
-            )
+            # Disable chain-of-thought. Reasoning models (Qwen3/3.5) otherwise burn
+            # the whole token budget on a visible "Thinking Process" preamble — slow,
+            # and (being UNTAGGED, so strip_think can't catch it) it gets read aloud.
+            # `enable_thinking=False` is the only reliable off-switch (the `/no_think`
+            # token is ignored by the MLX builds); fall back for templates that don't
+            # accept the kwarg so any user-picked `/model` still works.
+            try:
+                prompt = self._tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+            except TypeError:
+                prompt = self._tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True,
+                )
             sampler = make_sampler(temp=0.4)
             result = generate(
                 self._model, self._tokenizer, prompt=prompt,
-                max_tokens=4096, sampler=sampler, verbose=False,
+                max_tokens=max_tokens, sampler=sampler, verbose=False,
             )
             return strip_think(result or "").strip()
         except Exception as e:

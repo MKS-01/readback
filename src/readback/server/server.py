@@ -303,6 +303,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        asyncio.create_task(models.ensure_loaded())
         yield
 
     app = FastAPI(lifespan=lifespan)
