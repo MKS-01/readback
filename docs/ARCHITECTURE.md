@@ -1,4 +1,4 @@
-# Architecture — readback (v3.2.0)
+# Architecture — readback (v4.0.0)
 
 How the pieces fit together and why. System-level companion to
 [CLAUDE.md](../CLAUDE.md) (implementation notes, gotchas, exact knobs) and
@@ -160,9 +160,10 @@ Raspberry Pi can serve as a network-accessible replay host:
 - **What runs on Pi** — the same FastAPI server, but TTS + LLM are never
   invoked (no CLI connects to Pi). Pi serves: library REST
   (`/api/library`, `/audio`), and the Vue dashboard (static `dist/`).
-- **Why no code changes** — all mlx/csm-mlx imports in `csm_engine.py` are lazy
-  (inside function bodies, not module-level), so the server imports and starts
-  cleanly on Pi with only `requirements-pi.txt` (excludes `csm-mlx`).
+- **Why no code changes** — all MLX-dependent imports (csm-mlx in `csm_engine.py`,
+  mlx-lm in `client.py`, mlx-vlm in `extract.py`) are lazy (inside function
+  bodies, not module-level), so the server imports and starts cleanly on Pi with
+  only `requirements-pi.txt` (excludes csm-mlx, mlx-lm, mlx-vlm).
 - **`scripts/deploy-pi.sh`** — builds the dashboard on Mac, rsyncs source +
   `dist/` to Pi (excludes `venv/`, `config.yaml`, CLI/finetune/voice dirs), sets
   up a venv with Pi-compatible deps, and starts/restarts the server via PM2.

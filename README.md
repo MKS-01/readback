@@ -117,7 +117,7 @@ macOS only (`afplay` playback). Details: [`src/cli/README.md`](src/cli/README.md
   <sub><code>/help</code> — every command and player key at a glance.</sub>
 </p>
 
-First read downloads CSM-1B weights (~6 GB) and warms up the MLX graph — slow once, fast after. See [SETUP.md](docs/SETUP.md) for details.
+First read downloads CSM-1B weights (~6 GB) and the summary LLM (~4.5 GB), then warms up the MLX graph — slow once, fast after. See [SETUP.md](docs/SETUP.md) for details.
 
 ---
 
