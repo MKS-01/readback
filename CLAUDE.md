@@ -519,16 +519,6 @@ readback/
   The fix is `enable_thinking=False` on the chat template (see LLM section) — NOT
   the stripper, which only handles tagged `<think>…</think>`.
 
-## Remaining cleanup candidates (tracked in docs/ROADMAP.md)
-
-- Generated WAVs in `output_dir` (`readback-audio-db/audio/`) grow unbounded (no
-  *auto*-rotation yet — the dashboard's delete removes a row + its WAV manually).
-
-The v0.8.0 cleanup removed the dead `tools/` module, the streaming/tool-calling
-LLM plumbing, the legacy vanilla-JS static bundle, the inert `CsmTTSConfig`
-fields (`speed`/`model`/`watermark`/`context_turns`), `OllamaConfig.system_prompt` (v3.8.0 replaced Ollama entirely with mlx-lm + mlx-vlm),
-and the Qwen→CSM config migration.
-
 ## Install & verification
 
 ```bash
@@ -555,52 +545,8 @@ dep replaced by `mlx-lm` + `mlx-vlm`; no external daemon needed. +25–30%
 generation speed. Model discovery scans HF cache instead of Ollama API. New
 `upgrade-deps` skill.
 
-Previously: **v3.7.0** — design system consistency pass. **v3.6.0** — optimisation
-+ UI polish. Default model → `qwen3.5:9b`;
-`LLMClient` reused; server timings; CLI kill+restart pause; UI polish across CLI +
-dashboard. New: `HelpView.tsx`, `ghost-design-system` skill, `drive-cli` skill.
-
-Previously: **v3.5.0** — image OCR, book scans, tones. New input sources; map-reduce
-summarization; source-aware tones (`pipeline/tones.py`).
-
-Previously: **v3.4.0** — CLI library screen (**minor** — CLI-only). `/library`
-(alias `/lib`) opens a paginated past-reads list in the terminal: arrow-key nav,
-Enter to replay, `d` twice to delete, `n` to load more. `q` on the input screen
-quits via a 300 ms braille-spinner screen. New component: `LibraryView.tsx`.
-
-Previously: **v3.3.0** — voice tuning + audio/CLI fixes (**minor**). New `codeword`
-clone voice; loudness normalization (`_peak_normalize` → 0.95); instant CLI quit
-(SIGKILL replaces SIGTERM-then-busy-wait). WS protocol + CLI protocol unchanged.
-
-Previously: **v3.2.0** — Pi deployment (**minor** — additive deployment tooling; no
-protocol/API/config change). Split deploy: the Mac stays the generation host
-(CSM-1B + MLX LLM, Apple Silicon only) while a Raspberry Pi runs the lightweight
-read-only server (library REST + Vue dashboard + `/audio`) under
-[PiZoW](https://github.com/MKS-01/pizow); `scripts/deploy-pi.sh` + `sync-pi.sh`,
-`requirements-pi.txt`, `config.pi.example.yaml`, `.env.example`; mlx/csm-mlx imports
-stay lazy so the server boots on Pi. Mobile-responsive dashboard + landing sync.
-WS protocol + CLI protocol unchanged.
-
-Previously: **v3.1.0** — UI/UX polish (**minor** — presentational only; no
-protocol/API/config change). Purposeful animations across the dashboard + landing
-page guided by the `emil-design-eng` skill (`--ease-out`/`--ease-drawer` curves,
-staggered list entrances, grid-rows accordion player, rAF stepper progress,
-*gentle* reduced-motion); landing-page redesign (de-boxed layout, trimmed to a
-hook-and-redirect shape, story-grounded hero, `--radius` 8px corners on both
-surfaces, `--features` terminal listing); refreshed landscape dashboard
-screenshot. WS protocol + CLI protocol unchanged.
-
-Previously: **v3.0.0** — library dashboard + persistence (major): new
-`src/readback/library.py` (SQLite) + paged `/api/library` REST + persist-on-read;
-new `src/dashboard/` Vue UI served at `/`; new `reader.library_db`; default
-on-disk layout moved to a sibling `readback-audio-db/{audio,library.db}` (existing
-installs migrate). The browser UI returned (reversing v2.0.0's removal); WS +
-CLI compatible. (v2.1.0 folded in.)
-(v2.0.0: CLI-only pivot — web frontend removed, package restructured to the
-`src/` layout, docs under `docs/`, TLS/`cryptography` dropped. v1.1.0: CLI
-`/model` switch with RAM-fit verdicts. v1.0.0: terminal CLI as a `/ws` client.
-v0.8.0: offline article reader pivot; CSM-1B via csm-mlx; renamed `local-tts` →
-`readback`.) Set in `pyproject.toml`, `src/readback/__init__.py`,
+Previously: v3.0.0–v3.7.0 (see memory `version-history` for full changelog).
+Set in `pyproject.toml`, `src/readback/__init__.py`,
 `src/cli/package.json`, and `src/dashboard/package.json` — bump all four when
 releasing. The standalone CLI binary needs `src/cli/install.sh` re-run to pick
 up the new version in its banner.
