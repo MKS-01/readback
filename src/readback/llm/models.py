@@ -133,19 +133,21 @@ def installed_model_names(cfg: LLMConfig) -> list[str]:
         return []
 
 
-def list_models(cfg: LLMConfig) -> dict:
+def list_models(cfg: LLMConfig, vision_model: str = "") -> dict:
     """Downloaded models + fit verdicts + a summarization recommendation.
 
-    Returns `{"models": [...], "recommended": str|None, "current": str,
-    "total_ram_gb": int}`; on error, `models` is empty and an `error` message
-    is added instead.
+    `vision_model` is the active OCR model id (from `cfg.ocr.model`), surfaced as
+    `current_vision` so the CLI `/vision` picker can mark it. Returns
+    `{"models": [...], "recommended": str|None, "current": str,
+    "current_vision": str, "total_ram_gb": int}`; on error, `models` is empty and
+    an `error` message is added instead.
     """
     total_ram = _total_ram_bytes()
     out: dict = {
         "models": [],
         "recommended": None,
         "current": cfg.model,
-        "current_vision": cfg.vision_model,
+        "current_vision": vision_model,
         "total_ram_gb": round(total_ram / _GIB),
     }
     try:

@@ -155,8 +155,8 @@ def _ensure_vision_model(model_id: str):
     log.info("vision model ready: %s", model_id)
 
 
-def _ocr_via_mlx(path: str, llm_cfg: "LLMConfig") -> str:
-    """Resolve, convert if needed, then OCR an image via mlx-vlm."""
+def _ocr_via_mlx(path: str, vision_model: str) -> str:
+    """Resolve, convert if needed, then OCR an image via mlx-vlm `vision_model`."""
     from mlx_vlm import generate as vlm_generate
     from mlx_vlm.prompt_utils import apply_chat_template
 
@@ -164,7 +164,7 @@ def _ocr_via_mlx(path: str, llm_cfg: "LLMConfig") -> str:
     if not abs_path.exists():
         raise ExtractError(f"\U0001f5bc️ image not found: {abs_path}")
 
-    log.info("OCR %s via %s", abs_path.name, llm_cfg.vision_model)
+    log.info("OCR %s via %s", abs_path.name, vision_model)
 
     if abs_path.suffix.lower() in _NEEDS_CONVERT:
         log.info("converting %s to JPEG for OCR", abs_path.suffix)
@@ -178,7 +178,7 @@ def _ocr_via_mlx(path: str, llm_cfg: "LLMConfig") -> str:
         image_path = str(abs_path)
 
     try:
-        _ensure_vision_model(llm_cfg.vision_model)
+        _ensure_vision_model(vision_model)
         prompt_text = (
             "Extract all text from this image verbatim. "
             "Preserve line breaks and structure. Output only the text, no commentary."
@@ -191,7 +191,7 @@ def _ocr_via_mlx(path: str, llm_cfg: "LLMConfig") -> str:
             [image_path], max_tokens=4096, temperature=0.0, verbose=False,
         )
     except Exception as e:
-        raise ExtractError(f"\U0001f916 OCR failed ({llm_cfg.vision_model}): {e}") from e
+        raise ExtractError(f"\U0001f916 OCR failed ({vision_model}): {e}") from e
     finally:
         if image_path != str(abs_path):
             import os
@@ -265,6 +265,7 @@ def fetch_multi_page(
     llm_cfg: "LLMConfig",
     progress_cb=None,
     llm: "LLMClient | None" = None,
+    vision_model: str = "",
 ) -> Article:
     """OCR every image in a folder/glob and stitch them into one continuous Article.
 
@@ -276,7 +277,7 @@ def fetch_multi_page(
     """
     images = _collect_images(source)
     total = len(images)
-    log.info("multi-page OCR via %s (%d pages)", llm_cfg.vision_model, total)
+    log.info("multi-page OCR via %s (%d pages)", vision_model, total)
 
     pages: list[str] = []
     for i, img_path in enumerate(images):
@@ -284,7 +285,7 @@ def fetch_multi_page(
             progress_cb(i, total)
         log.info("OCR page %d/%d: %s", i + 1, total, img_path.name)
         try:
-            pages.append(_ocr_via_mlx(str(img_path), llm_cfg))
+            pages.append(_ocr_via_mlx(str(img_path), vision_model))
         except ExtractError:
             log.warning("skipping page %d (%s): OCR failed", i + 1, img_path.name, exc_info=True)
 
@@ -331,11 +332,17 @@ def _download(url: str) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def fetch_article(source: str, llm_cfg: "LLMConfig | None" = None, llm: "LLMClient | None" = None) -> Article:
+def fetch_article(
+    source: str,
+    llm_cfg: "LLMConfig | None" = None,
+    llm: "LLMClient | None" = None,
+    vision_model: str = "",
+) -> Article:
     """Fetch `source` and return the extracted, TTS-ready article.
 
-    `source` may be a URL (http/https) or a local image path. Raises
-    ExtractError on a failed fetch or when no article text is found.
+    `source` may be a URL (http/https) or a local image path. `vision_model` is
+    the OCR model id (needed only for image sources). Raises ExtractError on a
+    failed fetch or when no article text is found.
     """
     source = (source or "").strip()
     if not source:
@@ -343,9 +350,9 @@ def fetch_article(source: str, llm_cfg: "LLMConfig | None" = None, llm: "LLMClie
 
     # --- local image (a book page, in this tool) ---
     if _is_image_path(source):
-        if llm_cfg is None:
-            raise ExtractError("\U0001f5bc️ image OCR requires an LLM config")
-        text = _ocr_via_mlx(source, llm_cfg)
+        if not vision_model:
+            raise ExtractError("\U0001f5bc️ image OCR requires an OCR model")
+        text = _ocr_via_mlx(source, vision_model)
         title = _book_title_from_text(text, llm_cfg, llm=llm)
         article = Article(title=title, text=_clean_for_tts(text), url=source)
         log.info("OCR extracted %r (%d words) from %s", title, article.word_count, source)

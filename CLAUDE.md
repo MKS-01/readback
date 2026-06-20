@@ -145,8 +145,9 @@ readback/
     │                          # BusyView,PlayerView,ModelList,LibraryView}.tsx
     └── readback/              # python package (src layout; wheel packages src/readback)
         ├── __main__.py        # `readback` CLI: argparse --host/--port/--model/--config, uvicorn boot
-        ├── config.py          # Pydantic config: LLMConfig / CsmTTSConfig (+ CsmVoicePrompt)
-        │                      # / ReaderConfig; load() resolves clone wav + lora + library_db
+        ├── config.py          # Pydantic config: LLMConfig / OcrConfig / CsmTTSConfig
+        │                      # (+ CsmVoicePrompt) / ReaderConfig; load() resolves clone wav +
+        │                      # lora + library_db, migrates old llm.vision_model → ocr.model
         ├── library.py         # SQLite read library (stdlib sqlite3): Library class
         │                      # (add/list/get/delete over a `reads` table) — powers the dashboard
         ├── llm/
@@ -215,7 +216,7 @@ readback/
   empty/403. `_clean_for_tts` strips `https?://…`, `[12]` citation markers, and
   collapses whitespace. Missing title → slug from the URL tail. Local images →
   `_ocr_via_mlx` (sips converts HEIC/TIFF/BMP/WebP → JPEG; mlx-vlm vision model
-  from `cfg.llm.vision_model`). **Multi-page** (`_is_multi_page` → folder or
+  from `cfg.ocr.model`). **Multi-page** (`_is_multi_page` → folder or
   glob): `_collect_images` natural-sorts by filename, `fetch_multi_page` OCRs each
   page (the vision model is loaded once and cached across calls) and joins
   the pages with a single space at each seam (a book sentence runs across page
@@ -312,8 +313,13 @@ readback/
 
 ### Config (`config.py`)
 
-- `LLMConfig{model, vision_model}` — `model` is a HuggingFace ID for mlx-lm
-  (summary + title gen); `vision_model` for mlx-vlm (image OCR).
+- `LLMConfig{model}` (`llm:`) — HuggingFace ID for mlx-lm (summary + title gen).
+- `OcrConfig{model}` (`ocr:`) — HuggingFace ID for mlx-vlm (image / book-scan OCR).
+  ⚠ OCR has its **own** top-level section (not under `llm:`) — different job,
+  different model family. `Config.load()` auto-migrates an old `llm.vision_model`
+  → `ocr.model`. On the wire the field stays `vision_model` (WS read /
+  `/api/config`) and `current_vision` (`/api/models`) — only the YAML/config
+  object moved.
 - `CsmTTSConfig{precision, speaker, temperature, top_k, max_audio_length_ms,
   ref_max_sec, voices, lora_path}`. The checkpoint (`senstella/csm-1b-mlx`) is
   fixed in the engine.
@@ -355,7 +361,7 @@ readback/
   `sysctl hw.memsize`) and recommends the largest good-fit chat model. Each model
   is tagged `chat`/`vision`; the response carries `current` (summary) +
   `current_vision`. A per-read `model` mutates `cfg.llm.model` and `vision_model`
-  mutates `cfg.llm.vision_model`, in place (process-wide, like `swap_voice`;
+  mutates `cfg.ocr.model`, in place (process-wide, like `swap_voice`;
   **not** written back to `config.yaml`) — the LLM client / vision loader detect
   the change and reload on next use (`oneshot()` / `_ocr_via_mlx`). The read job
   scans installed models once when either changed.

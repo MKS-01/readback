@@ -140,7 +140,7 @@ async def _run_read_job(
     model = (payload.get("model") or "").strip()
     vision_model = (payload.get("vision_model") or "").strip()
     if (model and model != cfg.llm.model) or (
-        vision_model and vision_model != cfg.llm.vision_model
+        vision_model and vision_model != cfg.ocr.model
     ):
         installed = await asyncio.to_thread(installed_model_names, cfg.llm)
         if model and model != cfg.llm.model:
@@ -149,9 +149,9 @@ async def _run_read_job(
                 log.info("summary model → %s", model)
             else:
                 log.warning("ignoring unknown model %r", model)
-        if vision_model and vision_model != cfg.llm.vision_model:
+        if vision_model and vision_model != cfg.ocr.model:
             if vision_model in installed:
-                cfg.llm.vision_model = vision_model
+                cfg.ocr.model = vision_model
                 log.info("vision model → %s", vision_model)
             else:
                 log.warning("ignoring unknown vision model %r", vision_model)
@@ -169,7 +169,7 @@ async def _run_read_job(
             )
         try:
             article = await asyncio.to_thread(
-                fetch_multi_page, url, cfg.llm, _page_progress, llm,
+                fetch_multi_page, url, cfg.llm, _page_progress, llm, cfg.ocr.model,
             )
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
@@ -180,7 +180,7 @@ async def _run_read_job(
             return
     else:
         try:
-            article = await asyncio.to_thread(fetch_article, url, cfg.llm, llm)
+            article = await asyncio.to_thread(fetch_article, url, cfg.llm, llm, cfg.ocr.model)
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
             return
@@ -332,14 +332,14 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
             "model": cfg.llm.model,
-            "vision_model": cfg.llm.vision_model,
+            "vision_model": cfg.ocr.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),   # where WAVs live (CLI same-machine shortcut)
         }
 
     @app.get("/api/models")
     async def api_models():
-        return await asyncio.to_thread(list_models, cfg.llm)
+        return await asyncio.to_thread(list_models, cfg.llm, cfg.ocr.model)
 
     # ── Library (dashboard) ──────────────────────────────────────────────
     @app.get("/api/library")
@@ -380,7 +380,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
             "model": cfg.llm.model,
-            "vision_model": cfg.llm.vision_model,
+            "vision_model": cfg.ocr.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),
         })

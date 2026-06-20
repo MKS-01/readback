@@ -3,10 +3,14 @@
 # → audio you play in-browser, in the terminal CLI, or download. All on-device.
 
 llm:
-  # Used by "summary" mode (spoken explanation) and image OCR. Both run
-  # in-process via MLX — no external daemon needed.
+  # Summary mode (spoken explanation) + title generation. Runs in-process via
+  # mlx-lm — no external daemon needed.
   model: "mlx-community/Qwen3.5-9B-4bit"
-  vision_model: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
+
+ocr:
+  # Vision model (mlx-vlm) for image / book-scan OCR. Switchable per-read via the
+  # CLI /vision command; loaded lazily on the first image read.
+  model: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
 
 tts:
   # CSM-1B (Sesame) via csm-mlx (senstella). Two voices map to CSM speaker IDs;

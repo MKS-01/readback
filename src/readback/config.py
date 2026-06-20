@@ -6,11 +6,17 @@ from pydantic import BaseModel, Field
 
 
 class LLMConfig(BaseModel):
-    # Used by Summary mode (spoken explanation via LLMClient.oneshot) and title
-    # generation. Models are HuggingFace IDs loaded in-process via mlx-lm.
+    # Summary mode (spoken explanation via LLMClient.oneshot) + title generation.
+    # The text LLM only — image OCR lives in its own OcrConfig (the `ocr:` block).
+    # Models are HuggingFace IDs loaded in-process via mlx-lm.
     model: str = "mlx-community/Qwen3.5-9B-4bit"
-    # Vision model for image OCR (mlx-vlm). Loaded lazily on first OCR call.
-    vision_model: str = "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
+
+
+class OcrConfig(BaseModel):
+    # Vision model (mlx-vlm) for image / book-scan OCR. Separate from the summary
+    # LLM (`llm:`) — different job, different model family. Loaded lazily on first
+    # image read; switchable per-read via the CLI `/vision` command.
+    model: str = "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
 
 
 class CsmVoicePrompt(BaseModel):
@@ -97,6 +103,7 @@ class ReaderConfig(BaseModel):
 
 class Config(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    ocr: OcrConfig = Field(default_factory=OcrConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
     reader: ReaderConfig = Field(default_factory=ReaderConfig)
 
@@ -112,6 +119,12 @@ class Config(BaseModel):
         # Migrate old `ollama:` key → `llm:` (v3.8.0 renamed the section).
         if "ollama" in data and "llm" not in data:
             data["llm"] = data.pop("ollama")
+
+        # Migrate old `llm.vision_model` → `ocr.model` (OCR moved to its own
+        # section). Runs after the ollama→llm rename so a migrated block is caught.
+        llm_block = data.get("llm")
+        if isinstance(llm_block, dict) and "vision_model" in llm_block:
+            data.setdefault("ocr", {}).setdefault("model", llm_block.pop("vision_model"))
 
         # Drop unknown top-level keys so older config.yaml files with removed
         # sections don't cause validation errors.

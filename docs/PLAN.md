@@ -6,6 +6,24 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-20 — OCR config → its own `ocr:` section
+
+**Status: done** — branch `llm-migration`. Moved the OCR vision model out of
+`llm:` into a dedicated top-level `ocr:` block (different job from the summary
+LLM). `LLMConfig{model}` + new `OcrConfig{model}`; `Config.load()` auto-migrates
+an old `llm.vision_model` → `ocr.model`. The OCR model id is now threaded
+explicitly through `_ocr_via_mlx` / `fetch_article` / `fetch_multi_page`
+(`vision_model` arg) and `list_models(cfg.llm, cfg.ocr.model)`; the read job's
+`/vision` switch mutates `cfg.ocr.model`. **Wire protocol unchanged** — the field
+stays `vision_model` (WS read, `/api/config`) / `current_vision` (`/api/models`),
+so the CLI needed zero changes. config.yaml restructured.
+
+**Verified.** 49 pytest pass; migration test (old `llm.vision_model` → `ocr.model`);
+FastAPI TestClient confirms `vision_model`/`current_vision`; real OCR through
+`fetch_article(..., cfg.ocr.model)` returns clean text. Docs synced.
+
+---
+
 ## 2026-06-20 — `/vision` switch (per-read OCR model picker)
 
 **Status: done** — branch `llm-migration`. A CLI `/vision` command mirrors

@@ -213,7 +213,7 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | Key | What | Default |
 |---|---|---|
 | `llm.model` | MLX model for Summary mode (HuggingFace ID) | `mlx-community/Qwen3.5-9B-4bit` |
-| `llm.vision_model` | MLX vision model for image OCR | `mlx-community/Qwen2.5-VL-7B-Instruct-4bit` |
+| `ocr.model` | MLX vision model for image / book-scan OCR (its own section) | `mlx-community/Qwen2.5-VL-7B-Instruct-4bit` |
 | `tts.csm.speaker` | Active voice (`conversational_a`/`_b` or a clone `name`) | `codeword` |
 | `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `fp32` |
 | `tts.csm.temperature` | Delivery: lower = composed, higher = livelier | `0.7` |
