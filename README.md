@@ -266,8 +266,13 @@ Dashboard is live at `http://<PI_HOST>:8090`.
 The Ghost palette, type scale, and every UI component — documented as live specimens you can browse locally.
 
 <p align="center">
-  <img src="docs/media/design-system.png" alt="readback design system — token swatches, type scale, and component specimens" width="720"><br>
-  <sub>Color tokens, tints, type scale, spacing, and motion — the foundation every surface is built on.</sub>
+  <img src="docs/media/design-system.png" alt="readback design system — Ghost palette, tints, type scale" width="720"><br>
+  <sub>Ghost palette, tints, type scale, spacing, and motion tokens — the foundation every surface is built on.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/media/design-system-components.png" alt="readback design system — component specimens and UI kits" width="720"><br>
+  <sub>Component specimens (Badge, Button, SeekBar, WaveformPlayer, ReadCard…) and interactive UI Kits.</sub>
 </p>
 
 **7 type rungs** · **9 components** (Badge, Button, PromptLine, SearchInput, SeekBar, WaveformPlayer, ReadCard, Wordmark, SectionHeader) · **3 UI kits** (Terminal, Dashboard, Landing) — all interactive.
