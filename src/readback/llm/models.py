@@ -161,11 +161,14 @@ def list_models(cfg: LLMConfig) -> dict:
     for m in raw:
         model_id = m["model_id"]
         size = m["size_bytes"]
-        fit = _fit(size, total_ram)
         short = _short_name(model_id)
         is_vision = _is_vision_model(short)
         is_chat = _is_chat_model(short) and not is_vision
 
+        if not is_chat and not is_vision:
+            continue
+
+        fit = _fit(size, total_ram)
         params_str = None
         if m["params"]:
             p = m["params"]
