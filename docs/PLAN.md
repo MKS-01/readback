@@ -32,7 +32,14 @@ faithful, well-ordered spoken prose under the ~250-word ceiling — instruction
 | `gemma-2-27b-it-4bit` | ~16 GB | excellent natural narration/prose for read-aloud | good fit |
 | `Mistral-Small-3.1-24B-Instruct-4bit` | ~13 GB | efficient, strong instruction-following | good fit, lighter |
 | `Phi-4-14B-4bit` | ~8 GB | reasoning-dense at small size; modest step up from 9B | comfortable |
+| `c4ai-command-r-08-2024-4bit` (Cohere) | ~20 GB | **purpose-built for grounded summarization/RAG** — most on-task for faithfulness | good fit; ⚠ non-commercial license (OK for personal use) |
+| `glm-4-9b-chat-4bit` (Zhipu) | ~5-6 GB | same-weight-class alternative to the Qwen default — cheap A/B sanity check | comfortable |
 | `Llama-3.3-70B-Instruct-4bit` | ~40 GB | ceiling quality | ⚠ tight alongside CSM — edge of envelope, expect swap pressure |
+
+⚠ **Avoid reasoning-first families** (DeepSeek-R1 distills etc.) — they emit
+chain-of-thought by design and many ignore the off-switch, fighting the
+`enable_thinking=False` fix that makes Summary mode fast/clean.
+⚠ Exact `mlx-community/*` tags drift — verify the repo exists on HF before download.
 
 ### Candidate (vision OCR, separate `cfg.vision_model`)
 
