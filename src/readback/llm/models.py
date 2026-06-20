@@ -182,7 +182,6 @@ def list_models(cfg: LLMConfig, vision_model: str = "") -> dict:
 
         out["models"].append({
             "name": model_id,
-            "short_name": short,
             "size_gb": round(size / _GIB, 1),
             "params": params_str,
             "fit": fit,
