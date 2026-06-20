@@ -6,7 +6,6 @@ export interface ModelInfo {
   name: string;
   size_gb: number;
   params: string | null;
-  quant: string | null;
   fit: "good" | "tight" | "no";
   chat: boolean;
   vision: boolean;

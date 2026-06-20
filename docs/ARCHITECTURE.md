@@ -101,7 +101,7 @@ responsive while a read job runs because all heavy work is pushed off it:
   adapter (`cfg.lora_path`), when set, is loaded over the base weights and
   generation switches to **empty context** (the voice lives in the adapter).
 - **`Synthesizer`** (`synthesizer.py`) is a thin facade (`synthesize`,
-  `sample_rate`, `current_voice`, `swap_voice`, `supported_voices`, `load`) so the
+  `sample_rate`, `current_voice`, `swap_voice`, `set_temperature`, `load`) so the
   server stays engine-agnostic — a future engine is a factory change, not a
   rewrite. `tts.engine` is a single-value enum (`"csm"`).
 

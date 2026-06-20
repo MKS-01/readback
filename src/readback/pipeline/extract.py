@@ -210,22 +210,6 @@ def _ocr_via_mlx(path: str, vision_model: str) -> str:
     return text
 
 
-def _title_from_text(text: str, llm_cfg: "LLMConfig", llm: "LLMClient | None" = None) -> str:
-    """Ask the LLM for a short title based on the OCR'd text. Falls back to 'Image'."""
-    from readback.llm.client import LLMClient
-    try:
-        client = llm or LLMClient(llm_cfg)
-        raw = client.oneshot(
-            "You generate short titles. Output only the title, nothing else. Max 6 words.",
-            f"Give a title for this text:\n\n{text[:400]}",
-        )
-        title = raw.strip().strip('"').strip("'").strip()
-        return title or "Image"
-    except Exception:
-        log.debug("title generation failed, using fallback", exc_info=True)
-        return "Image"
-
-
 def _book_title_from_text(text: str, llm_cfg: "LLMConfig", llm: "LLMClient | None" = None) -> str:
     """Distill a book page's chapter/topic from its opening lines. Falls back to 'Book'.
 

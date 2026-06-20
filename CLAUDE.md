@@ -288,15 +288,15 @@ readback/
   is applied over the base weights after the dtype cast.
 - **Voices**: `SUPPORTED_VOICES` = 2 built-ins (`conversational_a` ★ female,
   `conversational_b` male). `voices_for(cfg)` = built-ins + `cfg.voices` clones;
-  used by both the engine's `supported_voices` and the server's picker.
+  used by both the engine and the server's picker.
   `swap_voice` validates against `voices_for`. `temperature` tunes **delivery**
   (lower = composed/measured, higher = livelier); **below ~0.55 with a short
   (<5 s) reference the clone destabilizes** (rambles/repeats). `set_temperature`
   (engine + Synthesizer) sets it per-read — `_make_sampler` reads `cfg.temperature`
   fresh each synth, so it takes effect on the next call with no reload (the server
   uses it to apply the reading tone; see Tones).
-- **`synthesize_stream`** exists (csm-mlx `stream_generate`) but the reader uses
-  batch `synthesize` (offline — no streaming benefit).
+- The reader synthesizes in **batch only** (`synthesize`); offline reads get no
+  benefit from streaming, so the csm-mlx `stream_generate` path was removed.
 
 ### Voice cloning & fine-tuning
 
