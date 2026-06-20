@@ -5,11 +5,12 @@ import yaml
 from pydantic import BaseModel, Field
 
 
-class OllamaConfig(BaseModel):
-    # Used only by Summary mode (turns the article into a spoken explanation via
-    # LLMClient.oneshot, which carries its own system prompt).
-    model: str = "qwen3.5:9b"
-    host: str = "http://localhost:11434"
+class LLMConfig(BaseModel):
+    # Used by Summary mode (spoken explanation via LLMClient.oneshot) and title
+    # generation. Models are HuggingFace IDs loaded in-process via mlx-lm.
+    model: str = "mlx-community/Qwen3.5-9B-4bit"
+    # Vision model for image OCR (mlx-vlm). Loaded lazily on first OCR call.
+    vision_model: str = "mlx-community/Qwen2.5-VL-3B-Instruct-4bit"
 
 
 class CsmVoicePrompt(BaseModel):
@@ -95,7 +96,7 @@ class ReaderConfig(BaseModel):
 
 
 class Config(BaseModel):
-    ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
     reader: ReaderConfig = Field(default_factory=ReaderConfig)
 
@@ -107,6 +108,10 @@ class Config(BaseModel):
             return cls()
         with open(path, "r") as f:
             data = yaml.safe_load(f) or {}
+
+        # Migrate old `ollama:` key → `llm:` (v3.8.0 renamed the section).
+        if "ollama" in data and "llm" not in data:
+            data["llm"] = data.pop("ollama")
 
         # Drop unknown top-level keys so older config.yaml files with removed
         # sections don't cause validation errors.

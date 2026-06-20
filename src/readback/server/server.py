@@ -79,7 +79,7 @@ class ReaderModels:
     def _load_blocking(self):
         if self._loaded:
             return
-        self.llm = LLMClient(self.cfg.ollama)
+        self.llm = LLMClient(self.cfg.llm)
         self.synth = Synthesizer(self.cfg.tts)
         self.synth.load()
         self._loaded = True
@@ -133,10 +133,10 @@ async def _run_read_job(
 
     # Optional model switch before fetch (affects which LLM summarizes the content).
     model = (payload.get("model") or "").strip()
-    if model and model != cfg.ollama.model:
-        installed = await asyncio.to_thread(installed_model_names, cfg.ollama)
+    if model and model != cfg.llm.model:
+        installed = await asyncio.to_thread(installed_model_names, cfg.llm)
         if model in installed:
-            cfg.ollama.model = model
+            cfg.llm.model = model
             log.info("summary model → %s", model)
         else:
             log.warning("ignoring unknown model %r", model)
@@ -154,7 +154,7 @@ async def _run_read_job(
             )
         try:
             article = await asyncio.to_thread(
-                fetch_multi_page, url, cfg.ollama, _page_progress, llm,
+                fetch_multi_page, url, cfg.llm, _page_progress, llm,
             )
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
@@ -165,7 +165,7 @@ async def _run_read_job(
             return
     else:
         try:
-            article = await asyncio.to_thread(fetch_article, url, cfg.ollama, llm)
+            article = await asyncio.to_thread(fetch_article, url, cfg.llm, llm)
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
             return
@@ -315,14 +315,14 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
         return {
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
-            "model": cfg.ollama.model,
+            "model": cfg.llm.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),   # where WAVs live (CLI same-machine shortcut)
         }
 
     @app.get("/api/models")
     async def api_models():
-        return await asyncio.to_thread(list_models, cfg.ollama)
+        return await asyncio.to_thread(list_models, cfg.llm)
 
     # ── Library (dashboard) ──────────────────────────────────────────────
     @app.get("/api/library")
@@ -362,7 +362,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "type": "config",
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
-            "model": cfg.ollama.model,
+            "model": cfg.llm.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),
         })
