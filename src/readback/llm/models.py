@@ -27,7 +27,11 @@ log = logging.getLogger("readback.llm")
 
 _GIB = 1024 ** 3
 
-_NON_CHAT_MARKERS = ("embed", "bge", "minilm", "rerank")
+_NON_CHAT_MARKERS = (
+    "embed", "bge", "minilm", "rerank",
+    "whisper", "parakeet", "csm-1b", "csm_1b", "tts",
+    "faster-whisper", "moshi",
+)
 _VISION_MARKERS = ("VL", "vision", "vlm")
 
 
