@@ -201,7 +201,10 @@ def _ocr_via_mlx(path: str, llm_cfg: "LLMConfig") -> str:
                 pass
 
     from readback.llm.client import strip_think
-    text = strip_think(result or "").strip()
+    # mlx-vlm's generate() returns a GenerationResult (has .text) in current
+    # releases; older versions returned the raw string. Handle both.
+    raw = getattr(result, "text", result)
+    text = strip_think(str(raw) if raw is not None else "").strip()
     if not text:
         raise ExtractError("\U0001f5bc️ no text found in the image")
     return text
