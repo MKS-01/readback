@@ -23,6 +23,7 @@ interface State {
   error: string | null;
   notice: string | null;
   modelList: ModelsResp | null;
+  modelListKind: "chat" | "vision";
   phase: string;
   progress: { done: number; total: number } | null;
   result: DoneMsg | null;
@@ -32,6 +33,7 @@ interface State {
   voice: string;
   mode: "full" | "summary";
   model: string;
+  visionModel: string;
   libraryItems: LibraryItem[];
   libraryTotal: number;
   libraryOffset: number;
@@ -52,8 +54,9 @@ type Action =
   | { type: "setVoice"; voice: string }
   | { type: "setMode"; mode: "full" | "summary" }
   | { type: "setModel"; model: string }
+  | { type: "setVisionModel"; model: string }
   | { type: "notice"; text: string | null }
-  | { type: "modelList"; resp: ModelsResp }
+  | { type: "modelList"; resp: ModelsResp; kind: "chat" | "vision" }
   | { type: "toggleHelp" }
   | { type: "openLibrary"; items: LibraryItem[]; total: number }
   | { type: "libraryLoaded"; items: LibraryItem[]; total: number; offset: number }
@@ -103,10 +106,12 @@ function reducer(state: State, action: Action): State {
       return { ...state, mode: action.mode, error: null };
     case "setModel":
       return { ...state, model: action.model, error: null };
+    case "setVisionModel":
+      return { ...state, visionModel: action.model, error: null };
     case "notice":
       return { ...state, notice: action.text, error: null, modelList: null, showHelp: false };
     case "modelList":
-      return { ...state, modelList: action.resp, notice: null, error: null, showHelp: false };
+      return { ...state, modelList: action.resp, modelListKind: action.kind, notice: null, error: null, showHelp: false };
     case "toggleHelp":
       return { ...state, showHelp: !state.showHelp, notice: null, error: null, modelList: null };
     case "openLibrary":
@@ -153,7 +158,7 @@ function reducer(state: State, action: Action): State {
 // Recognized slash commands — keep in sync with handleCommand's switch. Used to
 // tell a command (`/model …`) from a local source path (`/Users/…`) at submit.
 const KNOWN_COMMANDS = new Set([
-  "help", "quit", "exit", "mode", "voice", "model", "library", "lib",
+  "help", "quit", "exit", "mode", "voice", "model", "vision", "library", "lib",
 ]);
 
 const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -206,6 +211,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     error: null,
     notice: null,
     modelList: null,
+    modelListKind: "chat" as const,
     phase: "connecting",
     progress: null,
     result: null,
@@ -215,6 +221,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     voice: prefs.voice && voiceIds.includes(prefs.voice) ? prefs.voice : cfg.voice,
     mode: prefs.mode ?? cfg.default_mode,
     model: prefs.model ?? cfg.model,
+    visionModel: prefs.visionModel ?? cfg.vision_model,
     libraryItems: [],
     libraryTotal: 0,
     libraryOffset: 0,
@@ -273,8 +280,12 @@ export function App({ handle, prefs, onQuit }: Props) {
     setTimeout(quit, 300);
   };
 
-  const persist = (voice: string, mode: "full" | "summary", model: string) =>
-    savePrefs({ voice, mode, model });
+  const persist = (
+    voice: string,
+    mode: "full" | "summary",
+    model: string,
+    visionModel: string = stateRef.current.visionModel,
+  ) => savePrefs({ voice, mode, model, visionModel });
 
   const fetchModels = async (): Promise<ModelsResp> => {
     const res = await fetch(handle.base + "/api/models");
@@ -317,25 +328,37 @@ export function App({ handle, prefs, onQuit }: Props) {
       .catch((err) => dispatch({ type: "error", message: String(err.message ?? err) }));
   };
 
-  const handleModelCommand = (arg: string | undefined) => {
+  // /model (summary LLM, kind "chat") and /vision (image/book OCR, kind "vision")
+  // share one flow over /api/models — they differ only in which models they list
+  // and which pref they write.
+  const handlePickModel = (kind: "chat" | "vision", arg: string | undefined) => {
     if (!arg) {
       fetchModels()
-        .then((resp) => dispatch({ type: "modelList", resp }))
+        .then((resp) => dispatch({ type: "modelList", resp, kind }))
         .catch((err) => dispatch({ type: "error", message: String(err.message ?? err) }));
       return;
     }
-    const cached = modelsRef.current
-      ? Promise.resolve(modelsRef.current)
-      : fetchModels();
+    const cmd = kind === "vision" ? "/vision" : "/model";
+    const cached = modelsRef.current ? Promise.resolve(modelsRef.current) : fetchModels();
     cached
       .then((resp) => {
-        if (!resp.models.some((m) => m.name === arg)) {
-          dispatch({ type: "error", message: `unknown model "${arg}" — /model to list` });
+        const ok = resp.models.some(
+          (m) => m.name === arg && (kind === "vision" ? m.vision : m.chat),
+        );
+        if (!ok) {
+          dispatch({ type: "error", message: `unknown ${kind === "vision" ? "vision " : ""}model "${arg}" — ${cmd} to list` });
           return;
         }
-        dispatch({ type: "setModel", model: arg });
-        dispatch({ type: "notice", text: `model → ${arg}` });
-        persist(stateRef.current.voice, stateRef.current.mode, arg);
+        const s = stateRef.current;
+        if (kind === "vision") {
+          dispatch({ type: "setVisionModel", model: arg });
+          dispatch({ type: "notice", text: `vision model → ${arg}` });
+          persist(s.voice, s.mode, s.model, arg);
+        } else {
+          dispatch({ type: "setModel", model: arg });
+          dispatch({ type: "notice", text: `model → ${arg}` });
+          persist(s.voice, s.mode, arg, s.visionModel);
+        }
       })
       .catch((err) => dispatch({ type: "error", message: String(err.message ?? err) }));
   };
@@ -376,7 +399,10 @@ export function App({ handle, prefs, onQuit }: Props) {
         }
         break;
       case "model":
-        handleModelCommand(arg);
+        handlePickModel("chat", arg);
+        break;
+      case "vision":
+        handlePickModel("vision", arg);
         break;
       case "library":
       case "lib":
@@ -408,7 +434,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     }
     player.stop();
     dispatch({ type: "submit" });
-    sockRef.current?.read(value, state.mode, state.voice, state.model);
+    sockRef.current?.read(value, state.mode, state.voice, state.model, state.visionModel);
   };
 
   const voiceLabel =
@@ -421,7 +447,13 @@ export function App({ handle, prefs, onQuit }: Props) {
       <Box marginTop={1} flexDirection="column">
         {state.screen === "input" && (
           <>
-            {state.modelList && <ModelList resp={state.modelList} active={state.model} />}
+            {state.modelList && (
+              <ModelList
+                resp={state.modelList}
+                kind={state.modelListKind}
+                active={state.modelListKind === "vision" ? state.visionModel : state.model}
+              />
+            )}
             {state.showHelp && <HelpView />}
             {state.notice && (
               <Box paddingX={1} marginBottom={1}>

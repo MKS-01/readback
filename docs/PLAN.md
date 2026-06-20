@@ -6,6 +6,29 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-20 — `/vision` switch (per-read OCR model picker)
+
+**Status: done** — branch `llm-migration`. A CLI `/vision` command mirrors
+`/model` but for the image/book OCR model, so OCR quality is switchable per-read
+(light 3B for a quick snapshot, 7B for dense scans) instead of config-only.
+
+**What shipped.** Server: `read` accepts `vision_model` (validated vs downloaded
+models, mutates `cfg.llm.vision_model` in place; read job scans installed once if
+either `model` or `vision_model` changed); `/api/config` + WS `config` carry
+`vision_model`; `/api/models` carries `current_vision` (every model already
+tagged `chat`/`vision`). CLI: `/vision [name]` via a shared `handlePickModel(kind)`;
+`ModelList` gained a `kind` prop (filters chat vs vision, no recommendation marker
+for vision); `vision_model` flows through `ws.read(...)`; pref `visionModel`
+persists to `~/.readback/cli.json`; `/help` + KNOWN_COMMANDS updated. `/model` now
+lists chat-only, `/vision` vision-only.
+
+**Verified.** `tsc --noEmit` clean, `bun build` compiles, 49 pytest pass, FastAPI
+TestClient confirms `vision_model`/`current_vision` on the REST surface and the
+chat/vision split. Not yet driven end-to-end against a real image (mirrors the
+proven `/model` path). Follow-up: auto-pick OCR model by source (ROADMAP).
+
+---
+
 ## 2026-06-20 — Summary-LLM model experiments (quality/accuracy backlog)
 
 **Status: proposed** — a shortlist of MLX models to trial for Summary mode, now

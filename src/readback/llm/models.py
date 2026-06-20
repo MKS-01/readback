@@ -145,6 +145,7 @@ def list_models(cfg: LLMConfig) -> dict:
         "models": [],
         "recommended": None,
         "current": cfg.model,
+        "current_vision": cfg.vision_model,
         "total_ram_gb": round(total_ram / _GIB),
     }
     try:

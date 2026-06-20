@@ -12,7 +12,9 @@ served from `cfg.reader.output_dir`.
 
 WS protocol (/ws):
   client → {"type":"read", "url": str, "mode": "full"|"summary", "voice"?: str,
-            "model"?: str}   # model: swap the summary LLM (validated vs downloaded MLX models)
+            "model"?: str, "vision_model"?: str}
+            # model: swap the summary LLM; vision_model: swap the image/book OCR
+            # model — both per-read, validated vs downloaded MLX models
            {"type":"cancel"}   # abort the in-flight read job (stops synthesis)
   server → {"type":"phase",    "value":"loading"|"fetching"|"summarizing"|"synthesizing"}
            # value is a free-form display string; multi-page OCR streams
@@ -131,15 +133,28 @@ async def _run_read_job(
     synth, llm = models.synth, models.llm
     assert synth is not None and llm is not None
 
-    # Optional model switch before fetch (affects which LLM summarizes the content).
+    # Optional per-read model switches before fetch: `model` is the summary LLM,
+    # `vision_model` is the image/book OCR model. Both validate against downloaded
+    # models (scan the HF cache once if either changed) and mutate cfg in place —
+    # the LLMClient / vision loader detect the change and reload on next use.
     model = (payload.get("model") or "").strip()
-    if model and model != cfg.llm.model:
+    vision_model = (payload.get("vision_model") or "").strip()
+    if (model and model != cfg.llm.model) or (
+        vision_model and vision_model != cfg.llm.vision_model
+    ):
         installed = await asyncio.to_thread(installed_model_names, cfg.llm)
-        if model in installed:
-            cfg.llm.model = model
-            log.info("summary model → %s", model)
-        else:
-            log.warning("ignoring unknown model %r", model)
+        if model and model != cfg.llm.model:
+            if model in installed:
+                cfg.llm.model = model
+                log.info("summary model → %s", model)
+            else:
+                log.warning("ignoring unknown model %r", model)
+        if vision_model and vision_model != cfg.llm.vision_model:
+            if vision_model in installed:
+                cfg.llm.vision_model = vision_model
+                log.info("vision model → %s", vision_model)
+            else:
+                log.warning("ignoring unknown vision model %r", vision_model)
 
     # 1) Fetch + extract (URL, single image, or multi-page folder/glob).
     await send({"type": "phase", "value": "fetching"})
@@ -317,6 +332,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
             "model": cfg.llm.model,
+            "vision_model": cfg.llm.vision_model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),   # where WAVs live (CLI same-machine shortcut)
         }
@@ -364,6 +380,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
             "model": cfg.llm.model,
+            "vision_model": cfg.llm.vision_model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),
         })

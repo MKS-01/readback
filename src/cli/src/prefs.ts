@@ -6,6 +6,7 @@ export interface Prefs {
   voice: string | null;
   mode: "full" | "summary" | null;
   model: string | null;
+  visionModel: string | null;
 }
 
 const PREFS_PATH = join(homedir(), ".readback", "cli.json");
@@ -18,12 +19,13 @@ export function loadPrefs(): Prefs {
         voice: typeof raw.voice === "string" ? raw.voice : null,
         mode: raw.mode === "full" || raw.mode === "summary" ? raw.mode : null,
         model: typeof raw.model === "string" ? raw.model : null,
+        visionModel: typeof raw.visionModel === "string" ? raw.visionModel : null,
       };
     }
   } catch {
     // corrupt prefs file — fall through to defaults
   }
-  return { voice: null, mode: null, model: null };
+  return { voice: null, mode: null, model: null, visionModel: null };
 }
 
 export function savePrefs(prefs: Prefs): void {

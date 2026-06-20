@@ -73,7 +73,8 @@ intentionally lower priority.
 - [x] **Multi-page / book scans** — a folder or glob of page images is OCR'd in filename order and stitched into one continuous document (`fetch_multi_page`)
 - [x] **Source-aware tones** — a URL reads as a livelier article; an image/folder reads as a measured book that opens by naming its chapter/topic (`pipeline/tones.py`, auto by source)
 - [ ] `/tone` override + persisted pref, and a 3rd tone (technical paper / news) — auto-only with two tones today
-- [ ] `/vision` switch — pick the OCR model per-read (mirror of `/model`), so a quick snapshot can use a light 3B while dense book scans use the 7B; the vision model is config-only today (`cfg.vision_model`, no picker). Optionally auto-pick by source (single image → light, multi-page → accurate)
+- [x] `/vision` switch — per-read OCR-model picker (mirror of `/model`), so a quick snapshot can use a light 3B while dense book scans use the 7B (`handlePickModel`/`ModelList kind`, `read.vision_model`)
+- [ ] Auto-pick the OCR model by source (single image → light, multi-page → accurate) — manual `/vision` only today
 - [ ] Read **local documents**, not just URLs — `.txt` and `.pdf` → voice
 - [ ] Paste raw text directly as a source
 

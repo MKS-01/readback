@@ -349,13 +349,16 @@ readback/
 - `_ThinkStripper` removes `<think>…</think>` across chunk boundaries. The
   streaming/tool-calling methods and the `tools/` module were removed in the
   v0.8.0 cleanup.
-- `llm/models.py` (`GET /api/models` + the `read` message's `model` field):
-  scans downloaded MLX models in the HuggingFace cache with a RAM-fit verdict
-  (need ≈ size×1.2+1 GiB; good ≤50% / tight ≤75% of total RAM via
-  `sysctl hw.memsize`) and recommends the largest good-fit chat model. A per-read
-  `model` mutates `cfg.llm.model` in place (process-wide, like `swap_voice`;
-  **not** written back to `config.yaml`) — the LLM client detects the change
-  and unloads/reloads on the next `oneshot()` call.
+- `llm/models.py` (`GET /api/models` + the `read` message's `model`/`vision_model`
+  fields): scans downloaded MLX models in the HuggingFace cache with a RAM-fit
+  verdict (need ≈ size×1.2+1 GiB; good ≤50% / tight ≤75% of total RAM via
+  `sysctl hw.memsize`) and recommends the largest good-fit chat model. Each model
+  is tagged `chat`/`vision`; the response carries `current` (summary) +
+  `current_vision`. A per-read `model` mutates `cfg.llm.model` and `vision_model`
+  mutates `cfg.llm.vision_model`, in place (process-wide, like `swap_voice`;
+  **not** written back to `config.yaml`) — the LLM client / vision loader detect
+  the change and reload on next use (`oneshot()` / `_ocr_via_mlx`). The read job
+  scans installed models once when either changed.
 
 ### CLI (`src/cli/`)
 
@@ -379,8 +382,11 @@ readback/
 - **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
   (`input` | `busy` | `player` | `library` | `quitting`), so key handlers only
   land on the active screen. Slash commands: `/voice`, `/mode`, `/model` (lists
-  downloaded MLX models via `GET /api/models` with a RAM-fit verdict + summary
-  recommendation, switches the summary LLM per-read), `/library` (alias `/lib` —
+  downloaded MLX **chat** models via `GET /api/models` with a RAM-fit verdict +
+  summary recommendation, switches the summary LLM per-read), `/vision` (same
+  flow filtered to **vision** models — switches the image/book OCR model
+  per-read; `handlePickModel(kind)` + `ModelList kind` serve both, no
+  recommendation marker for vision), `/library` (alias `/lib` —
   `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, Enter to
   replay, `d` twice to delete), `/help`, `/quit`; esc cancels a read.
   `q` when the URL input field is empty triggers quit — intercepted in
@@ -429,7 +435,7 @@ readback/
   runtime `DEV` check the bundler can't eliminate. The binary is named
   `readback-cli` (not `readback`) so the server-lookup fallback
   `Bun.which("readback")` can't spawn the CLI itself.
-- **Prefs** (voice/mode/model) persist to `~/.readback/cli.json`. Theme = the
+- **Prefs** (voice/mode/model/visionModel) persist to `~/.readback/cli.json`. Theme = the
   Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel —
   inherited from the deleted web UI)
   plus CLI-only fit colors (#5dd17a green / #e6c35a yellow, `/model` list only)

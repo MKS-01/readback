@@ -17,6 +17,7 @@ export type ServerMsg =
       voices_available: { id: string; label: string }[];
       voice: string;
       model: string;
+      vision_model: string;
       default_mode: "full" | "summary";
       audio_dir?: string;   // where the server writes WAVs (same-machine shortcut)
     }
@@ -74,13 +75,20 @@ export class ReadbackSocket {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
   }
 
-  read(url: string, mode: "full" | "summary", voice: string | null, model: string | null): void {
+  read(
+    url: string,
+    mode: "full" | "summary",
+    voice: string | null,
+    model: string | null,
+    visionModel: string | null,
+  ): void {
     this.send({
       type: "read",
       url,
       mode,
       ...(voice ? { voice } : {}),
       ...(model ? { model } : {}),
+      ...(visionModel ? { vision_model: visionModel } : {}),
     });
   }
 

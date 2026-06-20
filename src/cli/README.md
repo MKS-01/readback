@@ -66,22 +66,25 @@ esc cancels a running read.
 | Command | What |
 |---|---|
 | `/voice [id]` | Show / set the voice (persisted) |
-| `/model [name]` | List downloaded MLX models / set the summary LLM (persisted) |
+| `/model [name]` | List downloaded MLX chat models / set the summary LLM (persisted) |
+| `/vision [name]` | List downloaded MLX vision models / set the image-OCR model (persisted) |
 | `/mode [full\|summary]` | Show / set the read mode (persisted) |
 | `/library` (or `/lib`) | Browse past reads — arrow keys, Enter to replay, `d` to delete |
 | `/help` | List commands |
 | `/quit` | Exit (or press `q` when the input field is empty) |
 
-`/model` shows every downloaded MLX model with its size and a RAM-fit
+`/model` shows every downloaded MLX chat model with its size and a RAM-fit
 verdict for this Mac (green fits · yellow tight · red too big), recommends the
 best fit for summaries, and marks the active one with ★. The model is used by
-Summary mode only and switches on the next read — no server restart.
+Summary mode only and switches on the next read — no server restart. `/vision`
+is the same picker filtered to vision models — it switches the image/book-scan
+OCR model (no recommendation marker; OCR has no single "best").
 
 <p align="center">
   <img src="../../docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts" width="820">
 </p>
 
-Prefs (voice/mode/model) persist to `~/.readback/cli.json`.
+Prefs (voice/mode/model/visionModel) persist to `~/.readback/cli.json`.
 
 ### Library
 
