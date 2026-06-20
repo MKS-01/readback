@@ -5,8 +5,8 @@
 #
 # readback is built for macOS on Apple Silicon. This script checks your
 # prerequisites, creates the Python venv and installs readback, builds the
-# terminal CLI + the web dashboard, and offers to pull the Ollama summary model
-# and pre-download the CSM-1B voice weights so your first read is fast.
+# terminal CLI + the web dashboard, and offers to pre-download the MLX summary
+# model and CSM-1B voice weights so your first read is fast.
 #
 # Safe to re-run — every step skips work that's already done.
 set -euo pipefail
@@ -90,16 +90,16 @@ if command -v bun >/dev/null 2>&1; then
   ok "dashboard built → src/dashboard/dist (served at / by 'readback')"
 fi
 
-# ── 6. Ollama summary model ─────────────────────────────────────
-step "Summary-mode model (Ollama)"
-MODEL="$(grep -A4 '^ollama:' config.yaml | grep -m1 'model:' | sed -E 's/.*model:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs || true)"
-MODEL="${MODEL:-gemma4:26b}"
-if ! command -v ollama >/dev/null 2>&1; then
-  warn "Ollama not installed — Summary mode needs it. Install from https://ollama.ai then run 'ollama pull $MODEL'. (Full mode works without it.)"
-elif ask "Pull the default summary model '$MODEL' now? (large download; needed only for Summary mode)" "N"; then
-  ollama pull "$MODEL" && ok "pulled $MODEL"
+# ── 6. MLX summary model ───────────────────────────────────────
+step "Summary-mode model (MLX-LM)"
+MODEL="$(grep -A4 '^llm:' config.yaml | grep -m1 'model:' | sed -E 's/.*model:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs || true)"
+MODEL="${MODEL:-mlx-community/Qwen3.5-9B-4bit}"
+if ask "Pre-download the summary model '$MODEL' now? (~4.5 GB; needed only for Summary mode)" "N"; then
+  echo "  downloading $MODEL…"
+  python -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL')" \
+    && ok "downloaded $MODEL"
 else
-  echo "  Skipped. Pull later with: ollama pull $MODEL  (or any chat model; /model picks per-read)"
+  echo "  Skipped — it downloads automatically on your first Summary-mode read."
 fi
 
 # ── 7. CSM-1B voice weights (optional pre-warm) ─────────────────

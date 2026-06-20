@@ -17,7 +17,7 @@ over a WebSocket, and the **web dashboard** (`src/dashboard/`, Vue 3) replays
 
 ```
 URL ─▶ fetch + extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ afplay
-       (trafilatura)    (Ollama)            (CSM-1B / csm-mlx)            └▶ library (SQLite) ─▶ dashboard replay
+       (trafilatura)    (mlx-lm)            (CSM-1B / csm-mlx)            └▶ library (SQLite) ─▶ dashboard replay
 ```
 
 Unlike the real-time voice assistant this project began as, synthesis is **batch,
@@ -108,16 +108,18 @@ responsive while a read job runs because all heavy work is pushed off it:
 ## 5. LLM (`src/readback/llm/client.py`)
 
 Only **Summary mode** uses the LLM, via `LLMClient.oneshot()` — a single
-non-streaming Ollama `chat` (`think=False`, low temperature) with `<think>`
-stripping for GGUF builds that emit inline tags. Full mode skips the LLM
-entirely. This is the heaviest, most occasional step (see §1) — it runs only
-during generation, never on dashboard replay.
+non-streaming mlx-lm `generate` (low temperature) with `<think>` stripping for
+models that emit inline reasoning tags. Full mode skips the LLM entirely. This
+is the heaviest, most occasional step (see §1) — it runs only during
+generation, never on dashboard replay. The model + tokenizer are loaded lazily
+on first call and cached in-process.
 
-The model is switchable at runtime: `llm/models.py` lists the locally
-installed Ollama models with a RAM-fit verdict and a summary recommendation
-(served as `GET /api/models`), and a `model` field on the `read` WS message
-swaps `cfg.ollama.model` in place — `oneshot()` reads it per call, so no
-reload. The switch is process-wide and not written back to `config.yaml`.
+The model is switchable at runtime: `llm/models.py` scans downloaded MLX
+models in the HuggingFace cache with a RAM-fit verdict and a summary
+recommendation (served as `GET /api/models`), and a `model` field on the `read`
+WS message swaps `cfg.llm.model` in place — the LLM client detects the change
+and unloads/reloads on the next call. The switch is process-wide and not
+written back to `config.yaml`.
 
 ## 6. Server layer (`src/readback/server/`)
 
@@ -133,7 +135,7 @@ reload. The switch is process-wide and not written back to `config.yaml`.
   sqlite in `asyncio.to_thread`.
 - **WS protocol** —
   - client → `read {url, mode, voice?, model?}`, `cancel` (`model` swaps the
-    summary LLM for this and later reads; validated against installed Ollama
+    summary LLM for this and later reads; validated against downloaded MLX
     models)
   - server → `phase {value}`, `progress {done, total}`,
     `done {title, audio_url, duration_sec, word_count, mode, text?}`, `error {message}`
@@ -152,7 +154,7 @@ reload. The switch is process-wide and not written back to `config.yaml`.
 
 ## 9. Pi deployment (`scripts/`)
 
-The Mac is the sole generation host (CSM-1B + Ollama require MLX/Metal). A
+The Mac is the sole generation host (CSM-1B + mlx-lm + mlx-vlm require MLX/Metal). A
 Raspberry Pi can serve as a network-accessible replay host:
 
 - **What runs on Pi** — the same FastAPI server, but TTS + LLM are never

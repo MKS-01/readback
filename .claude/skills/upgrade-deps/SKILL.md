@@ -81,8 +81,8 @@ For each outdated package:
   don't pin them directly unless there's a floor version needed.
 - `numpy` has an upper bound (`<3.0.0`) — only raise it if downstream deps
   (soundfile, mlx) support numpy 3.
-- `ollama` — **being removed** (see llm-migration branch). Once that lands,
-  delete it from both `pyproject.toml` and `requirements-pi.txt`.
+- `mlx-lm` and `mlx-vlm` are MLX-native (Apple Silicon only). Both are lazy
+  imports — the Pi server boots without them.
 
 ### requirements-pi.txt sync
 

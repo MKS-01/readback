@@ -20,17 +20,11 @@ flags, verification, and troubleshooting).
 ## 1. Prerequisites
 
 - macOS on Apple Silicon (M1–M5).
-- Python 3.10–3.12 (3.11 recommended).
-- [Ollama](https://ollama.ai/) — only needed for **Summary** mode. Install it and
-  pull a chat model:
-  ```bash
-  ollama serve &                     # or launch the desktop app
-  ollama pull gemma4:26b             # default; any chat model works
-  ```
+- Python 3.10–3.12 (3.12 recommended).
 - [Bun](https://bun.sh) 1.0+ (to build/run the terminal CLI).
 
-No Hugging Face login is required — the CSM weights come from the ungated
-`senstella/csm-1b-mlx` re-host.
+No Hugging Face login is required — CSM weights come from the ungated
+`senstella/csm-1b-mlx` re-host, and MLX-LM models from `mlx-community`.
 
 ## 2. Clone and install
 
@@ -38,8 +32,8 @@ No Hugging Face login is required — the CSM weights come from the ungated
 git clone git@github.com:MKS-01/readback.git
 cd readback
 
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e .          # csm-mlx is a git dependency, pulled automatically
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e .          # csm-mlx + mlx-lm + mlx-vlm pulled automatically
 ```
 
 ## 3. Install the CLI (one-time)
@@ -66,7 +60,7 @@ Weights cache in `~/.cache/huggingface/hub/`.
 Useful flags:
 
 ```bash
-readback --model qwen3                 # override the Ollama model for this run
+readback --model mlx-community/Qwen3.5-4B-4bit  # override the LLM for this run
 readback --port 9000                   # different port
 readback --config /path/to/config.yaml # custom config
 readback-cli --host 192.168.1.x --port 8000 --no-spawn   # CLI → remote server
@@ -78,7 +72,7 @@ readback-cli --host 192.168.1.x --port 8000 --no-spawn   # CLI → remote server
    spawns one (first boot waits on model load).
 2. Paste an article URL in **Full** mode — phases stream (*fetching →
    synthesizing N/M*), then the player appears and audio plays via `afplay`.
-3. Switch to **Summary** (`/mode`, requires Ollama running) and read again —
+3. Switch to **Summary** (`/mode`) and read again —
    `t` toggles the word-synced transcript.
 4. `q` exits; a server the CLI spawned dies with it.
 
@@ -108,7 +102,7 @@ push and PR, installing the `requirements-pi.txt` subset + pytest.
 
 | Symptom | Fix |
 | --- | --- |
-| Summary mode errors / "error talking to Ollama" | Ollama isn't running or the model isn't pulled. `ollama serve` + `ollama pull <model>`; check `ollama.host` in `config.yaml`. |
+| Summary mode errors / "error running the LLM" | The MLX model isn't downloaded. Run `python -c "from huggingface_hub import snapshot_download; snapshot_download('mlx-community/Qwen3.5-9B-4bit')"` or use a model you've already downloaded. Check `llm.model` in `config.yaml`. |
 | First synthesis hangs for a while | One-time ~6 GB CSM download + MLX graph warm-up. Subsequent synth is fast. |
 | `ReadTimeout` mid-download | `export HF_HUB_DOWNLOAD_TIMEOUT=120` and re-run; partial files resume. |
 | CLI can't find/spawn the server | Spawn prefers `.venv/bin/readback` at the repo root — make sure `pip install -e .` ran in `.venv`, or start `readback` yourself and use `--no-spawn`. |
@@ -118,8 +112,8 @@ push and PR, installing the `requirements-pi.txt` subset + pytest.
 ## Disk usage
 
 - `.venv/` — ~2–3 GB.
-- `~/.cache/huggingface/hub/` — ~6.5 GB (CSM `ckpt.safetensors` + Mimi codec +
-  Sesame voice prompts).
+- `~/.cache/huggingface/hub/` — ~6.5 GB (CSM weights) + ~4.5 GB per MLX-LM model
+  (summary) + ~2 GB vision model (OCR).
 - Generated audio + the library DB — a `readback-audio-db/` folder beside the
   repo (`reader.output_dir` / `reader.library_db`; grows with use). Deleting a
   read from the dashboard removes its WAV; clearing the folder wipes the library.

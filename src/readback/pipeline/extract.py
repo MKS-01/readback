@@ -56,7 +56,7 @@ def _clean_for_tts(text: str) -> str:
 
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".tiff", ".tif", ".bmp"}
-# Formats Ollama vision can't load natively — convert to JPEG first via sips.
+# Formats mlx-vlm can't load natively — convert to JPEG first via sips.
 _NEEDS_CONVERT = {".heic", ".tiff", ".tif", ".bmp", ".webp"}
 
 def _natural_sort_key(name: str):

@@ -66,13 +66,13 @@ esc cancels a running read.
 | Command | What |
 |---|---|
 | `/voice [id]` | Show / set the voice (persisted) |
-| `/model [name]` | List local Ollama models / set the summary LLM (persisted) |
+| `/model [name]` | List downloaded MLX models / set the summary LLM (persisted) |
 | `/mode [full\|summary]` | Show / set the read mode (persisted) |
 | `/library` (or `/lib`) | Browse past reads — arrow keys, Enter to replay, `d` to delete |
 | `/help` | List commands |
 | `/quit` | Exit (or press `q` when the input field is empty) |
 
-`/model` shows every model installed in Ollama with its size and a RAM-fit
+`/model` shows every downloaded MLX model with its size and a RAM-fit
 verdict for this Mac (green fits · yellow tight · red too big), recommends the
 best fit for summaries, and marks the active one with ★. The model is used by
 Summary mode only and switches on the next read — no server restart.

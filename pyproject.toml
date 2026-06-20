@@ -12,8 +12,8 @@ license = { text = "MIT" }
 readme = "README.md"
 
 # v0.8.0 pivot: offline article reader. The real-time voice cascade (Parakeet
-# STT, Smart-Turn, webrtcvad, torch/transformers) was removed — TTS is pure MLX
-# (csm-mlx) and the LLM runs in Ollama, so none of that is needed anymore.
+# STT, Smart-Turn, webrtcvad, torch/transformers) was removed — TTS and the
+# summary LLM both run on MLX (Apple Silicon), fully in-process.
 dependencies = [
     "csm-mlx @ git+https://github.com/senstella/csm-mlx",  # CSM-1B TTS (dedicated MLX impl, 24kHz)
     "mlx-lm>=0.22.0",               # LLM inference (summary mode) — in-process on MLX/Metal

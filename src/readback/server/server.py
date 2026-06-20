@@ -12,7 +12,7 @@ served from `cfg.reader.output_dir`.
 
 WS protocol (/ws):
   client → {"type":"read", "url": str, "mode": "full"|"summary", "voice"?: str,
-            "model"?: str}   # model: swap the summary LLM (validated vs Ollama)
+            "model"?: str}   # model: swap the summary LLM (validated vs downloaded MLX models)
            {"type":"cancel"}   # abort the in-flight read job (stops synthesis)
   server → {"type":"phase",    "value":"loading"|"fetching"|"summarizing"|"synthesizing"}
            # value is a free-form display string; multi-page OCR streams

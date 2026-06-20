@@ -44,7 +44,7 @@ intentionally lower priority.
 - [ ] Faster synthesis — tune the controllable knobs (precision, chunking, warm-up); ultimately bounded by your Mac's GPU / unified memory
 - [ ] Cache by (url, mode, voice) so re-reading is instant
 - [ ] Trim startup / model warm-up and surface clearer progress (% + ETA, not just per-chunk)
-- [ ] Parallelize multi-page OCR + the map-phase summary calls across a small Ollama-concurrent pool — both are sequential today; the win scales with page count (try after book-scan testing)
+- [ ] Parallelize multi-page OCR + the map-phase summary calls — both are sequential today; the win scales with page count (mlx-lm's `generate()` supports batched prompts natively)
 
 ## 🍓 Pi — shipped
 
@@ -56,7 +56,7 @@ intentionally lower priority.
 
 ## 📄 More input sources
 
-- [x] **Image OCR** — drop an image path; an Ollama vision model extracts the text and reads it aloud (`_ocr_via_ollama`)
+- [x] **Image OCR** — drop an image path; mlx-vlm vision model extracts the text and reads it aloud (`_ocr_via_mlx`)
 - [x] **Multi-page / book scans** — a folder or glob of page images is OCR'd in filename order and stitched into one continuous document (`fetch_multi_page`)
 - [x] **Source-aware tones** — a URL reads as a livelier article; an image/folder reads as a measured book that opens by naming its chapter/topic (`pipeline/tones.py`, auto by source)
 - [ ] `/tone` override + persisted pref, and a 3rd tone (technical paper / news) — auto-only with two tones today
