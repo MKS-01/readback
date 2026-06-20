@@ -112,8 +112,9 @@ push and PR, installing the `requirements-pi.txt` subset + pytest.
 ## Disk usage
 
 - `.venv/` — ~2–3 GB.
-- `~/.cache/huggingface/hub/` — ~6.5 GB (CSM weights) + ~4.5 GB per MLX-LM model
-  (summary) + ~2 GB vision model (OCR).
+- `~/.cache/huggingface/hub/` — ~6.5 GB (CSM weights) + ~5.5 GB per MLX-LM model
+  (summary, default `Qwen3.5-9B-4bit`) + ~5 GB vision model (OCR, default
+  `Qwen2.5-VL-7B-Instruct-4bit`).
 - Generated audio + the library DB — a `readback-audio-db/` folder beside the
   repo (`reader.output_dir` / `reader.library_db`; grows with use). Deleting a
   read from the dashboard removes its WAV; clearing the folder wipes the library.

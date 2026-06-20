@@ -35,9 +35,10 @@ gotchas, and exact knobs.
   Article (a scanned page is a page, not a chapter — no synthetic headers), then
   summarized/read like any article.
  - **LLM**: **mlx-lm** (in-process on MLX/Metal), default
-  **`mlx-community/Qwen3.5-9B-4bit`** (`<think>` stripping). Used **only by
-  Summary mode** (`LLMClient.oneshot`) + title generation. Vision OCR uses
-  **mlx-vlm** (default `mlx-community/Qwen2.5-VL-3B-Instruct-4bit`).
+  **`mlx-community/Qwen3.5-9B-4bit`** (chain-of-thought disabled via
+  `enable_thinking=False`; `<think>` stripping as backup — see LLM section). Used
+  **only by Summary mode** (`LLMClient.oneshot`) + title generation. Vision OCR
+  uses **mlx-vlm** (default `mlx-community/Qwen2.5-VL-7B-Instruct-4bit`).
   `/model` can switch per-read; any downloaded MLX chat model works.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +

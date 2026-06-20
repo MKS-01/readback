@@ -10,7 +10,7 @@ class LLMConfig(BaseModel):
     # generation. Models are HuggingFace IDs loaded in-process via mlx-lm.
     model: str = "mlx-community/Qwen3.5-9B-4bit"
     # Vision model for image OCR (mlx-vlm). Loaded lazily on first OCR call.
-    vision_model: str = "mlx-community/Qwen2.5-VL-3B-Instruct-4bit"
+    vision_model: str = "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
 
 
 class CsmVoicePrompt(BaseModel):
