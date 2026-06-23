@@ -37,8 +37,8 @@ intentionally lower priority.
 - **Library dashboard + persistence** — searchable SQLite library, replay any
   past read in the browser (v3.0.0).
 - **CLI `/model` switch** with RAM-fit verdicts (v1.1.0).
-- **Audio-quality tuning pass** — `temperature 0.6`, `fp32`, 280-char
-  sentence-aware chunks.
+- **Audio-quality tuning pass** — `temperature 0.7`, `bf16`, 400-char
+  sentence-aware chunks (see `config.yaml` speed/quality guide for presets).
 
 ---
 
@@ -54,7 +54,7 @@ intentionally lower priority.
 
 - [x] **Summary mode no longer runs away** — `enable_thinking=False` + `max_tokens` cap + prompt length ceiling; the LLM is no longer the bottleneck (~4 s summaries, audio shrinks with the shorter text)
 - [x] Trim startup / model warm-up — server eagerly loads CSM + LLM at boot so the first read isn't cold (`ensure_loaded()` in the lifespan hook)
-- [ ] Faster synthesis — tune the controllable knobs (precision, chunking, warm-up); ultimately bounded by your Mac's GPU / unified memory
+- [x] Faster synthesis — bf16 default (~6% faster), chunk cap 280→400 (~30% fewer prefills), sampler caching; see config.yaml speed/quality guide
 - [x] Cache by (url, mode, voice, model) so re-reading is instant — library lookup skips the entire pipeline on cache hit
 - [ ] Surface clearer progress (% + ETA, not just per-chunk)
 - [ ] Parallelize multi-page OCR + the map-phase summary calls — both are sequential today; the win scales with page count (mlx-lm's `generate()` supports batched prompts natively)

@@ -65,11 +65,11 @@ responsive while a read job runs because all heavy work is pushed off it:
    long articles are truncated to `reader.summary_max_chars`. Full mode skips
    this and reads `article.text` verbatim.
 3. **Chunk + synthesize** (`speak.py`) — `chunk_text` splits into TTS-sized,
-   paragraph-respecting chunks (~280 chars, sentence-aware, over-long sentences
+   paragraph-respecting chunks (~400 chars, sentence-aware, over-long sentences
    split on commas). `synthesize_article` synthesizes each chunk fully,
    **silence-tidies** it (`_tidy_silence`: trim leading/trailing silence and cap
-   internal pauses to ~300 ms — CSM sprinkles long mid-utterance pauses that
-   otherwise sound halting), and joins chunks with a uniform `reader.gap_sec`
+   internal pauses to ~300 ms), **fades out** the tail (100 ms linear fade via
+   `_fade_out_tail`), retries all-silence chunks once, and joins with `reader.gap_sec`
    gap. The joined buffer is **peak-normalized** (`_peak_normalize`) so every
    voice lands at the same loudness — clone voices inherit their reference clip's
    level and would otherwise read far quieter than the built-ins.

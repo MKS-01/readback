@@ -256,8 +256,9 @@ readback/
   section N / M`). Returns the article text unchanged if the LLM produced nothing.
 - **Chunk + synth** (`speak.py`):
   - `chunk_text` — paragraph-respecting, sentence-aware merge up to `_MAX_CHARS`
-    (280); over-long single sentences split on commas; sub-`_MIN_CHARS` (8)
-    fragments stitched onto neighbors.
+    (400; was 280 — fewer chunks = fewer CSM prefills = faster reads; see
+    speed-vs-prosody comment in `speak.py`); over-long single sentences split on
+    commas; sub-`_MIN_CHARS` (8) fragments stitched onto neighbors.
   - `_tidy_silence` — ⚠ **this is what removes the halting feel.** CSM, conditioned
     on the casual/disfluent Sesame prompt, emits long mid-utterance pauses;
     `_tidy_silence` trims leading/trailing silence (−40 dB threshold) and caps any
@@ -278,7 +279,9 @@ readback/
 
 - **Engine: `csm-mlx`** (`senstella/csm-1b-mlx`, `ckpt.safetensors`). float32 @
   24 kHz, cast to **bf16** by default (`cfg.precision`: `bf16`/`fp16`/`fp32`).
-  Offline, so `fp32` is viable for max quality.
+  bf16 is ~6% faster than fp32 with no audible quality loss; fp32 is max
+  fidelity (revert to it if clone voices sound off). `_make_sampler` caches
+  per `(temperature, top_k)` to avoid recreation per chunk.
 - **MLX single-thread:** `ThreadPoolExecutor(max_workers=1)` owns load + all
   synth. `_impl` methods run ON that thread and must never re-submit. Never call
   `mx` ops or the engine's `_impl` from another thread.
@@ -395,7 +398,9 @@ readback/
   `shutdown` (`index.tsx`) calls `closeActiveSocket()` (a `ws.ts` module singleton)
   first so the client `/ws` tears down cleanly on every exit path, including signal
   handlers where ink's unmount doesn't run. A SIGKILL of the CLI itself orphans
-  the spawned server.
+  the spawned server. `readbackBin()` prefers `.venv/bin/python3 -m readback`
+  (works without venv activation), falls back to `.venv/bin/readback`, then
+  `which readback`. Stderr is captured — startup crashes show the last 5 lines.
 - **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
   (`input` | `busy` | `player` | `library` | `quitting`), so key handlers only
   land on the active screen. Slash commands: `/voice`, `/mode`, `/model` (lists
@@ -436,9 +441,10 @@ readback/
   superseded exits. Seeking from paused/finished resumes playback.
 - **Synced transcript** (`PlayerView`): Summary-mode transcript highlights
   word by word in blue. No word timestamps exist — each word gets duration
-  proportional to its char count. ⚠ The component wraps text **itself** (one
-  `<Text>` per line): ink's `wrap="wrap"` drops ANSI state when a color
-  boundary crosses a line break.
+  proportional to its char count. The metadata line shows "Xs to generate" for
+  live reads (from `timings.total` in `DoneMsg`; hidden for library replays).
+  ⚠ The component wraps text **itself** (one `<Text>` per line): ink's
+  `wrap="wrap"` drops ANSI state when a color boundary crosses a line break.
 - **Resize repaint** (`index.tsx`): a `prependListener("resize")` runs before
   ink's own resize handler — `ink.clear()` + screen wipe so ink repaints on a
   blank slate. Without it, re-wrapped old frames make ink erase the wrong

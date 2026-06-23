@@ -144,7 +144,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system view.
 |---|---|
 | **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback); **mlx-vlm** vision OCR for images / book scans |
 | **Summary (optional)** | [mlx-lm](https://github.com/ml-explore/mlx-lm) — default `Qwen3.5-9B-4bit`; any MLX chat model works |
-| **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, fp32 |
+| **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, bf16 |
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV, REST library |
 | **CLI client** | Bun + TypeScript + [Ink](https://github.com/vadimdemedes/ink) — terminal UI, `afplay` playback |
@@ -185,7 +185,7 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `llm.model` | MLX model for Summary mode (HuggingFace ID) | `mlx-community/Qwen3.5-9B-4bit` |
 | `ocr.model` | MLX vision model for image / book-scan OCR (its own section) | `mlx-community/Qwen2.5-VL-7B-Instruct-4bit` |
 | `tts.csm.speaker` | Active voice (`conversational_a`/`_b` or a clone `name`) | `codeword` |
-| `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `fp32` |
+| `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `bf16` |
 | `tts.csm.temperature` | Delivery: lower = composed, higher = livelier | `0.7` |
 | `tts.csm.voices` | Clone voices (`name`, `label`, `wav`, `ref_text`, `speaker`) | sample `codeword` |
 | `tts.csm.lora_path` | LoRA adapter dir from a `csm-mlx finetune` run | `null` |

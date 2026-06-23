@@ -6,6 +6,18 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-24 — Faster synthesis + CLI generation timer + venv auto-detect
+
+**Status: done** — branch `optimisation`. Synthesis speed tuning: default
+precision fp32 → bf16 (~6% faster), chunk cap 280 → 400 chars (~30% fewer CSM
+prefills), sampler cached per (temperature, top_k). Speed/quality preset guide
+added to `config.yaml`. CLI player now shows "Xs to generate" for live reads.
+Server spawn uses `.venv/bin/python3 -m readback` directly (no activation
+needed); stderr captured so crashes show the actual error. Fixed library
+migration ordering (ALTER TABLE before index creation).
+
+---
+
 ## 2026-06-24 — Degenerate-chunk guard, crossfade joins, read cache
 
 **Status: done** — branch `optimisation`. Three audio-quality and performance
