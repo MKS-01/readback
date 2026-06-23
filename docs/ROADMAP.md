@@ -47,7 +47,7 @@ intentionally lower priority.
 - [x] Loudness-normalize the final WAV to a consistent target — peak-normalized to 0.95 (`_peak_normalize`), so clone voices match the built-ins
 - [x] Light crossfade at chunk joins to remove residual seams — 100 ms linear fade-out at chunk tails before the silence gap
 - [x] Degenerate-chunk guard — an all-silence chunk triggers one retry before being dropped
-- [ ] LoRA fine-tune for higher fidelity (pipeline in [`../src/finetune/`](../src/finetune/README.md))
+- [x] LoRA fine-tune for higher fidelity — full pipeline ready (transcribe → convert → train → load adapter); add clips to `src/finetune/data/` to train. See [`src/finetune/README.md`](../src/finetune/README.md)
 - [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `codeword`; eventually clone a new voice from the CLI instead of editing `config.yaml`
 
 ## ⚡ CLI — tuning & performance — priority
