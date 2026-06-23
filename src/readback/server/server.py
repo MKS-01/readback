@@ -156,6 +156,28 @@ async def _run_read_job(
             else:
                 log.warning("ignoring unknown vision model %r", vision_model)
 
+    # 0) Cache check — skip the entire pipeline if we already have audio for
+    # this exact (url, mode, voice, llm_model) combination.
+    effective_voice = voice or synth.current_voice
+    effective_model = model if model else cfg.llm.model
+    cached = await asyncio.to_thread(
+        library.find_cached, url, mode, effective_voice, effective_model,
+    )
+    if cached:
+        log.info("cache hit: %s (%s)", cached["title"][:50], cached["audio_filename"])
+        timings["total"] = time.monotonic() - t_job_start
+        await send({
+            "type": "done",
+            "title": cached["title"],
+            "audio_url": f"/audio/{cached['audio_filename']}",
+            "duration_sec": cached["duration_sec"],
+            "word_count": cached["word_count"],
+            "mode": mode,
+            "text": cached.get("summary") if mode == "summary" else None,
+            "timings": {k: round(v, 1) for k, v in timings.items()},
+        })
+        return
+
     # 1) Fetch + extract (URL, single image, or multi-page folder/glob).
     await send({"type": "phase", "value": "fetching"})
     t0 = time.monotonic()
@@ -280,6 +302,7 @@ async def _run_read_job(
             audio_filename=fname,
             audio_path=str(audio_path),
             created_at=datetime.now(timezone.utc).isoformat(),
+            llm_model=cfg.llm.model,
         )
         await asyncio.to_thread(library.add, rec)
     except Exception:

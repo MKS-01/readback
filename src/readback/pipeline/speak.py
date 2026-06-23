@@ -99,6 +99,17 @@ def _peak_normalize(audio: np.ndarray, target: float = 0.95) -> np.ndarray:
     return (audio * (target / peak)).astype(np.float32)
 
 
+def _fade_out_tail(audio: np.ndarray, sr: int, fade_ms: int = 100) -> np.ndarray:
+    """Light linear fade-out on the last `fade_ms` of audio so the transition
+    into the inter-chunk silence gap is smooth (no hard cut → click)."""
+    n = min(int(fade_ms * sr / 1000), audio.size)
+    if n < 2:
+        return audio
+    audio = audio.copy()
+    audio[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)
+    return audio
+
+
 def synthesize_article(
     synth,
     text: str,
@@ -123,11 +134,14 @@ def synthesize_article(
             break
         try:
             audio = _tidy_silence(synth.synthesize(chunk), sr)
+            if audio.size == 0:
+                log.info("chunk %d/%d all silence — retrying once", i + 1, len(chunks))
+                audio = _tidy_silence(synth.synthesize(chunk), sr)
         except Exception:
             log.exception("synth failed on chunk %d/%d", i + 1, len(chunks))
             audio = np.zeros(0, dtype=np.float32)
         if audio.size:
-            out.append(audio)
+            out.append(_fade_out_tail(audio, sr))
             out.append(gap)
         if progress is not None:
             progress(i + 1, len(chunks))

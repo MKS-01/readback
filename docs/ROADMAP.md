@@ -45,8 +45,8 @@ intentionally lower priority.
 ## 🎧 Audio quality — priority
 
 - [x] Loudness-normalize the final WAV to a consistent target — peak-normalized to 0.95 (`_peak_normalize`), so clone voices match the built-ins
-- [ ] Light crossfade at chunk joins to remove residual seams (chunks join with a flat 0.18 s gap)
-- [ ] Degenerate-chunk guard — an all-silence chunk is silently dropped (`_tidy_silence` → empty); detect + retry once
+- [x] Light crossfade at chunk joins to remove residual seams — 100 ms linear fade-out at chunk tails before the silence gap
+- [x] Degenerate-chunk guard — an all-silence chunk triggers one retry before being dropped
 - [ ] LoRA fine-tune for higher fidelity (pipeline in [`../src/finetune/`](../src/finetune/README.md))
 - [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `codeword`; eventually clone a new voice from the CLI instead of editing `config.yaml`
 
@@ -55,7 +55,7 @@ intentionally lower priority.
 - [x] **Summary mode no longer runs away** — `enable_thinking=False` + `max_tokens` cap + prompt length ceiling; the LLM is no longer the bottleneck (~4 s summaries, audio shrinks with the shorter text)
 - [x] Trim startup / model warm-up — server eagerly loads CSM + LLM at boot so the first read isn't cold (`ensure_loaded()` in the lifespan hook)
 - [ ] Faster synthesis — tune the controllable knobs (precision, chunking, warm-up); ultimately bounded by your Mac's GPU / unified memory
-- [ ] Cache by (url, mode, voice) so re-reading is instant
+- [x] Cache by (url, mode, voice, model) so re-reading is instant — library lookup skips the entire pipeline on cache hit
 - [ ] Surface clearer progress (% + ETA, not just per-chunk)
 - [ ] Parallelize multi-page OCR + the map-phase summary calls — both are sequential today; the win scales with page count (mlx-lm's `generate()` supports batched prompts natively)
 
