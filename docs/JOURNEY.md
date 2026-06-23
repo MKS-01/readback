@@ -70,12 +70,20 @@ URL in, audio out, two clients reading from the same on-device store.
   v2.0.0's removal — but as a separate, model-free replay client, not the thing
   that was deleted. A major bump: the on-disk layout moved out of `~/.readback/`
   into a sibling `readback-audio-db/` folder.
-- **v3.1.0** — **UI/UX polish** (this milestone): purposeful animations across the
+- **v3.1.0** — **UI/UX polish**: purposeful animations across the
   dashboard + landing page (guided by the `emil-design-eng` skill), a de-boxed
   landing-page redesign trimmed to a hook-and-redirect shape with a story-grounded
   hero, and rounded corners across both surfaces. Presentational only — no
   protocol/API change.
-- **By the numbers:** ~95 commits; tags `v1.0.0`, `v1.1.0`, `v2.0.0`.
+- **v3.2.0** — **Pi + PiZoW integration**: deploy-pi.sh + sync-pi.sh, PM2-managed
+  read-only server on a home Pi, mobile-responsive dashboard.
+- **v4.0.0** — **full MLX LLM stack**: Ollama removed. Summary LLM and vision OCR
+  now run **in-process** via `mlx-lm` + `mlx-vlm` on Apple Silicon, unifying with
+  CSM-1B under one framework. No external daemon needed.
+- **v4.1.0** — **audio quality + performance**: read cache (skip the pipeline on
+  re-reads), degenerate-chunk guard, crossfade joins, synthesis speed tuning
+  (bf16 default, larger chunks, sampler caching), CLI generation timer, venv
+  auto-detect for server spawn.
 
 > ✍️ **The two pivots are the heart of the story.** Why kill the real-time
 > assistant? Why later remove the very web UI you'd built, then reintroduce one?
@@ -147,7 +155,8 @@ prompting. The conventions live in the repo as **skills** and **memory**.
   dashboard path that only serves a finished WAV. This is *why* the web UI could
   come back without violating the "lean backend" principle.
 - **`afplay` + RIFF-slice seek** — afplay has no transport, so the CLI seeks by
-  slicing the WAV's PCM at a byte offset and relaunching. Pause = SIGSTOP/SIGCONT.
+  slicing the WAV's PCM at a byte offset and relaunching. Pause kills and resume
+  restarts from the elapsed position (SIGSTOP/SIGCONT caused buffer bleed).
 
 > ✍️ **The CSM commitment is a story in itself** (see the [tuning
 > plan](PLAN.md)). Why hold the line on one model instead of swapping?
@@ -171,9 +180,11 @@ The agent got things wrong and self-corrected. The honest bits.
   no-break space (U+202F)** before "PM", so a literal-typed path silently failed
   to match — only a glob found the file. (Real time lost to this one.)
 - **uvicorn won't let go.** Graceful shutdown hangs on an open WebSocket, so the
-  CLI SIGTERMs the spawned server then **SIGKILLs after 1.5 s**.
-- **SIGSTOP before SIGTERM.** A paused (`SIGSTOP`-ed) `afplay` can't handle
-  SIGTERM — always SIGCONT first.
+  CLI **SIGKILLs outright** (the old SIGTERM-then-busy-wait was self-defeating —
+  the synchronous wait blocked Bun's event loop).
+- **Pause = kill + restart.** `afplay` SIGSTOP/SIGCONT caused CoreAudio buffer
+  bleed (~0.5 s of repeated audio on resume). Now pause kills afplay and resume
+  restarts from the elapsed position via WAV-slice.
 - **Ink drops ANSI across line breaks.** `wrap="wrap"` loses color state when a
   style boundary crosses a wrap, so the CLI transcript wraps text *by hand*.
 - **"Looks like a bug, isn't":** first synth is slow (one-time graph warm-up + 6 GB
@@ -189,10 +200,10 @@ The agent got things wrong and self-corrected. The honest bits.
 
 | Layer | Tech |
 |---|---|
-| Extraction | trafilatura (+ browser-UA fallback) |
-| Summary LLM | Ollama (`gemma4:26b` default; any chat model) |
-| TTS | CSM-1B via `csm-mlx` — MLX/Metal, 24 kHz, fp32 |
-| Server | FastAPI + WebSocket + REST library |
+| Extraction | trafilatura (+ browser-UA fallback); mlx-vlm vision OCR for images/books |
+| Summary LLM | mlx-lm — in-process on Metal (`Qwen3.5-9B-4bit` default; any MLX chat model) |
+| TTS | CSM-1B via `csm-mlx` — in-process, Metal, 24 kHz, bf16 |
+| Server | FastAPI + WebSocket + REST library + read cache |
 | CLI | Bun + TypeScript + Ink, `afplay` |
 | Dashboard | Vue 3 + Vite + TS, stdlib SQLite |
 | Built with | Claude Code (agent-first) |
