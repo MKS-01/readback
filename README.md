@@ -82,7 +82,7 @@ readback-cli                            # from anywhere; auto-starts the server
 The CLI auto-starts the server and kills it on exit. It's a full terminal player:
 
 - **space** pause, **←/→** seek ±5 s, **t** toggle transcript (word-by-word highlight synced to the voice)
-- `/voice`, `/model` (summary LLM, RAM-fit check), `/vision` (image/book OCR model), `/mode`, `/lib` (browse + replay past reads), `/help`
+- `/voice`, `/model` (summary LLM, RAM-fit check), `/vision` (image/book OCR model), `/mode`, `/lib` (browse + **space** to preview inline, **enter** for full player), `/help`
 - `q` to quit (or any time the input field is empty)
 
 macOS only (`afplay` playback). Details: [`src/cli/README.md`](src/cli/README.md).

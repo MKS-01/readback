@@ -75,13 +75,12 @@ intentionally lower priority.
 - [ ] `/tone` override + persisted pref, and a 3rd tone (technical paper / news) — auto-only with two tones today
 - [x] `/vision` switch — per-read OCR-model picker (mirror of `/model`), so a quick snapshot can use a light 3B while dense book scans use the 7B (`handlePickModel`/`ModelList kind`, `read.vision_model`)
 - [ ] Auto-pick the OCR model by source (single image → light, multi-page → accurate) — manual `/vision` only today
-- [ ] Read **local documents**, not just URLs — `.txt` and `.pdf` → voice
-- [ ] Paste raw text directly as a source
-
 ## 🔭 Later
 
 - [x] Automation + testing — `pytest` suite (pure logic, 38 cases — see [TESTS.md](TESTS.md)) + GitHub Actions CI on Python 3.10 + 3.12 with JUnit summary
 - [ ] Broaden coverage — server/WS integration tests, an end-to-end synth smoke test on a macOS runner
 - [x] Chunked summarization for very long articles — map-reduce in `summarize.py` (batches → condense → combine), so book scans summarize end-to-end instead of truncating at `summary_max_chars`
 - [ ] Trial larger/newer summary models for quality (Qwen3-30B-A3B, Qwen2.5-32B, Gemma-2-27B…) — shortlist + eval method in [PLAN.md](PLAN.md) (2026-06-20)
+- [ ] Read **local documents** — `.txt` and `.pdf` → voice
+- [ ] Paste raw text directly as a source
 - [ ] UX niceties (lower priority): extracted-article preview before synth, download filename = article title, nicer error states for paywalled / JS-only pages

@@ -39,6 +39,7 @@ interface State {
   libraryOffset: number;
   libraryCursor: number;
   confirmDelete: boolean;
+  previewId: string | null;
   showHelp: boolean;
 }
 
@@ -64,6 +65,7 @@ type Action =
   | { type: "libraryDeleteItem"; id: string }
   | { type: "libraryConfirmDelete" }
   | { type: "libraryClearConfirm" }
+  | { type: "preview"; id: string | null }
   | { type: "quitting" };
 
 function reducer(state: State, action: Action): State {
@@ -123,6 +125,7 @@ function reducer(state: State, action: Action): State {
         libraryOffset: action.items.length,
         libraryCursor: 0,
         confirmDelete: false,
+        previewId: null,
         error: null,
         notice: null,
         modelList: null,
@@ -150,6 +153,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, confirmDelete: true };
     case "libraryClearConfirm":
       return { ...state, confirmDelete: false };
+    case "preview":
+      return { ...state, previewId: action.id };
     case "quitting":
       return { ...state, screen: "quitting" };
   }
@@ -227,6 +232,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     libraryOffset: 0,
     libraryCursor: 0,
     confirmDelete: false,
+    previewId: null,
     showHelp: false,
   });
 
@@ -519,8 +525,12 @@ export function App({ handle, prefs, onQuit }: Props) {
             total={state.libraryTotal}
             cursor={state.libraryCursor}
             confirmDelete={state.confirmDelete}
+            player={state.player}
+            previewId={state.previewId}
             onMove={(delta) => dispatch({ type: "libraryMove", delta })}
             onPlay={(item) => {
+              player.stop();
+              dispatch({ type: "preview", id: null });
               const result: DoneMsg = {
                 type: "done",
                 title: item.title,
@@ -539,9 +549,26 @@ export function App({ handle, prefs, onQuit }: Props) {
                   dispatch({ type: "error", message: String(err.message ?? err) })
                 );
             }}
+            onPreview={(item) => {
+              if (state.previewId === item.id && state.player.state === "playing") {
+                player.stop();
+                dispatch({ type: "preview", id: null });
+              } else {
+                resolveWav(handle.base, `/audio/${item.audio_filename}`, cfg.audio_dir)
+                  .then((wavPath) => {
+                    dispatch({ type: "preview", id: item.id });
+                    player.play(wavPath, item.duration_sec);
+                  })
+                  .catch(() => {});
+              }
+            }}
             onDelete={(item) => deleteLibraryItem(item)}
             onLoadMore={loadMoreLibrary}
-            onBack={() => dispatch({ type: "back" })}
+            onBack={() => {
+              player.stop();
+              dispatch({ type: "preview", id: null });
+              dispatch({ type: "back" });
+            }}
           />
         )}
       </Box>

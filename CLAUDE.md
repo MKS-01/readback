@@ -409,8 +409,11 @@ readback/
   flow filtered to **vision** models — switches the image/book OCR model
   per-read; `handlePickModel(kind)` + `ModelList kind` serve both, no
   recommendation marker for vision), `/library` (alias `/lib` —
-  `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, Enter to
-  replay, `d` twice to delete), `/help`, `/quit`; esc cancels a read.
+  `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, `space` to
+  preview inline (plays audio without leaving the library; shows `♫` + elapsed;
+  space again stops), Enter to open the full player, `d` twice to delete),
+  `/help`, `/quit`; esc cancels a read. Every library row shows
+  `mode · duration · words · date` inline (active row in accent blue).
   `q` when the URL input field is empty triggers quit — intercepted in
   `UrlInput.onChange` before the controlled value updates. Quit path:
   `dispatch("quitting")` → braille spinner renders for 300 ms → `shutdown()` +
