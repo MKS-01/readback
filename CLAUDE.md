@@ -149,7 +149,8 @@ readback/
         │                      # (+ CsmVoicePrompt) / ReaderConfig; load() resolves clone wav +
         │                      # lora + library_db, migrates old llm.vision_model → ocr.model
         ├── library.py         # SQLite read library (stdlib sqlite3): Library class
-        │                      # (add/list/get/delete over a `reads` table) — powers the dashboard
+        │                      # (add/list/get/delete/find_cached over a `reads` table) — powers
+        │                      # the dashboard + the read cache
         ├── llm/
         │   ├── client.py      # LLMClient.oneshot() for summary + the <think> stripper
         │   └── models.py      # MLX model listing (HF cache scan) + RAM-fit verdict (GET /api/models)
@@ -160,7 +161,7 @@ readback/
         │   │                  # ARTICLE (URL) / BOOK (image) + tone_for(kind)
         │   ├── summarize.py   # summarize_article: LLM oneshot/map-reduce → spoken
         │   │                  # explanation; tone `system` prompt selectable
-        │   └── speak.py       # chunk_text + synthesize_article + _tidy_silence + _peak_normalize + write_wav
+        │   └── speak.py       # chunk_text + synthesize_article + _tidy_silence + _fade_out_tail + _peak_normalize + write_wav
         ├── tts/
         │   ├── csm_engine.py  # CsmEngine (csm-mlx); single-thread MLX executor; _ref_for
         │   │                  # (built-in prompt / clone clip / empty-for-LoRA); voices_for
@@ -178,6 +179,12 @@ readback/
   mid-job. Cancel/disconnect flips `state["alive"] = False`, which silences sends
   and (via `should_stop`) aborts synthesis. One job per socket; a second `read`
   while busy returns an error.
+- **Read cache** (step 0, before fetch): `library.find_cached(url, mode, voice,
+  llm_model)` checks for an existing WAV matching the exact cache key. On hit the
+  entire pipeline is skipped — `done` fires immediately with the cached record.
+  The cache key includes the LLM model so a `/model` switch doesn't replay stale
+  audio. The lookup is backed by a composite index (`idx_reads_cache`). A hit
+  requires the WAV file to still exist on disk (deleted WAVs are misses).
 - **Phases** stream as `phase` messages (`loading` → `fetching` → `summarizing` →
   `synthesizing`), then per-chunk `progress {done, total}`, then `done`.
 - **`done` payload**: `{title, audio_url, duration_sec, word_count, mode, text,
@@ -198,7 +205,7 @@ readback/
   SQLite library via `library.add(...)` (best-effort — wrapped in try/except +
   logged; a DB failure must never break playback). Full mode stores `excerpt`
   (article text[:300], summary=None); Summary mode stores both. `id` = the WAV's
-  uuid stem.
+  uuid stem. `llm_model` stores the summary LLM used (part of the cache key).
 - **Library REST** (read-only + delete, all `asyncio.to_thread` over blocking
   sqlite): `GET /api/library?q=&sort=newest|oldest&limit=&offset=` →
   **paged** `{items, total, limit, offset}` (limit capped 1–100, default 20;
@@ -254,9 +261,12 @@ readback/
     on the casual/disfluent Sesame prompt, emits long mid-utterance pauses;
     `_tidy_silence` trims leading/trailing silence (−40 dB threshold) and caps any
     internal silent run to `max_pause_ms` (300). Model-agnostic post-processing.
-  - `synthesize_article` — synth each chunk, tidy, join with `reader.gap_sec`
-    (0.18 s) gaps; `progress`/`should_stop` hooks; a chunk that throws is skipped,
-    not fatal.
+  - `synthesize_article` — synth each chunk, tidy, fade-out tail, join with
+    `reader.gap_sec` (0.18 s) gaps; `progress`/`should_stop` hooks; a chunk that
+    throws is skipped, not fatal. **Degenerate-chunk guard:** if `_tidy_silence`
+    returns empty (all silence), synthesis is retried once before dropping the chunk.
+  - `_fade_out_tail` — 100 ms linear fade-out on each chunk's tail before the
+    silence gap, smoothing the voiced→silence transition (no hard cut → click).
   - `_peak_normalize` — ⚠ **levels every voice to the same loudness.** CSM matches
     the energy of its reference clip, so clone voices (quiet refs) came out ~18 dB
     softer than the near-full-scale built-in prompts. The concatenated buffer is
@@ -454,10 +464,14 @@ readback/
 - **`Library`** (`library.py`): stdlib `sqlite3`, no ORM, no new dependency. One
   `reads` table keyed by the WAV's uuid stem (`id`); columns: `title, summary,
   excerpt, source_url, mode, voice, duration_sec, word_count, audio_filename,
-  audio_path, created_at`. **Connections are opened per call** (`_connect`) so
+  audio_path, created_at, llm_model`. **Connections are opened per call** (`_connect`) so
   it's safe across asyncio's threadpool — every call site wraps it in
-  `asyncio.to_thread`. `CREATE TABLE IF NOT EXISTS` on init (idempotent).
+  `asyncio.to_thread`. `CREATE TABLE IF NOT EXISTS` on init (idempotent);
+  `llm_model` is auto-migrated on existing DBs via `ALTER TABLE ADD COLUMN`.
   `delete()` returns the `audio_path` so the server can unlink the WAV.
+  `find_cached(source_url, mode, voice, llm_model)` → the most recent matching
+  read (or None if no match / WAV deleted). Backed by composite index
+  `idx_reads_cache`.
 - `add()` is `INSERT OR REPLACE` (re-reads with the same id overwrite). `list()`
   search is `LIKE %q%` over title/summary/excerpt/source_url; sort is
   `created_at ASC|DESC`.
