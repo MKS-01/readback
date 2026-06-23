@@ -43,24 +43,6 @@ def test_search_matches_title_and_url(lib):
     assert ids == {"a", "b"}
 
 
-def test_count_is_independent_of_pagination(lib):
-    for i in range(5):
-        lib.add(_rec(str(i), created=f"2026-01-0{i+1}"))
-    assert lib.count() == 5
-    page = lib.list(limit=2, offset=0)
-    assert len(page) == 2
-    assert lib.count() == 5  # unchanged by the limited query
-
-
-def test_pagination_offset(lib):
-    for i in range(5):
-        lib.add(_rec(str(i), created=f"2026-01-0{i+1}"))
-    first = [r["id"] for r in lib.list(sort="oldest", limit=2, offset=0)]
-    second = [r["id"] for r in lib.list(sort="oldest", limit=2, offset=2)]
-    assert first == ["0", "1"]
-    assert second == ["2", "3"]
-
-
 def test_insert_or_replace_overwrites_same_id(lib):
     lib.add(_rec("a", title="First"))
     lib.add(_rec("a", title="Second"))

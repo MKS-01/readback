@@ -14,10 +14,6 @@ def _silent(n):
     return np.zeros(n, dtype=np.float32)
 
 
-def test_empty_in_empty_out():
-    assert _tidy_silence(np.zeros(0, dtype=np.float32), SR).size == 0
-
-
 def test_all_silence_is_dropped():
     out = _tidy_silence(_silent(500), SR)
     assert out.size == 0

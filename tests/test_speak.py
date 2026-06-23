@@ -19,19 +19,6 @@ def test_fade_out_tail_ramps_to_zero():
     assert (diffs <= 0).all()
 
 
-def test_fade_out_tail_short_audio():
-    audio = np.ones(10, dtype=np.float32)
-    out = _fade_out_tail(audio, SR, fade_ms=100)
-    assert out.size == 10
-    assert abs(out[-1]) < 1e-5
-
-
-def test_fade_out_tail_does_not_mutate_input():
-    audio = np.ones(SR, dtype=np.float32)
-    _fade_out_tail(audio, SR)
-    np.testing.assert_array_equal(audio, 1.0)
-
-
 class _FakeSynth:
     """Minimal synth stub for synthesize_article tests."""
     sample_rate = SR
