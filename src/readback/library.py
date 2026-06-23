@@ -84,6 +84,11 @@ class Library:
             )
             # Sort key — every list query orders by it.
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reads_created ON reads(created_at)")
+            # Cache lookup index — covers find_cached(source_url, mode, voice, llm_model).
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reads_cache "
+                "ON reads(source_url, mode, voice, llm_model)"
+            )
             # Migration: add llm_model to existing DBs (idempotent).
             try:
                 conn.execute("ALTER TABLE reads ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
