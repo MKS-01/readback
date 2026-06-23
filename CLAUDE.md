@@ -551,15 +551,13 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v4.0.0** — full MLX LLM stack (**major** — Ollama removed). Summary
-LLM and vision OCR now run in-process via `mlx-lm` + `mlx-vlm` on Apple
-Silicon, unifying with CSM-1B TTS under one framework. `OllamaConfig` →
-`LLMConfig`; config key `ollama:` → `llm:` (old key auto-migrated); `ollama`
-dep replaced by `mlx-lm` + `mlx-vlm`; no external daemon needed. +25–30%
-generation speed. Model discovery scans HF cache instead of Ollama API. New
-`upgrade-deps` skill.
+Current: **v4.1.0** — audio quality + performance. Read cache skips the entire
+pipeline on re-reads (keyed by url/mode/voice/llm_model). Degenerate-chunk
+guard retries all-silence synthesis once. Light crossfade (100 ms fade-out) at
+chunk joins. New `llm_model` column in the reads table (auto-migrated).
 
-Previously: v3.0.0–v3.7.0 (see memory `version-history` for full changelog).
+Previously: v4.0.0 — full MLX LLM stack (Ollama removed); v3.0.0–v3.7.0 (see
+memory `version-history` for full changelog).
 Set in `pyproject.toml`, `src/readback/__init__.py`,
 `src/cli/package.json`, and `src/dashboard/package.json` — bump all four when
 releasing. The standalone CLI binary needs `src/cli/install.sh` re-run to pick

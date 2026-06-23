@@ -1,4 +1,4 @@
-# Architecture — readback (v4.0.0)
+# Architecture — readback (v4.1.0)
 
 How the pieces fit together and why. System-level companion to
 [CLAUDE.md](../CLAUDE.md) (implementation notes, gotchas, exact knobs) and
