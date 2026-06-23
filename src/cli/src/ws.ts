@@ -9,6 +9,7 @@ export interface DoneMsg {
   word_count: number;
   mode: string;
   text: string | null;
+  timings?: Record<string, number>;
 }
 
 export type ServerMsg =

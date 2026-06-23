@@ -145,6 +145,9 @@ export function PlayerView({
       </Text>
       <Text color={DIM}>
         {modeLabel} · {result.word_count} words · {fmt(total)}
+        {result.timings?.total != null && (
+          <Text color={DIM}> · {result.timings.total.toFixed(1)}s to generate</Text>
+        )}
       </Text>
 
       <Box marginTop={1}>

@@ -21,8 +21,12 @@ tts:
     # Active voice. Built-ins: conversational_a / conversational_b. Clone voices
     # under `voices:` add their own timbre/tone — "codeword" (young female) is default.
     speaker: "codeword"
-    # fp32 = max quality (offline, RTF ~1.4 is fine); "bf16" is the fast option.
-    precision: "fp32"
+    # Precision — speed vs fidelity:
+    #   bf16 — ~6% faster than fp32, native on Apple Silicon, no audible quality
+    #          loss at normal listening. Recommended default.
+    #   fp32 — max fidelity (RTF ~0.72); use if you hear artifacts on a clone voice.
+    #   fp16 — slightly faster than bf16, narrower dynamic range — not recommended.
+    precision: "bf16"
     # Lower = steadier/more composed; higher = livelier. 0.7 matches the codeword
     # voice tuning; short (<5 s) reference clips get unstable below ~0.55.
     temperature: 0.7
@@ -40,6 +44,20 @@ tts:
     # + adapter_config.json). Loaded over the base weights; generation then uses
     # empty context per the FINETUNING preset. See src/finetune/README.md.
     # lora_path: "src/finetune/runs/v1"
+
+    # ── Synthesis speed vs quality guide ──
+    #
+    # Three knobs control the speed/quality tradeoff. Each chunk pays a fixed
+    # CSM reference-prefill cost (~1–2 s), so fewer chunks = faster reads.
+    #
+    #   Preset       precision   _MAX_CHARS (speak.py)   Notes
+    #   ─────────    ─────────   ────────────────────     ─────
+    #   Fast         bf16        400                      current default; ~30% fewer chunks
+    #   Balanced     bf16        280                      more natural sentence breaks
+    #   Max quality  fp32        200                      best intonation, ~2× slower
+    #
+    # To revert to max quality: set precision: "fp32" above, and change
+    # _MAX_CHARS to 200 in src/readback/pipeline/speak.py.
 
 reader:
   # Generated WAVs are written here and served for playback + download. Kept

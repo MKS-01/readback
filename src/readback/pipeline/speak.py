@@ -14,9 +14,15 @@ import numpy as np
 log = logging.getLogger("readback.pipeline")
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
-# Cap chars per TTS call so a single generate() stays well under CSM's token
-# budget; sentences are merged up to this, long ones split on commas as a guard.
-_MAX_CHARS = 280
+# Cap chars per TTS call — fewer, larger chunks = fewer CSM reference-prefills =
+# faster total synthesis. 400 stays well under CSM's 2048-token budget (the
+# _max_ms_for safety bound caps runaway generation per chunk).
+#
+# Speed vs prosody tradeoff:
+#   400 — fast (fewer prefills, ~30% fewer chunks than 280)
+#   280 — balanced (more natural sentence-boundary breaks)
+#   200 — max prosody (shortest chunks, best intonation, slowest)
+_MAX_CHARS = 400
 _MIN_CHARS = 8
 
 

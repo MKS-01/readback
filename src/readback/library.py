@@ -82,6 +82,12 @@ class Library:
                 )
                 """
             )
+            # Migration: add llm_model to existing DBs (must run before indexes
+            # that reference it).
+            try:
+                conn.execute("ALTER TABLE reads ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
             # Sort key — every list query orders by it.
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reads_created ON reads(created_at)")
             # Cache lookup index — covers find_cached(source_url, mode, voice, llm_model).
@@ -89,11 +95,6 @@ class Library:
                 "CREATE INDEX IF NOT EXISTS idx_reads_cache "
                 "ON reads(source_url, mode, voice, llm_model)"
             )
-            # Migration: add llm_model to existing DBs (idempotent).
-            try:
-                conn.execute("ALTER TABLE reads ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
-            except sqlite3.OperationalError:
-                pass
 
     def add(self, rec: ReadRecord) -> None:
         with self._connect() as conn:
