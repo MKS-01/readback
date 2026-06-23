@@ -20,7 +20,7 @@ flags, verification, and troubleshooting).
 ## 1. Prerequisites
 
 - macOS on Apple Silicon (M1–M5).
-- Python 3.10–3.12 (3.12 recommended).
+- Python 3.10+ (3.12 recommended).
 - [Bun](https://bun.sh) 1.0+ (to build/run the terminal CLI).
 
 No Hugging Face login is required — CSM weights come from the ungated
@@ -95,7 +95,7 @@ pip install -e '.[test]'   # or: pip install -r requirements-pi.txt pytest
 pytest                     # config (testpaths, src on path) is in pyproject.toml
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same suite on Python 3.10–3.12 on every
+CI (`.github/workflows/ci.yml`) runs the same suite on Python 3.10+ on every
 push and PR, installing the `requirements-pi.txt` subset + pytest.
 
 ## Troubleshooting

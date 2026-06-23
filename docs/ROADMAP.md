@@ -80,7 +80,7 @@ intentionally lower priority.
 
 ## 🔭 Later
 
-- [x] Automation + testing — `pytest` suite (pure logic: chunking, silence-tidy, text scrub, library, think-stripper) + GitHub Actions CI on Python 3.10–3.12
+- [x] Automation + testing — `pytest` suite (pure logic, 38 cases — see [TESTS.md](TESTS.md)) + GitHub Actions CI on Python 3.10 + 3.12 with JUnit summary
 - [ ] Broaden coverage — server/WS integration tests, an end-to-end synth smoke test on a macOS runner
 - [x] Chunked summarization for very long articles — map-reduce in `summarize.py` (batches → condense → combine), so book scans summarize end-to-end instead of truncating at `summary_max_chars`
 - [ ] Trial larger/newer summary models for quality (Qwen3-30B-A3B, Qwen2.5-32B, Gemma-2-27B…) — shortlist + eval method in [PLAN.md](PLAN.md) (2026-06-20)

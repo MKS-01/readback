@@ -79,14 +79,14 @@ readback/
 │                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
-├── tests/                     # pytest suite — PURE LOGIC only (no MLX/CSM/GPU): chunk_text,
-│                              # _tidy_silence, _clean_for_tts, Library (SQLite), think-stripper.
-│                              # Config in pyproject.toml ([tool.pytest.ini_options]: testpaths=tests,
-│                              # pythonpath=src). Runnable on Linux against the requirements-pi.txt subset.
+├── tests/                     # 38 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
+│                              # silence-tidy, fade-out, extract scrub, library + cache, think-stripper,
+│                              # tones, map-reduce batching. See docs/TESTS.md for the full catalogue.
+│                              # Config in pyproject.toml; runnable on Linux (requirements-pi.txt subset).
 ├── .github/workflows/
-│   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10–3.12 on Ubuntu;
+│   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10 + 3.12 on Ubuntu;
 │   │                          # installs requirements-pi.txt + pytest (NOT the package — csm-mlx/
-│   │                          # mlx won't install on Linux). The reason the suite avoids TTS imports.
+│   │                          # mlx won't install on Linux). JUnit summary on PRs via test-summary/action.
 │   └── pages.yml              # deploys src/landing-page/ to GitHub Pages — ONLY on
 │                              # push to main (i.e. after a PR merges) AND only when
 │                              # the page or one of its exact media files changed
@@ -98,6 +98,7 @@ readback/
 │   ├── SETUP.md               # end-to-end setup guide
 │   ├── PLAN.md                # planning history (newest entry on top)
 │   ├── ROADMAP.md             # roadmap — planned + recently shipped (single open-item tracker)
+│   ├── TESTS.md               # test catalogue — every case grouped by module, what it guards
 │   ├── JOURNEY.md             # agent-first devlog (scaffold; user fills prose)
 │   └── media/                 # README screenshots + sample WAV + wordmark.png
 │                              # (brand banner; regen: make_wordmark.py — keep in
