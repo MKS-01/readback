@@ -6,6 +6,37 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-06-24 — Faster synthesis + CLI generation timer + venv auto-detect
+
+**Status: done** — branch `optimisation`. Synthesis speed tuning: default
+precision fp32 → bf16 (~6% faster), chunk cap 280 → 400 chars (~30% fewer CSM
+prefills), sampler cached per (temperature, top_k). Speed/quality preset guide
+added to `config.yaml`. CLI player now shows "Xs to generate" for live reads.
+Server spawn uses `.venv/bin/python3 -m readback` directly (no activation
+needed); stderr captured so crashes show the actual error. Fixed library
+migration ordering (ALTER TABLE before index creation).
+
+---
+
+## 2026-06-24 — Degenerate-chunk guard, crossfade joins, read cache
+
+**Status: done** — branch `optimisation`. Three audio-quality and performance
+improvements shipped together.
+
+**What shipped.** (1) Degenerate-chunk guard: if `_tidy_silence` returns empty
+(all silence), `synthesize_article` retries synthesis once before dropping the
+chunk. (2) Light crossfade: `_fade_out_tail` applies a 100 ms linear fade-out
+to each chunk's tail before the silence gap, smoothing the voiced→silence
+transition. (3) Read cache: `library.find_cached(url, mode, voice, llm_model)`
+checks for an existing WAV before the pipeline runs; on hit the server sends
+`done` immediately. New `llm_model` column on the `reads` table (auto-migrated)
++ composite index `idx_reads_cache`.
+
+**Verified.** 59 pytest pass (new tests: `test_speak.py` for fade-out + retry,
+`test_library.py` cache lookup — hit, miss by voice/model, miss on deleted WAV).
+
+---
+
 ## 2026-06-20 — OCR config → its own `ocr:` section
 
 **Status: done** — branch `llm-migration`. Moved the OCR vision model out of

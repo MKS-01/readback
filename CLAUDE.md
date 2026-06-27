@@ -79,14 +79,14 @@ readback/
 │                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
-├── tests/                     # pytest suite — PURE LOGIC only (no MLX/CSM/GPU): chunk_text,
-│                              # _tidy_silence, _clean_for_tts, Library (SQLite), think-stripper.
-│                              # Config in pyproject.toml ([tool.pytest.ini_options]: testpaths=tests,
-│                              # pythonpath=src). Runnable on Linux against the requirements-pi.txt subset.
+├── tests/                     # 38 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
+│                              # silence-tidy, fade-out, extract scrub, library + cache, think-stripper,
+│                              # tones, map-reduce batching. See docs/TESTS.md for the full catalogue.
+│                              # Config in pyproject.toml; runnable on Linux (requirements-pi.txt subset).
 ├── .github/workflows/
-│   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10–3.12 on Ubuntu;
+│   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10 + 3.12 on Ubuntu;
 │   │                          # installs requirements-pi.txt + pytest (NOT the package — csm-mlx/
-│   │                          # mlx won't install on Linux). The reason the suite avoids TTS imports.
+│   │                          # mlx won't install on Linux). JUnit summary on PRs via test-summary/action.
 │   └── pages.yml              # deploys src/landing-page/ to GitHub Pages — ONLY on
 │                              # push to main (i.e. after a PR merges) AND only when
 │                              # the page or one of its exact media files changed
@@ -98,6 +98,7 @@ readback/
 │   ├── SETUP.md               # end-to-end setup guide
 │   ├── PLAN.md                # planning history (newest entry on top)
 │   ├── ROADMAP.md             # roadmap — planned + recently shipped (single open-item tracker)
+│   ├── TESTS.md               # test catalogue — every case grouped by module, what it guards
 │   ├── JOURNEY.md             # agent-first devlog (scaffold; user fills prose)
 │   └── media/                 # README screenshots + sample WAV + wordmark.png
 │                              # (brand banner; regen: make_wordmark.py — keep in
@@ -149,7 +150,8 @@ readback/
         │                      # (+ CsmVoicePrompt) / ReaderConfig; load() resolves clone wav +
         │                      # lora + library_db, migrates old llm.vision_model → ocr.model
         ├── library.py         # SQLite read library (stdlib sqlite3): Library class
-        │                      # (add/list/get/delete over a `reads` table) — powers the dashboard
+        │                      # (add/list/get/delete/find_cached over a `reads` table) — powers
+        │                      # the dashboard + the read cache
         ├── llm/
         │   ├── client.py      # LLMClient.oneshot() for summary + the <think> stripper
         │   └── models.py      # MLX model listing (HF cache scan) + RAM-fit verdict (GET /api/models)
@@ -160,7 +162,7 @@ readback/
         │   │                  # ARTICLE (URL) / BOOK (image) + tone_for(kind)
         │   ├── summarize.py   # summarize_article: LLM oneshot/map-reduce → spoken
         │   │                  # explanation; tone `system` prompt selectable
-        │   └── speak.py       # chunk_text + synthesize_article + _tidy_silence + _peak_normalize + write_wav
+        │   └── speak.py       # chunk_text + synthesize_article + _tidy_silence + _fade_out_tail + _peak_normalize + write_wav
         ├── tts/
         │   ├── csm_engine.py  # CsmEngine (csm-mlx); single-thread MLX executor; _ref_for
         │   │                  # (built-in prompt / clone clip / empty-for-LoRA); voices_for
@@ -178,6 +180,12 @@ readback/
   mid-job. Cancel/disconnect flips `state["alive"] = False`, which silences sends
   and (via `should_stop`) aborts synthesis. One job per socket; a second `read`
   while busy returns an error.
+- **Read cache** (step 0, before fetch): `library.find_cached(url, mode, voice,
+  llm_model)` checks for an existing WAV matching the exact cache key. On hit the
+  entire pipeline is skipped — `done` fires immediately with the cached record.
+  The cache key includes the LLM model so a `/model` switch doesn't replay stale
+  audio. The lookup is backed by a composite index (`idx_reads_cache`). A hit
+  requires the WAV file to still exist on disk (deleted WAVs are misses).
 - **Phases** stream as `phase` messages (`loading` → `fetching` → `summarizing` →
   `synthesizing`), then per-chunk `progress {done, total}`, then `done`.
 - **`done` payload**: `{title, audio_url, duration_sec, word_count, mode, text,
@@ -198,7 +206,7 @@ readback/
   SQLite library via `library.add(...)` (best-effort — wrapped in try/except +
   logged; a DB failure must never break playback). Full mode stores `excerpt`
   (article text[:300], summary=None); Summary mode stores both. `id` = the WAV's
-  uuid stem.
+  uuid stem. `llm_model` stores the summary LLM used (part of the cache key).
 - **Library REST** (read-only + delete, all `asyncio.to_thread` over blocking
   sqlite): `GET /api/library?q=&sort=newest|oldest&limit=&offset=` →
   **paged** `{items, total, limit, offset}` (limit capped 1–100, default 20;
@@ -248,15 +256,19 @@ readback/
   section N / M`). Returns the article text unchanged if the LLM produced nothing.
 - **Chunk + synth** (`speak.py`):
   - `chunk_text` — paragraph-respecting, sentence-aware merge up to `_MAX_CHARS`
-    (280); over-long single sentences split on commas; sub-`_MIN_CHARS` (8)
-    fragments stitched onto neighbors.
+    (400; was 280 — fewer chunks = fewer CSM prefills = faster reads; see
+    speed-vs-prosody comment in `speak.py`); over-long single sentences split on
+    commas; sub-`_MIN_CHARS` (8) fragments stitched onto neighbors.
   - `_tidy_silence` — ⚠ **this is what removes the halting feel.** CSM, conditioned
     on the casual/disfluent Sesame prompt, emits long mid-utterance pauses;
     `_tidy_silence` trims leading/trailing silence (−40 dB threshold) and caps any
     internal silent run to `max_pause_ms` (300). Model-agnostic post-processing.
-  - `synthesize_article` — synth each chunk, tidy, join with `reader.gap_sec`
-    (0.18 s) gaps; `progress`/`should_stop` hooks; a chunk that throws is skipped,
-    not fatal.
+  - `synthesize_article` — synth each chunk, tidy, fade-out tail, join with
+    `reader.gap_sec` (0.18 s) gaps; `progress`/`should_stop` hooks; a chunk that
+    throws is skipped, not fatal. **Degenerate-chunk guard:** if `_tidy_silence`
+    returns empty (all silence), synthesis is retried once before dropping the chunk.
+  - `_fade_out_tail` — 100 ms linear fade-out on each chunk's tail before the
+    silence gap, smoothing the voiced→silence transition (no hard cut → click).
   - `_peak_normalize` — ⚠ **levels every voice to the same loudness.** CSM matches
     the energy of its reference clip, so clone voices (quiet refs) came out ~18 dB
     softer than the near-full-scale built-in prompts. The concatenated buffer is
@@ -267,7 +279,9 @@ readback/
 
 - **Engine: `csm-mlx`** (`senstella/csm-1b-mlx`, `ckpt.safetensors`). float32 @
   24 kHz, cast to **bf16** by default (`cfg.precision`: `bf16`/`fp16`/`fp32`).
-  Offline, so `fp32` is viable for max quality.
+  bf16 is ~6% faster than fp32 with no audible quality loss; fp32 is max
+  fidelity (revert to it if clone voices sound off). `_make_sampler` caches
+  per `(temperature, top_k)` to avoid recreation per chunk.
 - **MLX single-thread:** `ThreadPoolExecutor(max_workers=1)` owns load + all
   synth. `_impl` methods run ON that thread and must never re-submit. Never call
   `mx` ops or the engine's `_impl` from another thread.
@@ -384,7 +398,9 @@ readback/
   `shutdown` (`index.tsx`) calls `closeActiveSocket()` (a `ws.ts` module singleton)
   first so the client `/ws` tears down cleanly on every exit path, including signal
   handlers where ink's unmount doesn't run. A SIGKILL of the CLI itself orphans
-  the spawned server.
+  the spawned server. `readbackBin()` prefers `.venv/bin/python3 -m readback`
+  (works without venv activation), falls back to `.venv/bin/readback`, then
+  `which readback`. Stderr is captured — startup crashes show the last 5 lines.
 - **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
   (`input` | `busy` | `player` | `library` | `quitting`), so key handlers only
   land on the active screen. Slash commands: `/voice`, `/mode`, `/model` (lists
@@ -393,8 +409,11 @@ readback/
   flow filtered to **vision** models — switches the image/book OCR model
   per-read; `handlePickModel(kind)` + `ModelList kind` serve both, no
   recommendation marker for vision), `/library` (alias `/lib` —
-  `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, Enter to
-  replay, `d` twice to delete), `/help`, `/quit`; esc cancels a read.
+  `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, `space` to
+  preview inline (plays audio without leaving the library; shows `♫` + elapsed;
+  space again stops), Enter to open the full player, `d` twice to delete),
+  `/help`, `/quit`; esc cancels a read. Every library row shows
+  `mode · duration · words · date` inline (active row in accent blue).
   `q` when the URL input field is empty triggers quit — intercepted in
   `UrlInput.onChange` before the controlled value updates. Quit path:
   `dispatch("quitting")` → braille spinner renders for 300 ms → `shutdown()` +
@@ -425,9 +444,10 @@ readback/
   superseded exits. Seeking from paused/finished resumes playback.
 - **Synced transcript** (`PlayerView`): Summary-mode transcript highlights
   word by word in blue. No word timestamps exist — each word gets duration
-  proportional to its char count. ⚠ The component wraps text **itself** (one
-  `<Text>` per line): ink's `wrap="wrap"` drops ANSI state when a color
-  boundary crosses a line break.
+  proportional to its char count. The metadata line shows "Xs to generate" for
+  live reads (from `timings.total` in `DoneMsg`; hidden for library replays).
+  ⚠ The component wraps text **itself** (one `<Text>` per line): ink's
+  `wrap="wrap"` drops ANSI state when a color boundary crosses a line break.
 - **Resize repaint** (`index.tsx`): a `prependListener("resize")` runs before
   ink's own resize handler — `ink.clear()` + screen wipe so ink repaints on a
   blank slate. Without it, re-wrapped old frames make ink erase the wrong
@@ -454,10 +474,14 @@ readback/
 - **`Library`** (`library.py`): stdlib `sqlite3`, no ORM, no new dependency. One
   `reads` table keyed by the WAV's uuid stem (`id`); columns: `title, summary,
   excerpt, source_url, mode, voice, duration_sec, word_count, audio_filename,
-  audio_path, created_at`. **Connections are opened per call** (`_connect`) so
+  audio_path, created_at, llm_model`. **Connections are opened per call** (`_connect`) so
   it's safe across asyncio's threadpool — every call site wraps it in
-  `asyncio.to_thread`. `CREATE TABLE IF NOT EXISTS` on init (idempotent).
+  `asyncio.to_thread`. `CREATE TABLE IF NOT EXISTS` on init (idempotent);
+  `llm_model` is auto-migrated on existing DBs via `ALTER TABLE ADD COLUMN`.
   `delete()` returns the `audio_path` so the server can unlink the WAV.
+  `find_cached(source_url, mode, voice, llm_model)` → the most recent matching
+  read (or None if no match / WAV deleted). Backed by composite index
+  `idx_reads_cache`.
 - `add()` is `INSERT OR REPLACE` (re-reads with the same id overwrite). `list()`
   search is `LIKE %q%` over title/summary/excerpt/source_url; sort is
   `created_at ASC|DESC`.
@@ -537,15 +561,13 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v4.0.0** — full MLX LLM stack (**major** — Ollama removed). Summary
-LLM and vision OCR now run in-process via `mlx-lm` + `mlx-vlm` on Apple
-Silicon, unifying with CSM-1B TTS under one framework. `OllamaConfig` →
-`LLMConfig`; config key `ollama:` → `llm:` (old key auto-migrated); `ollama`
-dep replaced by `mlx-lm` + `mlx-vlm`; no external daemon needed. +25–30%
-generation speed. Model discovery scans HF cache instead of Ollama API. New
-`upgrade-deps` skill.
+Current: **v4.1.0** — audio quality + performance. Read cache skips the entire
+pipeline on re-reads (keyed by url/mode/voice/llm_model). Degenerate-chunk
+guard retries all-silence synthesis once. Light crossfade (100 ms fade-out) at
+chunk joins. New `llm_model` column in the reads table (auto-migrated).
 
-Previously: v3.0.0–v3.7.0 (see memory `version-history` for full changelog).
+Previously: v4.0.0 — full MLX LLM stack (Ollama removed); v3.0.0–v3.7.0 (see
+memory `version-history` for full changelog).
 Set in `pyproject.toml`, `src/readback/__init__.py`,
 `src/cli/package.json`, and `src/dashboard/package.json` — bump all four when
 releasing. The standalone CLI binary needs `src/cli/install.sh` re-run to pick

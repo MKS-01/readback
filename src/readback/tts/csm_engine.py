@@ -92,6 +92,7 @@ class CsmEngine:
         self._model = None
         # Cached reference Segment per voice (built once on the executor thread).
         self._ref_cache: dict = {}
+        self._sampler_cache: dict = {}
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="csm-tts",
         )
@@ -152,9 +153,15 @@ class CsmEngine:
         return _VOICE_SPEAKER.get(self.cfg.speaker, 0)
 
     def _make_sampler(self):
+        key = (self.cfg.temperature, self.cfg.top_k)
+        cached = self._sampler_cache.get(key)
+        if cached is not None:
+            return cached
         from mlx_lm.sample_utils import make_sampler
 
-        return make_sampler(temp=self.cfg.temperature, top_k=self.cfg.top_k)
+        sampler = make_sampler(temp=self.cfg.temperature, top_k=self.cfg.top_k)
+        self._sampler_cache[key] = sampler
+        return sampler
 
     def _ref_for(self, voice: str) -> list:
         """Cached reference-prompt context for `voice` (built once on the executor

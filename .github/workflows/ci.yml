@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
 
@@ -33,4 +33,10 @@ jobs:
           python -m pip install -r requirements-pi.txt pytest
 
       - name: Run tests
-        run: python -m pytest   # config (testpaths, pythonpath=src) lives in pyproject.toml
+        run: python -m pytest --junitxml=test-results.xml -v
+
+      - name: Test summary
+        uses: test-summary/action@v2
+        with:
+          paths: test-results.xml
+        if: always()

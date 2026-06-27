@@ -37,25 +37,25 @@ intentionally lower priority.
 - **Library dashboard + persistence** — searchable SQLite library, replay any
   past read in the browser (v3.0.0).
 - **CLI `/model` switch** with RAM-fit verdicts (v1.1.0).
-- **Audio-quality tuning pass** — `temperature 0.6`, `fp32`, 280-char
-  sentence-aware chunks.
+- **Audio-quality tuning pass** — `temperature 0.7`, `bf16`, 400-char
+  sentence-aware chunks (see `config.yaml` speed/quality guide for presets).
 
 ---
 
 ## 🎧 Audio quality — priority
 
 - [x] Loudness-normalize the final WAV to a consistent target — peak-normalized to 0.95 (`_peak_normalize`), so clone voices match the built-ins
-- [ ] Light crossfade at chunk joins to remove residual seams (chunks join with a flat 0.18 s gap)
-- [ ] Degenerate-chunk guard — an all-silence chunk is silently dropped (`_tidy_silence` → empty); detect + retry once
-- [ ] LoRA fine-tune for higher fidelity (pipeline in [`../src/finetune/`](../src/finetune/README.md))
+- [x] Light crossfade at chunk joins to remove residual seams — 100 ms linear fade-out at chunk tails before the silence gap
+- [x] Degenerate-chunk guard — an all-silence chunk triggers one retry before being dropped
+- [x] LoRA fine-tune for higher fidelity — full pipeline ready (transcribe → convert → train → load adapter); add clips to `src/finetune/data/` to train. See [`src/finetune/README.md`](../src/finetune/README.md)
 - [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `codeword`; eventually clone a new voice from the CLI instead of editing `config.yaml`
 
 ## ⚡ CLI — tuning & performance — priority
 
 - [x] **Summary mode no longer runs away** — `enable_thinking=False` + `max_tokens` cap + prompt length ceiling; the LLM is no longer the bottleneck (~4 s summaries, audio shrinks with the shorter text)
 - [x] Trim startup / model warm-up — server eagerly loads CSM + LLM at boot so the first read isn't cold (`ensure_loaded()` in the lifespan hook)
-- [ ] Faster synthesis — tune the controllable knobs (precision, chunking, warm-up); ultimately bounded by your Mac's GPU / unified memory
-- [ ] Cache by (url, mode, voice) so re-reading is instant
+- [x] Faster synthesis — bf16 default (~6% faster), chunk cap 280→400 (~30% fewer prefills), sampler caching; see config.yaml speed/quality guide
+- [x] Cache by (url, mode, voice, model) so re-reading is instant — library lookup skips the entire pipeline on cache hit
 - [ ] Surface clearer progress (% + ETA, not just per-chunk)
 - [ ] Parallelize multi-page OCR + the map-phase summary calls — both are sequential today; the win scales with page count (mlx-lm's `generate()` supports batched prompts natively)
 
@@ -75,13 +75,12 @@ intentionally lower priority.
 - [ ] `/tone` override + persisted pref, and a 3rd tone (technical paper / news) — auto-only with two tones today
 - [x] `/vision` switch — per-read OCR-model picker (mirror of `/model`), so a quick snapshot can use a light 3B while dense book scans use the 7B (`handlePickModel`/`ModelList kind`, `read.vision_model`)
 - [ ] Auto-pick the OCR model by source (single image → light, multi-page → accurate) — manual `/vision` only today
-- [ ] Read **local documents**, not just URLs — `.txt` and `.pdf` → voice
-- [ ] Paste raw text directly as a source
-
 ## 🔭 Later
 
-- [x] Automation + testing — `pytest` suite (pure logic: chunking, silence-tidy, text scrub, library, think-stripper) + GitHub Actions CI on Python 3.10–3.12
+- [x] Automation + testing — `pytest` suite (pure logic, 38 cases — see [TESTS.md](TESTS.md)) + GitHub Actions CI on Python 3.10 + 3.12 with JUnit summary
 - [ ] Broaden coverage — server/WS integration tests, an end-to-end synth smoke test on a macOS runner
 - [x] Chunked summarization for very long articles — map-reduce in `summarize.py` (batches → condense → combine), so book scans summarize end-to-end instead of truncating at `summary_max_chars`
 - [ ] Trial larger/newer summary models for quality (Qwen3-30B-A3B, Qwen2.5-32B, Gemma-2-27B…) — shortlist + eval method in [PLAN.md](PLAN.md) (2026-06-20)
+- [ ] Read **local documents** — `.txt` and `.pdf` → voice
+- [ ] Paste raw text directly as a source
 - [ ] UX niceties (lower priority): extracted-article preview before synth, download filename = article title, nicer error states for paywalled / JS-only pages

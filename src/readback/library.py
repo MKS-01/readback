@@ -47,6 +47,7 @@ class ReadRecord:
     created_at: str
     excerpt: str = ""
     summary: Optional[str] = None
+    llm_model: str = ""
 
 
 class Library:
@@ -76,12 +77,24 @@ class Library:
                     word_count     INTEGER NOT NULL,
                     audio_filename TEXT NOT NULL,
                     audio_path     TEXT NOT NULL,
-                    created_at     TEXT NOT NULL
+                    created_at     TEXT NOT NULL,
+                    llm_model      TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
+            # Migration: add llm_model to existing DBs (must run before indexes
+            # that reference it).
+            try:
+                conn.execute("ALTER TABLE reads ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
             # Sort key — every list query orders by it.
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reads_created ON reads(created_at)")
+            # Cache lookup index — covers find_cached(source_url, mode, voice, llm_model).
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reads_cache "
+                "ON reads(source_url, mode, voice, llm_model)"
+            )
 
     def add(self, rec: ReadRecord) -> None:
         with self._connect() as conn:
@@ -89,15 +102,36 @@ class Library:
                 """
                 INSERT OR REPLACE INTO reads
                     (id, title, summary, excerpt, source_url, mode, voice,
-                     duration_sec, word_count, audio_filename, audio_path, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     duration_sec, word_count, audio_filename, audio_path,
+                     created_at, llm_model)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     rec.id, rec.title, rec.summary, rec.excerpt, rec.source_url,
                     rec.mode, rec.voice, rec.duration_sec, rec.word_count,
                     rec.audio_filename, rec.audio_path, rec.created_at,
+                    rec.llm_model,
                 ),
             )
+
+    def find_cached(
+        self, source_url: str, mode: str, voice: str, llm_model: str,
+    ) -> Optional[dict]:
+        """Return the most recent read matching the cache key, or None. Only
+        returns a hit if the WAV file still exists on disk."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM reads "
+                "WHERE source_url = ? AND mode = ? AND voice = ? AND llm_model = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (source_url, mode, voice, llm_model),
+            ).fetchone()
+        if row is None:
+            return None
+        rec = dict(row)
+        if not Path(rec["audio_path"]).exists():
+            return None
+        return rec
 
     @staticmethod
     def _where(q: str) -> tuple[str, tuple]:

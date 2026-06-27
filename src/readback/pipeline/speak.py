@@ -14,9 +14,15 @@ import numpy as np
 log = logging.getLogger("readback.pipeline")
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
-# Cap chars per TTS call so a single generate() stays well under CSM's token
-# budget; sentences are merged up to this, long ones split on commas as a guard.
-_MAX_CHARS = 280
+# Cap chars per TTS call — fewer, larger chunks = fewer CSM reference-prefills =
+# faster total synthesis. 400 stays well under CSM's 2048-token budget (the
+# _max_ms_for safety bound caps runaway generation per chunk).
+#
+# Speed vs prosody tradeoff:
+#   400 — fast (fewer prefills, ~30% fewer chunks than 280)
+#   280 — balanced (more natural sentence-boundary breaks)
+#   200 — max prosody (shortest chunks, best intonation, slowest)
+_MAX_CHARS = 400
 _MIN_CHARS = 8
 
 
@@ -99,6 +105,17 @@ def _peak_normalize(audio: np.ndarray, target: float = 0.95) -> np.ndarray:
     return (audio * (target / peak)).astype(np.float32)
 
 
+def _fade_out_tail(audio: np.ndarray, sr: int, fade_ms: int = 100) -> np.ndarray:
+    """Light linear fade-out on the last `fade_ms` of audio so the transition
+    into the inter-chunk silence gap is smooth (no hard cut → click)."""
+    n = min(int(fade_ms * sr / 1000), audio.size)
+    if n < 2:
+        return audio
+    audio = audio.copy()
+    audio[-n:] *= np.linspace(1.0, 0.0, n, dtype=np.float32)
+    return audio
+
+
 def synthesize_article(
     synth,
     text: str,
@@ -123,11 +140,14 @@ def synthesize_article(
             break
         try:
             audio = _tidy_silence(synth.synthesize(chunk), sr)
+            if audio.size == 0:
+                log.info("chunk %d/%d all silence — retrying once", i + 1, len(chunks))
+                audio = _tidy_silence(synth.synthesize(chunk), sr)
         except Exception:
             log.exception("synth failed on chunk %d/%d", i + 1, len(chunks))
             audio = np.zeros(0, dtype=np.float32)
         if audio.size:
-            out.append(audio)
+            out.append(_fade_out_tail(audio, sr))
             out.append(gap)
         if progress is not None:
             progress(i + 1, len(chunks))

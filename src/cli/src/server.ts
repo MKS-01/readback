@@ -34,11 +34,18 @@ async function health(base: string, timeoutMs = 1500): Promise<ServerConfig | nu
   }
 }
 
-function readbackBin(): string | null {
-  const venv = join(REPO_ROOT, ".venv", "bin", "readback");
-  if (existsSync(venv)) return venv;
+function readbackBin(): string[] | null {
+  // Prefer the venv's Python running readback as a module — this works even
+  // when the venv isn't activated, because we invoke the venv interpreter
+  // directly (its sys.prefix already points at the venv).
+  const venvPython = join(REPO_ROOT, ".venv", "bin", "python3");
+  if (existsSync(venvPython)) return [venvPython, "-m", "readback"];
+  // Fall back to the pip-installed `readback` entry point (its shebang
+  // includes the absolute venv python path, so it's also self-contained).
+  const venvBin = join(REPO_ROOT, ".venv", "bin", "readback");
+  if (existsSync(venvBin)) return [venvBin];
   const found = Bun.which("readback");
-  return found ?? null;
+  return found ? [found] : null;
 }
 
 /**
@@ -61,8 +68,8 @@ export async function ensureServer(
     throw new Error(`no readback server at ${base} (--no-spawn given, so not starting one)`);
   }
 
-  const bin = readbackBin();
-  if (!bin) {
+  const cmd = readbackBin();
+  if (!cmd) {
     throw new Error(
       `no readback server at ${base} and the \`readback\` command was not found — ` +
         `start the server manually or \`pip install -e .\` in the repo venv`,
@@ -70,16 +77,23 @@ export async function ensureServer(
   }
 
   onStatus("starting readback server…");
-  const proc = Bun.spawn([bin, "--host", host, "--port", String(port)], {
-    cwd: REPO_ROOT, // config.yaml resolves relative to cwd
+  const proc = Bun.spawn([...cmd, "--host", host, "--port", String(port)], {
+    cwd: REPO_ROOT,
     stdout: "ignore",
-    stderr: "ignore",
+    stderr: "pipe",
   });
 
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) {
-      throw new Error(`readback server exited during startup (code ${proc.exitCode})`);
+      let detail = "";
+      try {
+        detail = await new Response(proc.stderr).text();
+      } catch {}
+      throw new Error(
+        `readback server exited during startup (code ${proc.exitCode})` +
+          (detail ? `\n${detail.trim().split("\n").slice(-5).join("\n")}` : ""),
+      );
     }
     const cfg = await health(base, 1000);
     if (cfg) return { base, origin: "spawned", proc, config: cfg };

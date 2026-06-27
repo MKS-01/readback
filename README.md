@@ -39,7 +39,7 @@
 
 ## Getting started
 
-> **Requires macOS on Apple Silicon (M1–M5).** CSM-1B runs on MLX/Metal. Speed scales with GPU cores and unified memory.
+> **Requires macOS on Apple Silicon (M1–M5).** The entire stack — summary LLM, vision OCR, and TTS — runs **in-process on MLX/Metal**. No external daemons, no network calls. Speed scales with GPU cores and unified memory.
 
 **First time? One command sets it all up:**
 
@@ -82,12 +82,12 @@ readback-cli                            # from anywhere; auto-starts the server
 The CLI auto-starts the server and kills it on exit. It's a full terminal player:
 
 - **space** pause, **←/→** seek ±5 s, **t** toggle transcript (word-by-word highlight synced to the voice)
-- `/voice`, `/model` (summary LLM, RAM-fit check), `/vision` (image/book OCR model), `/mode`, `/lib` (browse + replay past reads), `/help`
+- `/voice`, `/model` (summary LLM, RAM-fit check), `/vision` (image/book OCR model), `/mode`, `/lib` (browse + **space** to preview inline, **enter** for full player), `/help`
 - `q` to quit (or any time the input field is empty)
 
 macOS only (`afplay` playback). Details: [`src/cli/README.md`](src/cli/README.md).
 
-First read downloads CSM-1B weights (~6 GB) and the summary LLM (~5.5 GB), then warms up the MLX graph — slow once, fast after. (The vision OCR model, ~5 GB, downloads lazily the first time you read an image or book scan.) See [SETUP.md](docs/SETUP.md) for details.
+First read downloads CSM-1B weights (~6 GB) and the summary LLM (~5.5 GB) into the HuggingFace cache, then warms up the MLX graph — slow once, fast after. All three models (TTS, summary, OCR) run **in the same process** on Metal — no Ollama, no external daemon, no API keys. The vision OCR model (~5 GB) downloads lazily the first time you read an image or book scan. See [SETUP.md](docs/SETUP.md) for details.
 
 ---
 
@@ -127,9 +127,9 @@ flowchart LR
     DB --> WEB["Dashboard<br/>search + replay anytime"]
 ```
 
-1. **Extract** — `trafilatura` pulls article text (browser-UA fallback for 403s). Images/book scans → MLX vision OCR. Folders/globs → multi-page: OCR'd in filename order and stitched into one document.
-2. **Summarize** *(optional)* — local LLM rewrites it as a spoken explanation. Full mode skips this entirely.
-3. **Synthesize** — sentence-aware chunks → CSM-1B → silence-trimmed → joined with small gaps.
+1. **Extract** — `trafilatura` pulls article text (browser-UA fallback for 403s). Images/book scans → mlx-vlm vision OCR (in-process). Folders/globs → multi-page: OCR'd in filename order and stitched into one document.
+2. **Summarize** *(optional)* — mlx-lm rewrites it as a spoken explanation (in-process). Full mode skips this entirely.
+3. **Synthesize** — sentence-aware chunks → CSM-1B (in-process) → silence-trimmed → fade-out → joined with small gaps. Re-reads skip the entire pipeline (cache hit by URL + mode + voice + model).
 4. **Serve** — WAV over HTTP; progress streams live over the WebSocket.
 
 **Source-aware tone** — a URL reads as a livelier article explainer; a book scan reads calmer, opening by naming the chapter. Automatic, nothing to set. Long scans **map-reduce** instead of truncating.
@@ -142,9 +142,9 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system view.
 
 | Layer | Technology |
 |---|---|
-| **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback); **mlx-vlm** vision OCR for images / book scans |
-| **Summary (optional)** | [mlx-lm](https://github.com/ml-explore/mlx-lm) — default `Qwen3.5-9B-4bit`; any MLX chat model works |
-| **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — MLX/Metal, 24 kHz, fp32 |
+| **Extraction** | [trafilatura](https://trafilatura.readthedocs.io/) — URL → clean text (+ browser-UA fallback); [mlx-vlm](https://github.com/Blaizzy/mlx-vlm) vision OCR for images / book scans (in-process, Metal) |
+| **Summary (optional)** | [mlx-lm](https://github.com/ml-explore/mlx-lm) — in-process on Metal; default `Qwen3.5-9B-4bit`, any downloaded MLX chat model works |
+| **TTS** | [CSM-1B](https://huggingface.co/senstella/csm-1b-mlx) (Sesame) via [csm-mlx](https://github.com/senstella/csm-mlx) — in-process, Metal, 24 kHz, bf16 |
 | **Voices** | 2 built-in reading voices + **clone any voice from a short clip** + optional **LoRA fine-tuning** |
 | **Server** | [FastAPI](https://fastapi.tiangolo.com/) + WebSocket — streams progress, serves the WAV, REST library |
 | **CLI client** | Bun + TypeScript + [Ink](https://github.com/vadimdemedes/ink) — terminal UI, `afplay` playback |
@@ -185,7 +185,7 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `llm.model` | MLX model for Summary mode (HuggingFace ID) | `mlx-community/Qwen3.5-9B-4bit` |
 | `ocr.model` | MLX vision model for image / book-scan OCR (its own section) | `mlx-community/Qwen2.5-VL-7B-Instruct-4bit` |
 | `tts.csm.speaker` | Active voice (`conversational_a`/`_b` or a clone `name`) | `codeword` |
-| `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `fp32` |
+| `tts.csm.precision` | `bf16` (clean+fast) / `fp16` / `fp32` (slowest, cleanest) | `bf16` |
 | `tts.csm.temperature` | Delivery: lower = composed, higher = livelier | `0.7` |
 | `tts.csm.voices` | Clone voices (`name`, `label`, `wav`, `ref_text`, `speaker`) | sample `codeword` |
 | `tts.csm.lora_path` | LoRA adapter dir from a `csm-mlx finetune` run | `null` |
