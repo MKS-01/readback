@@ -44,6 +44,10 @@ config.local.yaml
 # Exception: README demo media
 !docs/media/sample-read.wav
 
+# --- Read library (user audio + SQLite DB; default sibling dir, but a run
+#     started from src/ can create it here — never commit either) ---
+readback-audio-db/
+
 # --- Fine-tuning (local training data + adapter weights, large) ---
 src/finetune/data/
 src/finetune/runs/
