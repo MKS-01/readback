@@ -6,6 +6,38 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-07-02 — Merge `optimize/summary-map-reduce-threshold`, verify on a real slow read
+
+**Status: done** — branch `fix/summary-padding-short-articles`. User reported a
+real CLI read ("Chasing a Phantom Jump", 3,446 words / 20,701 chars) took 140.4s
+and asked whether that was worth it. Investigation found `fix/summary-padding-
+short-articles` had branched off `main` *before* the `summary_max_chars`
+16000→60000 fix (see that entry below) landed, so it was still on the old
+16,000-char threshold — this 20,701-char article just barely exceeded it and
+needlessly map-reduced. Worse, the map-reduce path's final reduce step anchors
+its word-count target off the *combined digest* length (not the original
+article), so it also blew through the 250-word hard ceiling (403 words).
+
+**Fix.** Merged `optimize/summary-map-reduce-threshold` into this branch
+(one conflict, in this file, both branches adding entries at the top — resolved
+by keeping both, correctly ordered).
+
+**Verified** — full pipeline, same URL, before vs after the merge:
+
+| | before (16K threshold, map-reduce) | after (60K threshold, single-pass) |
+|---|---|---|
+| summarize | 34.6s | 13.4s |
+| summary length | 403 words (over the 250 ceiling) | 313 words (better, still slightly over) |
+| synthesize | ~104.9s (est. from the original 140.4s total) | 82.7s |
+| **total** | **140.4s** | **97.0s** (31% faster) |
+
+Noted, not chased further: 313 words is closer to the 250-word ceiling than
+403 but still exceeds it — the word-count-anchor fix from the padding entry
+helps but isn't fully reliable on longer single-pass inputs; a candidate for a
+future follow-up. Full `pytest` suite: 38/38 pass after the merge.
+
+---
+
 ## 2026-07-02 — Revert precision to bf16 (keep the 200-char / dynamic chunking)
 
 **Status: done** — branch `fix/summary-padding-short-articles`. Follow-up to the
