@@ -244,10 +244,11 @@ async def _run_read_job(
         text = article.text
     timings["summarize"] = time.monotonic() - t0
 
-    # 3) Synthesize (offline, with progress). Apply the tone's delivery temperature
-    # (the user's chosen voice is untouched — tone shifts pacing, not the voice).
+    # 3) Synthesize (offline, with progress). The tone's temperature is the base
+    # delivery setting — synthesize_article nudges it per chunk so expression
+    # shifts with content instead of staying flat for the whole read (the user's
+    # chosen voice is untouched either way — tone shifts pacing, not the voice).
     await send({"type": "phase", "value": "synthesizing"})
-    synth.set_temperature(tone.temperature)
     if voice and voice != synth.current_voice:
         try:
             synth.swap_voice(voice)
@@ -266,8 +267,8 @@ async def _run_read_job(
     t0 = time.monotonic()
     audio = await asyncio.to_thread(
         synthesize_article, synth, text,
-        gap_sec=cfg.reader.gap_sec, progress=progress,
-        should_stop=lambda: not state["alive"],
+        gap_sec=cfg.reader.gap_sec, base_temperature=tone.temperature,
+        progress=progress, should_stop=lambda: not state["alive"],
     )
     timings["synthesize"] = time.monotonic() - t0
     if not state["alive"]:

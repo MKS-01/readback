@@ -6,6 +6,48 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-07-02 — Content-driven expression: per-chunk delivery temperature
+
+**Status: done** — branch `fix/summary-padding-short-articles` (extends the tone
+prompt work from the padding fix above). User asked for a more natural, human
+delivery where expression shifts with the content instead of one flat register
+for the whole read. CSM has no direct emotion/prosody control API — the only
+delivery lever it exposes is sampling temperature (`tts.csm.temperature`), which
+was previously set **once per read** from the tone (`ARTICLE` 0.8 / `BOOK` 0.6)
+and held fixed for every chunk.
+
+**Fix.** `_expressive_temperature(chunk, base)` in `speak.py` nudges the tone's
+base temperature per chunk from its punctuation — a real, trained-on prosody
+signal: `!` → +0.08 (emphatic), `?` → +0.04 (questioning), 3+ commas with
+neither → −0.03 (dense/measured), clamped to `[0.55, 0.95]` (below ~0.55 a short
+clone reference destabilizes, per existing voice-cloning notes). `synthesize_article`
+takes a new `base_temperature` param and calls `synth.set_temperature(...)`
+per chunk instead of once up front; `server.py` passes `tone.temperature` through
+instead of setting it before the loop. Also nudged both tone `summary_system`
+prompts (`tones.py`) to write with natural spoken rhythm — varied sentence
+length, real emphasis on a genuinely notable point — rather than a flat,
+even-register list of facts, since Summary mode's generated text is the other
+lever available for varying expression (Full mode reads the source verbatim,
+so only its own natural punctuation drives this).
+
+**Verified.** Real `Synthesizer` (no stub): a mixed-punctuation paragraph split
+into 2 chunks got temperatures 0.88 (a chunk with `!`/`?`, lively section) and
+0.77 (a comma-dense explanatory chunk, no `!`/`?`) from a base of 0.8 — confirmed
+real variation across chunks. Full `pytest` suite: 38/38 pass (the existing
+`_FakeSynth` test stub never receives `base_temperature`, so `set_temperature`
+is never called on it — no behavior change for those tests).
+
+**Known limitation.** Granularity is **per chunk (~400 chars), not per
+sentence** — `chunk_text`'s merge-up-to-400-chars behavior (tuned for synthesis
+speed) can fold a lively and a measured sentence into one chunk, which then gets
+whichever punctuation rule matches first. Finer per-sentence expression is
+possible by lowering `_MAX_CHARS` (already a documented, config-driven
+speed/quality tradeoff in `config.yaml`) at the cost of more, slower chunks —
+left as a follow-up rather than silently reintroducing the synthesis slowdown
+the July 2026 tuning pass removed.
+
+---
+
 ## 2026-07-02 — Stop Summary mode padding short articles with invented filler
 
 **Status: done** — branch `fix/summary-padding-short-articles`. Reviewing a real

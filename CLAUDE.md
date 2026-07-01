@@ -233,7 +233,9 @@ readback/
   special-casing; long scans are map-reduced by `summarize_article`, not truncated).
   Progress fires `reading page N / M` via the existing `phase` WS channel.
 - **Tones** (`tones.py`): a `Tone` bundles a summary framing prompt + a CSM
-  delivery `temperature`. `classify_source(src)` → `"book"` (image / folder / glob)
+  *base* delivery `temperature` (per-chunk `_expressive_temperature` in
+  `speak.py` nudges it around this base — see Chunk + synth below).
+  `classify_source(src)` → `"book"` (image / folder / glob)
   or `"article"` (URL); `tone_for(kind)` → `BOOK` (measured, **0.6**, opens by
   naming the chapter/topic) or `ARTICLE` (livelier explainer, **0.8**). Auto,
   server-side, invisible to the CLI — **no `/tone` override or config yet** (room
@@ -245,7 +247,9 @@ readback/
   `_summarize_once` (`summarize.py`) now spells out the source's **word count**
   in the user prompt, and both prompts explicitly frame 250 as a ceiling to
   reserve for long sources, targeting roughly half the source's word count
-  otherwise; forbids wrap-up sentences not grounded in a specific source fact.
+  otherwise; forbids wrap-up sentences not grounded in a specific source fact,
+  and asks for natural spoken rhythm (varied sentence length, emphasis on a
+  genuinely notable point) instead of a flat, even-register list of facts.
   Tone shifts *delivery temperature*, NOT the voice — the user's
   `/voice` is untouched. Book sources also take their **title from the first ~3 OCR
   lines** (`_book_title_from_text`), which the BOOK prompt then leads with.
@@ -269,7 +273,21 @@ readback/
     on the casual/disfluent Sesame prompt, emits long mid-utterance pauses;
     `_tidy_silence` trims leading/trailing silence (−40 dB threshold) and caps any
     internal silent run to `max_pause_ms` (300). Model-agnostic post-processing.
-  - `synthesize_article` — synth each chunk, tidy, fade-out tail, join with
+  - `_expressive_temperature` — ⚠ **the only expression-varies-with-content knob
+    CSM exposes.** CSM has no direct emotion/prosody API; sampling temperature
+    (more variation in pitch/pacing at higher values) is the one delivery lever
+    it has, so this nudges the tone's *base* temperature per chunk from its
+    punctuation: `!` → +0.08 (emphatic), `?` → +0.04 (questioning), ≥3 commas and
+    no `!`/`?` → −0.03 (dense/measured), clamped to `[0.55, 0.95]` (below ~0.55 a
+    short clone reference destabilizes). Granularity is **per chunk (~400 chars),
+    not per sentence** — a paragraph that mixes a lively and a measured sentence
+    into one chunk gets whichever punctuation the modulation rule matches first,
+    since chunk size trades off against prosody granularity (see the speed/quality
+    guide in `config.yaml`; drop `_MAX_CHARS` for finer per-sentence expression at
+    the cost of more, slower chunks).
+  - `synthesize_article` — synth each chunk (at its `_expressive_temperature`,
+    when `base_temperature` is passed — the server always passes the reading
+    tone's temperature), tidy, fade-out tail, join with
     `reader.gap_sec` (0.18 s) gaps; `progress`/`should_stop` hooks; a chunk that
     throws is skipped, not fatal. **Degenerate-chunk guard:** if `_tidy_silence`
     returns empty (all silence), synthesis is retried once before dropping the chunk.

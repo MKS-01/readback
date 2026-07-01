@@ -116,18 +116,41 @@ def _fade_out_tail(audio: np.ndarray, sr: int, fade_ms: int = 100) -> np.ndarray
     return audio
 
 
+def _expressive_temperature(chunk: str, base: float) -> float:
+    """Nudge the delivery temperature for one chunk based on its punctuation, so
+    expression shifts with the content instead of staying flat for the whole
+    read. CSM exposes no direct emotion/prosody control — sampling temperature
+    (more variation in pitch/pacing at higher values) is the one delivery knob
+    it does have, and punctuation is a real signal the model was trained on, so
+    small, content-driven nudges here are the practical lever available.
+    Clamped to stay within CSM's stable range (below ~0.55 a short clone
+    reference can destabilize; above ~0.95 delivery gets erratic)."""
+    temp = base
+    if "!" in chunk:
+        temp += 0.08          # emphatic / lively line
+    elif "?" in chunk:
+        temp += 0.04          # questioning / curious line
+    elif chunk.count(",") >= 3:
+        temp -= 0.03          # dense, measured explanatory line
+    return max(0.55, min(0.95, temp))
+
+
 def synthesize_article(
     synth,
     text: str,
     *,
     gap_sec: float = 0.18,
+    base_temperature: Optional[float] = None,
     progress: Optional[Callable[[int, int], None]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
 ) -> np.ndarray:
     """Synthesize `text` chunk-by-chunk into one float32 buffer (engine sample
     rate). Each chunk is silence-trimmed, then joined with a short uniform gap so
     pacing is natural (no stacked CSM trailing-silence). `progress(done, total)`
-    fires after each chunk; `should_stop()` aborts early (e.g. client gone)."""
+    fires after each chunk; `should_stop()` aborts early (e.g. client gone).
+    `base_temperature`, when given, is the reading tone's delivery temperature —
+    each chunk's actual temperature is nudged around it per `_expressive_temperature`
+    so delivery varies with content rather than staying uniform for the whole read."""
     sr = synth.sample_rate
     gap = np.zeros(int(gap_sec * sr), dtype=np.float32)
     chunks = chunk_text(text)
@@ -138,6 +161,8 @@ def synthesize_article(
         if should_stop is not None and should_stop():
             log.info("synth aborted at chunk %d/%d", i + 1, len(chunks))
             break
+        if base_temperature is not None:
+            synth.set_temperature(_expressive_temperature(chunk, base_temperature))
         try:
             audio = _tidy_silence(synth.synthesize(chunk), sr)
             if audio.size == 0:

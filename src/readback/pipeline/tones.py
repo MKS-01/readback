@@ -8,7 +8,9 @@ chapter or topic. Add a third tone (e.g. a technical-paper voice) by defining
 another `Tone` and extending `tone_for`.
 
 Delivery varies by temperature only — the user's chosen voice (`/voice`) is left
-untouched.
+untouched. A tone's `temperature` is the *base* delivery setting; `speak.py`'s
+`_expressive_temperature` nudges it per chunk (punctuation-driven) so expression
+shifts with the content instead of staying flat for the whole read.
 """
 from __future__ import annotations
 
@@ -30,9 +32,14 @@ _ARTICLE_SYSTEM = (
     "'a significant shift' or 'a smoother transition') just to fill space — every "
     "sentence must carry real information from the source, and it's fine to stop "
     "early once you've covered the key points. HARD LIMIT: never exceed 250 words "
-    "(roughly 10 to 15 sentences). Since this is read aloud, use plain flowing "
-    "sentences only — no markdown, no headings, no bullet points, no special "
-    "characters."
+    "(roughly 10 to 15 sentences). Since this is read aloud, write it the way a "
+    "person would actually explain it out loud, not a flat list of facts: vary "
+    "sentence length and rhythm, use a short punchy sentence for a striking point "
+    "and a longer one to connect ideas, and let a genuinely surprising or notable "
+    "fact carry natural emphasis (a real exclamation or question where it truly "
+    "fits) rather than reading every sentence in the same even register. Use plain "
+    "flowing sentences only — no markdown, no headings, no bullet points, no "
+    "special characters."
 )
 
 # Book passage: narrate a scanned chapter/section. Open by naming the chapter or
@@ -51,8 +58,12 @@ _BOOK_SYSTEM = (
     "well under 150. Never add generic wrap-up sentences not grounded in the "
     "passage just to fill space; it's fine to stop early once you've covered the "
     "main ideas. HARD LIMIT: never exceed 250 words (roughly 10 to 15 sentences). "
-    "Since this is read aloud, use plain flowing sentences only — no markdown, no "
-    "headings, no bullet points, no special characters."
+    "Since this is read aloud, narrate it the way a person reads a book out loud, "
+    "not a flat list of facts: vary sentence length and rhythm with the material, "
+    "and let a genuinely pivotal or striking moment carry natural emphasis rather "
+    "than reading every line in the same even register. Use plain flowing "
+    "sentences only — no markdown, no headings, no bullet points, no special "
+    "characters."
 )
 
 
