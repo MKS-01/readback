@@ -11,6 +11,13 @@ intentionally lower priority.
 
 ## Recently shipped
 
+- **Content-driven expression + summary content fixes** — Summary mode no
+  longer pads short articles with invented, ungrounded filler (word-count
+  anchor in `_summarize_once`); CSM delivery temperature now nudges per chunk
+  from punctuation instead of staying flat for the whole read
+  (`_expressive_temperature`); chunk boundaries are randomized within a range
+  instead of a fixed cap, for a less mechanical breath cadence. See
+  `docs/PLAN.md` 2026-07-02 entries for verification detail.
 - **Summary mode: raised the map-reduce threshold 16K → 60K chars** — the
   configured summary LLM (Qwen3.5-9B) has a 262K-token context, so the old
   16,000-char cutoff forced most long-form articles through 3-4 sequential LLM
@@ -55,6 +62,7 @@ intentionally lower priority.
 - [x] Degenerate-chunk guard — an all-silence chunk triggers one retry before being dropped
 - [x] LoRA fine-tune for higher fidelity — full pipeline ready (transcribe → convert → train → load adapter); add clips to `src/finetune/data/` to train. See [`src/finetune/README.md`](../src/finetune/README.md)
 - [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `codeword`; eventually clone a new voice from the CLI instead of editing `config.yaml`
+- [ ] Summary length still overshoots the 250-word hard ceiling on longer single-pass articles — a 3,446-word article produced a 313-word summary (down from 403 pre-fix, but still over). The word-count-anchor fix (`_summarize_once`, `summarize.py`) helps but isn't fully reliable once the source itself is long; needs a firmer enforcement mechanism (e.g. a post-hoc trim, or a stronger prompt anchor tied to output length rather than just input length). See the 2026-07-02 "Merge `optimize/summary-map-reduce-threshold`" entry in [PLAN.md](PLAN.md) for the measurement.
 
 ## ⚡ CLI — tuning & performance — priority
 
