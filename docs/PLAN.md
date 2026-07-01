@@ -6,6 +6,40 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-07-02 — Stop Summary mode padding short articles with invented filler
+
+**Status: done** — branch `fix/summary-padding-short-articles`. Reviewing a real
+library read (Android developer blog, 189-word source) surfaced a content-quality
+bug: the spoken summary came out **243 words — longer than the source** — and
+contained generic, ungrounded wrap-up sentences ("these changes represent a
+significant shift toward industry-wide safety standards", "protect users from
+unverified or malicious applications") that weren't in the article at all. The
+`ARTICLE`/`BOOK` `summary_system` prompts (`pipeline/tones.py`) said "don't pad"
+but only gave the model an upper bound (250 words) with no sense of what "short"
+meant for a given source, so it drifted toward the ceiling regardless of input
+length.
+
+**Fix.** `_summarize_once` (`summarize.py`) now spells out the source's word
+count in the user prompt (`"Article (189 words): ..."`) as a concrete anchor.
+Both tone prompts were rewritten to target roughly half the source's word count,
+explicitly frame 250 words as a ceiling reserved for genuinely long sources, and
+forbid wrap-up/editorializing sentences not grounded in a specific fact from the
+source.
+
+**Verified** — same 189-word Android article, direct `summarize_article` calls
+against the live LLM:
+
+| | before | after |
+|---|---|---|
+| summary length | 243 words (padded, longer than source) | 188 words, zero invented claims |
+
+Checked the fix doesn't regress long-form coverage: the 5,240-word "Haiku"
+Wikipedia article still produces a 280-word summary (near the ceiling, as
+intended for content-rich sources) rather than being clipped short. Full
+`pytest` suite: 38/38 pass.
+
+---
+
 ## 2026-06-24 — Faster synthesis + CLI generation timer + venv auto-detect
 
 **Status: done** — branch `optimisation`. Synthesis speed tuning: default

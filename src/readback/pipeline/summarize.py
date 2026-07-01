@@ -75,10 +75,16 @@ def _batches(text: str, max_chars: int) -> list[str]:
 
 
 def _summarize_once(llm, title: str, body: str, system: str, truncated: bool = False) -> str:
-    """Single spoken-explanation pass over `body` with the given `system` framing."""
+    """Single spoken-explanation pass over `body` with the given `system` framing.
+
+    The word count is spelled out to the model as a concrete length anchor — an
+    abstract "don't pad" instruction wasn't enough on its own to stop the model
+    padding short articles out toward the 250-word ceiling (it has no sense of
+    "short" without a number to calibrate against)."""
+    word_count = len(body.split())
     user = (
         f"Title: {title}\n\n"
-        f"Article{' (truncated)' if truncated else ''}:\n{body}\n\n"
+        f"Article{' (truncated)' if truncated else ''} ({word_count} words):\n{body}\n\n"
         "Give the spoken explanation now."
     )
     return llm.oneshot(system, user).strip()

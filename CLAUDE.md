@@ -237,10 +237,16 @@ readback/
   or `"article"` (URL); `tone_for(kind)` → `BOOK` (measured, **0.6**, opens by
   naming the chapter/topic) or `ARTICLE` (livelier explainer, **0.8**). Auto,
   server-side, invisible to the CLI — **no `/tone` override or config yet** (room
-  for a 3rd tone). Both `summary_system` prompts carry a **hard ~250-word
+  for a 3rd tone). Both `summary_system` prompts carry a **hard 250-word
   (10–15 sentence) length ceiling** so the spoken summary stays a briefing, not a
-  retelling (paired with `oneshot`'s `max_tokens` bound). ⚠ Tone shifts
-  *delivery temperature*, NOT the voice — the user's
+  retelling (paired with `oneshot`'s `max_tokens` bound). ⚠ The ceiling alone let
+  the model pad short sources with generic, ungrounded wrap-up sentences to
+  approach 250 words regardless of how little the source actually said —
+  `_summarize_once` (`summarize.py`) now spells out the source's **word count**
+  in the user prompt, and both prompts explicitly frame 250 as a ceiling to
+  reserve for long sources, targeting roughly half the source's word count
+  otherwise; forbids wrap-up sentences not grounded in a specific source fact.
+  Tone shifts *delivery temperature*, NOT the voice — the user's
   `/voice` is untouched. Book sources also take their **title from the first ~3 OCR
   lines** (`_book_title_from_text`), which the BOOK prompt then leads with.
 - **Summarize** (`summarize.py`): short body (≤ `reader.summary_max_chars`, default
