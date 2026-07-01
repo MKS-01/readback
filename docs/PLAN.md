@@ -6,6 +6,37 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-07-02 — Randomize chunk boundaries instead of a fixed cap
+
+**Status: done** — branch `fix/summary-padding-short-articles`. Follow-up to the
+Max-quality preset switch above: user asked to make chunk sizing dynamic and
+keep varying it, rather than every chunk hitting the same fixed 200-char cap.
+A uniform cap means every chunk is close to the same length, which reads with a
+mechanical, same-every-time breath cadence — real speech doesn't chunk that
+evenly.
+
+**Fix.** `chunk_text` (`speak.py`) now draws each chunk's actual cap fresh via
+`_next_chunk_cap()`, a `random.randint` between a new `_MIN_CHUNK_CHARS` (120)
+and the existing `_MAX_CHARS` (200) — redrawn every time a new chunk starts, so
+consecutive chunks vary in length instead of all targeting the same number. The
+over-long-sentence comma-split safety net still checks against the fixed
+`_MAX_CHARS`, not the random per-chunk cap, since that's a hard ceiling, not a
+pacing choice. This also compounds with the per-chunk `_expressive_temperature`
+feature: a shorter random cap is more likely to isolate a single sentence into
+its own chunk (and its own temperature) instead of merging it with a
+differently-toned neighbor.
+
+**Verified.** Ran `chunk_text` 3x on the same fixed input text: got 3 chunks
+(lengths 152/82/164) on runs 1 and 3, 4 chunks (75/76/82/164) on run 2 —
+confirmed genuinely different boundaries across runs, not just different
+content. Existing chunking tests (`test_chunk_text.py`) don't assert exact
+chunk boundaries, only bounds (`len(c) <= _MAX_CHARS`) and paragraph-splitting
+behavior, both of which hold regardless of which cap was drawn; ran them 20x in
+a loop to rule out flakiness from the new randomness — stable every time. Full
+`pytest` suite: 38/38 pass.
+
+---
+
 ## 2026-07-02 — Switch to the Max-quality synthesis preset (fp32 + 200-char chunks)
 
 **Status: done** — branch `fix/summary-padding-short-articles`. After reviewing

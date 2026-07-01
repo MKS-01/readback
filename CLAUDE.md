@@ -265,11 +265,18 @@ readback/
   `progress(done, total)` fires per batch in the map phase (server → `summarizing
   section N / M`). Returns the article text unchanged if the LLM produced nothing.
 - **Chunk + synth** (`speak.py`):
-  - `chunk_text` — paragraph-respecting, sentence-aware merge up to `_MAX_CHARS`
-    (**200** — Max-quality preset, chosen for the best intonation AND the
-    finest granularity for `_expressive_temperature` below; was 400/Fast, see
-    speed-vs-prosody comment in `speak.py`); over-long single sentences split on
-    commas; sub-`_MIN_CHARS` (8) fragments stitched onto neighbors.
+  - `chunk_text` — paragraph-respecting, sentence-aware merge; **each chunk's cap
+    is randomized** (`_next_chunk_cap`) between `_MIN_CHUNK_CHARS` (120) and
+    `_MAX_CHARS` (**200** — Max-quality preset, was 400/Fast; see speed/prosody
+    comment in `speak.py`) instead of always hitting the same fixed cap — a
+    uniform cap gives every chunk the same length, which reads with a
+    mechanical, same-every-time breath cadence; randomizing it per chunk (same
+    input text produces a different chunk count/boundaries run to run — verified)
+    varies pacing AND gives `_expressive_temperature` below more chances to land
+    a short cap on a single sentence instead of merging it with a
+    differently-toned neighbor. The over-long-sentence comma-split safety net
+    still measures against the fixed `_MAX_CHARS`, not the random per-chunk cap.
+    Sub-`_MIN_CHARS` (8) fragments stitched onto neighbors.
   - `_tidy_silence` — ⚠ **this is what removes the halting feel.** CSM, conditioned
     on the casual/disfluent Sesame prompt, emits long mid-utterance pauses;
     `_tidy_silence` trims leading/trailing silence (−40 dB threshold) and caps any

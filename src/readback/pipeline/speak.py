@@ -6,6 +6,7 @@ and concatenate. That's the whole point of the reader pivot: no underrun.
 from __future__ import annotations
 
 import logging
+import random
 import re
 from typing import Callable, Optional
 
@@ -27,33 +28,49 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 #   280 — balanced (more natural sentence-boundary breaks)
 #   200 — max prosody + finest expressive-temperature granularity, slowest
 _MAX_CHARS = 200
+# Each chunk's actual cap is drawn fresh from [_MIN_CHUNK_CHARS, _MAX_CHARS]
+# instead of always hitting _MAX_CHARS — a fixed cap produces a mechanical,
+# same-length-every-time breath cadence; real speech doesn't chunk that
+# uniformly. This also gives _expressive_temperature more varied windows: a
+# short random cap is more likely to land on a single sentence (its own
+# temperature) rather than merging it with a differently-toned neighbor.
+_MIN_CHUNK_CHARS = 120
 _MIN_CHARS = 8
 
 
+def _next_chunk_cap() -> int:
+    return random.randint(_MIN_CHUNK_CHARS, _MAX_CHARS)
+
+
 def chunk_text(text: str) -> list[str]:
-    """Split article text into TTS-sized chunks: sentence-aware, merged up to
-    ~_MAX_CHARS, paragraph boundaries respected (so prosody resets per para)."""
+    """Split article text into TTS-sized chunks: sentence-aware, merged up to a
+    per-chunk cap randomized within [_MIN_CHUNK_CHARS, _MAX_CHARS] (never above
+    _MAX_CHARS), paragraph boundaries respected (so prosody resets per para)."""
     chunks: list[str] = []
     for para in text.split("\n"):
         para = para.strip()
         if not para:
             continue
         buf = ""
+        cap = _next_chunk_cap()
         for sent in _SENTENCE_RE.split(para):
             sent = sent.strip()
             if not sent:
                 continue
             # Hard-split an over-long single sentence on commas as a fallback.
+            # Always measured against _MAX_CHARS (not the current random cap) —
+            # this is a hard safety split, not the pacing variation.
             pieces = [sent]
             if len(sent) > _MAX_CHARS:
                 pieces = [p.strip() for p in re.split(r",\s+", sent) if p.strip()]
             for piece in pieces:
-                if len(buf) + len(piece) + 1 <= _MAX_CHARS:
+                if len(buf) + len(piece) + 1 <= cap:
                     buf = (buf + " " + piece).strip()
                 else:
                     if len(buf) >= _MIN_CHARS:
                         chunks.append(buf)
                     buf = piece
+                    cap = _next_chunk_cap()
         if len(buf) >= _MIN_CHARS:
             chunks.append(buf)
         elif buf and chunks:
