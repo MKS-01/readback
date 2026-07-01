@@ -165,6 +165,43 @@ intended for content-rich sources) rather than being clipped short. Full
 
 ---
 
+## 2026-07-02 — Raise `summary_max_chars` 16000 → 60000 (stop unnecessary map-reduce)
+
+**Status: done** — branch `optimize/summary-map-reduce-threshold`. Summary mode's
+single-pass/map-reduce threshold (`reader.summary_max_chars`) was 16,000 chars
+(~4K tokens) — ~60x more conservative than the configured summary LLM
+(`mlx-community/Qwen3.5-9B-4bit`, 262,144-token context, confirmed via its HF
+`config.json`). Most long-form web articles were paying for 3-4 sequential
+`oneshot` calls (map digests generated then discarded once merged) when one call
+would do. Raised the default to 60,000 chars (~15K tokens, still <2% of the
+model's context) in `config.yaml`, `config.pi.example.yaml`,
+`ReaderConfig.summary_max_chars`, and `summarize_article`'s default param.
+Map-reduce itself is unchanged — it still exists for genuinely huge inputs
+(book scans) — and since the same value sizes each map batch, anything that
+still map-reduces now does so in fewer, larger batches too.
+
+**Verified — live before/after read** (Wikipedia "Haiku" article, 33,143 chars /
+5,240 words, Summary mode, cache cleared between runs so both timings are cold):
+
+| | before (map-reduce, 3 sections) | after (single-pass) |
+|---|---|---|
+| summarize | 51.3s | 13.4s |
+| synthesize | 50.0s | 57.6s |
+| **total conversion** | **102.2s** | **72.0s** (~30% faster) |
+
+Summary quality/length unaffected (227-word spoken summary either way — the tone
+prompt + `max_tokens` ceiling governs that, untouched by this change). Also
+confirmed map-reduce still triggers correctly above the new threshold: a
+225,900-char synthetic document packed into 4 batches and produced a coherent
+207-word summary in 39.8s. Full `pytest` suite: 38/38 pass.
+
+**Merged into `fix/summary-padding-short-articles` on 2026-07-02**, after this
+threshold gap was caught reviewing a real read that unnecessarily map-reduced
+(20,701 chars, just over the old 16,000 cutoff) — see the merge note in that
+branch's most recent entry above for the concrete before/after.
+
+---
+
 ## 2026-06-24 — Faster synthesis + CLI generation timer + venv auto-detect
 
 **Status: done** — branch `optimisation`. Synthesis speed tuning: default

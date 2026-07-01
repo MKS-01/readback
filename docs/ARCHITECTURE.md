@@ -61,9 +61,10 @@ responsive while a read job runs because all heavy work is pushed off it:
    collapses whitespace so the voice doesn't read markup aloud. Returns an
    `Article{title, text, url}`.
 2. **Summarize** (`summarize.py`, Summary mode only) — `summarize_article` calls
-   `LLMClient.oneshot(system, user)` with a spoken-explanation system prompt;
-   long articles are truncated to `reader.summary_max_chars`. Full mode skips
-   this and reads `article.text` verbatim.
+   `LLMClient.oneshot(system, user)` with a spoken-explanation system prompt when
+   the article fits in one pass (≤ `reader.summary_max_chars`); longer input
+   (book scans) is map-reduced across batches of that size instead of truncated.
+   Full mode skips this and reads `article.text` verbatim.
 3. **Chunk + synthesize** (`speak.py`) — `chunk_text` splits into TTS-sized,
    paragraph-respecting chunks (~400 chars, sentence-aware, over-long sentences
    split on commas). `synthesize_article` synthesizes each chunk fully,

@@ -254,9 +254,11 @@ readback/
   `/voice` is untouched. Book sources also take their **title from the first ~3 OCR
   lines** (`_book_title_from_text`), which the BOOK prompt then leads with.
 - **Summarize** (`summarize.py`): short body (≤ `reader.summary_max_chars`, default
-  16000) → one `oneshot` with the spoken-explanation prompt (`_summarize_once`).
-  The framing prompt is the tone's `system` (passed by the server; defaults to the
-  article tone).
+  **60000** — Qwen3.5-9B's 262K-token context comfortably single-passes articles
+  up to this size; the old 16000 default forced most long-form articles through
+  map-reduce for no reason) → one `oneshot` with the spoken-explanation prompt
+  (`_summarize_once`). The framing prompt is the tone's `system` (passed by the
+  server; defaults to the article tone).
   Longer input (book scans) → **map-reduce** (`_map_reduce`): `_batches` packs the
   text into ≤`max_chars` batches (paragraph → sentence → hard-cut), each condensed
   with `_MAP_SYSTEM`, the digests joined and reduced via `_summarize_once`;
