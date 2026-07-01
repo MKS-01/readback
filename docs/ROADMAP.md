@@ -11,6 +11,12 @@ intentionally lower priority.
 
 ## Recently shipped
 
+- **Summary mode: raised the map-reduce threshold 16K → 60K chars** — the
+  configured summary LLM (Qwen3.5-9B) has a 262K-token context, so the old
+  16,000-char cutoff forced most long-form articles through 3-4 sequential LLM
+  calls when one pass would do. Verified live: a 33K-char article's conversion
+  time dropped from 102.2s → 72.0s (~30% faster); summarize alone dropped
+  51.3s → 13.4s. Map-reduce is unchanged for genuinely huge inputs (book scans).
 - **Summary/audio speedup — disabled LLM chain-of-thought** 🏁 _key milestone_.
   Qwen3.5 defaulted to thinking and spent its whole token budget on an untagged
   "Thinking Process:" monologue — slow, truncated before the real answer, and

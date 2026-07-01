@@ -93,8 +93,10 @@ class ReaderConfig(BaseModel):
     output_dir: Path = Path("../readback-audio-db/audio")
     default_mode: Literal["full", "summary"] = "full"
     gap_sec: float = 0.18                 # silence between (trimmed) chunks
-    # Cap article text fed to the LLM in summary mode (keeps it within context).
-    summary_max_chars: int = 16000
+    # Cap article text for a single LLM pass before map-reducing. Qwen3.5-9B has
+    # a 262K-token context, so 60K chars (~15K tokens) single-passes the vast
+    # majority of articles instead of map-reducing.
+    summary_max_chars: int = 60000
     # SQLite library of past reads (powers the web dashboard). One file, stdlib
     # sqlite3. Default sits in the sibling `readback-audio-db/` folder next to the
     # repo; relative paths resolve against config.yaml's dir.

@@ -85,7 +85,7 @@ def _summarize_once(llm, title: str, body: str, system: str, truncated: bool = F
 
 
 def summarize_article(
-    llm, article: Article, max_chars: int = 16000, progress=None, system: str | None = None,
+    llm, article: Article, max_chars: int = 60000, progress=None, system: str | None = None,
 ) -> str:
     """Produce a spoken-style summary/explanation of `article`.
 
