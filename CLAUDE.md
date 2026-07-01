@@ -41,7 +41,7 @@ gotchas, and exact knobs.
   uses **mlx-vlm** (default `mlx-community/Qwen2.5-VL-7B-Instruct-4bit`).
   `/model` can switch per-read; any downloaded MLX chat model works.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
-  via **`csm-mlx`** on Metal, fp32 (max fidelity), 24 kHz native. 2 built-in
+  via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in
   reading voices + clone-condition voices + optional LoRA fine-tuning. English-best.
 - **Server**: FastAPI + WebSocket (`/ws`) for live reads, plus a small REST
   surface (config / models / read-library). Two clients: the terminal CLI (the
@@ -309,10 +309,10 @@ readback/
 ### TTS — CSM-1B (`tts/csm_engine.py`, `tts/synthesizer.py`)
 
 - **Engine: `csm-mlx`** (`senstella/csm-1b-mlx`, `ckpt.safetensors`). float32 @
-  24 kHz, left at **fp32** by default (`cfg.precision`: `bf16`/`fp16`/`fp32`) —
-  max fidelity, chosen deliberately over bf16's ~6% speed edge. Switch to `bf16`
-  if the ~6% isn't worth it for a given use case; there's no audible quality
-  loss at normal listening either way. `_make_sampler` caches per
+  24 kHz, cast to **bf16** by default (`cfg.precision`: `bf16`/`fp16`/`fp32`).
+  bf16 is ~6% faster than fp32 with no audible quality loss at normal
+  listening; switch to `fp32` for max fidelity if bf16 ever sounds off on a
+  clone voice. `_make_sampler` caches per
   `(temperature, top_k)` to avoid recreation per chunk.
 - **MLX single-thread:** `ThreadPoolExecutor(max_workers=1)` owns load + all
   synth. `_impl` methods run ON that thread and must never re-submit. Never call

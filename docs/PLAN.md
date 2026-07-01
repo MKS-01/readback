@@ -6,6 +6,24 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-07-02 — Revert precision to bf16 (keep the 200-char / dynamic chunking)
+
+**Status: done** — branch `fix/summary-padding-short-articles`. Follow-up to the
+Max-quality preset entry below: user asked to stick with `bf16` after all.
+Reverted `config.yaml`'s `tts.csm.precision` back to `bf16` — per the engine's
+own docs, bf16 has no audible quality loss at normal listening (its only
+downside is a nonexistent one here, since the docs already say fp32 is for
+fixing audible artifacts on a clone voice, not a baseline upgrade). The
+`_MAX_CHARS: 200` + randomized chunk-boundary changes from the two entries below
+are unaffected — those are what actually drove the voice-quality/expression
+improvements the user asked for; the precision knob was the one piece of that
+change to walk back. Updated the speed/quality guide comments in `config.yaml`
+and `CLAUDE.md` to describe the current combination (bf16 + 200/randomized) as
+its own row rather than reusing the "Max quality" fp32 label. Full `pytest`
+suite: 38/38 pass.
+
+---
+
 ## 2026-07-02 — Randomize chunk boundaries instead of a fixed cap
 
 **Status: done** — branch `fix/summary-padding-short-articles`. Follow-up to the

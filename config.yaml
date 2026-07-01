@@ -23,11 +23,10 @@ tts:
     speaker: "codeword"
     # Precision — speed vs fidelity:
     #   bf16 — ~6% faster than fp32, native on Apple Silicon, no audible quality
-    #          loss at normal listening.
+    #          loss at normal listening. Current default.
     #   fp32 — max fidelity (RTF ~0.72); use if you hear artifacts on a clone voice.
-    #          Current default — voice quality prioritized over the ~6% speed cost.
     #   fp16 — slightly faster than bf16, narrower dynamic range — not recommended.
-    precision: "fp32"
+    precision: "bf16"
     # Lower = steadier/more composed; higher = livelier. 0.7 matches the codeword
     # voice tuning; short (<5 s) reference clips get unstable below ~0.55.
     temperature: 0.7
@@ -59,12 +58,12 @@ tts:
     #   ─────────    ─────────   ────────────────────     ─────
     #   Fast         bf16        400                      ~30% fewer chunks than Balanced
     #   Balanced     bf16        280                      more natural sentence breaks
-    #   Max quality  fp32        200                      current default — best intonation
-    #                                                      + finest expression granularity,
-    #                                                      ~2× slower than Fast
+    #   Current      bf16        200 (randomized ±)       best intonation + finest expression
+    #                                                      granularity, no bf16→fp32 cost
+    #   Max quality  fp32        200                      max fidelity if bf16 ever sounds
+    #                                                      off on a clone voice, ~2× vs Fast
     #
-    # To revert to fast: set precision: "bf16" above, and change _MAX_CHARS to
-    # 400 in src/readback/pipeline/speak.py.
+    # To revert to fast: change _MAX_CHARS to 400 in src/readback/pipeline/speak.py.
 
 reader:
   # Generated WAVs are written here and served for playback + download. Kept
