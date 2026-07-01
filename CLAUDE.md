@@ -41,8 +41,8 @@ gotchas, and exact knobs.
   uses **mlx-vlm** (default `mlx-community/Qwen2.5-VL-7B-Instruct-4bit`).
   `/model` can switch per-read; any downloaded MLX chat model works.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
-  via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +
-  clone-condition voices + optional LoRA fine-tuning. English-best.
+  via **`csm-mlx`** on Metal, fp32 (max fidelity), 24 kHz native. 2 built-in
+  reading voices + clone-condition voices + optional LoRA fine-tuning. English-best.
 - **Server**: FastAPI + WebSocket (`/ws`) for live reads, plus a small REST
   surface (config / models / read-library). Two clients: the terminal CLI (the
   sole `/ws` consumer) and the web dashboard (REST + static, served at `/`).
@@ -266,7 +266,8 @@ readback/
   section N / M`). Returns the article text unchanged if the LLM produced nothing.
 - **Chunk + synth** (`speak.py`):
   - `chunk_text` — paragraph-respecting, sentence-aware merge up to `_MAX_CHARS`
-    (400; was 280 — fewer chunks = fewer CSM prefills = faster reads; see
+    (**200** — Max-quality preset, chosen for the best intonation AND the
+    finest granularity for `_expressive_temperature` below; was 400/Fast, see
     speed-vs-prosody comment in `speak.py`); over-long single sentences split on
     commas; sub-`_MIN_CHARS` (8) fragments stitched onto neighbors.
   - `_tidy_silence` — ⚠ **this is what removes the halting feel.** CSM, conditioned
@@ -279,12 +280,11 @@ readback/
     it has, so this nudges the tone's *base* temperature per chunk from its
     punctuation: `!` → +0.08 (emphatic), `?` → +0.04 (questioning), ≥3 commas and
     no `!`/`?` → −0.03 (dense/measured), clamped to `[0.55, 0.95]` (below ~0.55 a
-    short clone reference destabilizes). Granularity is **per chunk (~400 chars),
-    not per sentence** — a paragraph that mixes a lively and a measured sentence
-    into one chunk gets whichever punctuation the modulation rule matches first,
-    since chunk size trades off against prosody granularity (see the speed/quality
-    guide in `config.yaml`; drop `_MAX_CHARS` for finer per-sentence expression at
-    the cost of more, slower chunks).
+    short clone reference destabilizes). Granularity is **per chunk, not per
+    sentence** — at the current 200-char cap most single sentences get their own
+    chunk (and their own temperature), but a chunk spanning multiple short
+    sentences still gets whichever punctuation rule matches first (see the
+    speed/quality guide in `config.yaml` for the tradeoff against `_MAX_CHARS`).
   - `synthesize_article` — synth each chunk (at its `_expressive_temperature`,
     when `base_temperature` is passed — the server always passes the reading
     tone's temperature), tidy, fade-out tail, join with
@@ -302,10 +302,11 @@ readback/
 ### TTS — CSM-1B (`tts/csm_engine.py`, `tts/synthesizer.py`)
 
 - **Engine: `csm-mlx`** (`senstella/csm-1b-mlx`, `ckpt.safetensors`). float32 @
-  24 kHz, cast to **bf16** by default (`cfg.precision`: `bf16`/`fp16`/`fp32`).
-  bf16 is ~6% faster than fp32 with no audible quality loss; fp32 is max
-  fidelity (revert to it if clone voices sound off). `_make_sampler` caches
-  per `(temperature, top_k)` to avoid recreation per chunk.
+  24 kHz, left at **fp32** by default (`cfg.precision`: `bf16`/`fp16`/`fp32`) —
+  max fidelity, chosen deliberately over bf16's ~6% speed edge. Switch to `bf16`
+  if the ~6% isn't worth it for a given use case; there's no audible quality
+  loss at normal listening either way. `_make_sampler` caches per
+  `(temperature, top_k)` to avoid recreation per chunk.
 - **MLX single-thread:** `ThreadPoolExecutor(max_workers=1)` owns load + all
   synth. `_impl` methods run ON that thread and must never re-submit. Never call
   `mx` ops or the engine's `_impl` from another thread.

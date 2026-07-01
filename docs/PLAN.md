@@ -6,6 +6,40 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-07-02 — Switch to the Max-quality synthesis preset (fp32 + 200-char chunks)
+
+**Status: done** — branch `fix/summary-padding-short-articles`. After reviewing
+the per-chunk expression change, user asked to pick "the best version" for voice
+quality and summary accuracy, explicitly accepting a slighter delay in exchange.
+The already-documented "Max quality" preset in `config.yaml`'s speed/quality
+guide (`tts.csm.precision: fp32` + `_MAX_CHARS: 200` in `speak.py`) was exactly
+this tradeoff, previously left off by default in favor of "Fast" (`bf16` / 400).
+Switched both: `config.yaml` → `precision: "fp32"`, `speak.py` → `_MAX_CHARS = 200`.
+
+Smaller chunks are a direct win for the expressiveness feature from the prior
+entry too — `_expressive_temperature` nudges the *whole* chunk from whichever
+punctuation rule matches, so more, shorter chunks means the nudge tracks the
+actual sentence that earned it instead of averaging over a bigger span.
+
+**Verified** — same dramatic test paragraph as the expression-feature entry
+(measured intro → exclamation → question → dense factual close), regenerated
+under the new preset:
+
+| | 400 chars / bf16 (before) | 200 chars / fp32 (after) |
+|---|---|---|
+| chunks | 2 | 5 |
+| temperatures | 0.88, 0.77 | 0.77, 0.88, 0.84, 0.80, 0.80 |
+
+The calm opening sentence, which previously got dragged into the same chunk (and
+temperature) as the exclamation that followed it, now gets its own chunk and its
+own measured 0.77 — the finer resolution the "known limitation" note in the
+prior entry called out. Synth wall time for this short sample went from ~2 chunks
+worth to 26.6s for 39.4s of audio (5 chunks) — the expected "up to ~2×" cost of
+the Max-quality preset, accepted per the user's explicit trade-off call. Played
+both samples back with `afplay` for a live A/B. Full `pytest` suite: 38/38 pass.
+
+---
+
 ## 2026-07-02 — Content-driven expression: per-chunk delivery temperature
 
 **Status: done** — branch `fix/summary-padding-short-articles` (extends the tone
