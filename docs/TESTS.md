@@ -1,6 +1,6 @@
 # Test Coverage
 
-38 tests across 8 files. Pure logic only — no MLX, no CSM, no GPU. Runs on
+44 tests across 9 files. Pure logic only — no MLX, no CSM, no GPU. Runs on
 Linux (CI) and macOS (local). Config in `pyproject.toml`
 (`[tool.pytest.ini_options]`).
 
@@ -14,7 +14,7 @@ pytest -k "cache"             # run by keyword
 
 ## Pipeline — `speak.py`
 
-### Chunking (`test_chunk_text.py` — 4 tests)
+### Chunking (`test_chunk_text.py` — 6 tests)
 
 | Test | What it guards |
 |------|----------------|
@@ -22,6 +22,8 @@ pytest -k "cache"             # run by keyword
 | `sentences_merge_up_to_max` | Sentences pack into ≤ `_MAX_CHARS` chunks |
 | `paragraph_boundary_forces_a_split` | `\n` between paragraphs = new chunk |
 | `overlong_sentence_splits_on_commas` | Sentences > `_MAX_CHARS` split on `,` |
+| `short_fragment_is_never_dropped` | Sub-`_MIN_CHARS` fragment ("Wow!") survives any random cap draw |
+| `comma_free_overlong_sentence_is_hard_split` | Comma-free run > `_MAX_CHARS` splits on spaces, never over-cap |
 
 ### Synthesis (`test_speak.py` — 3 tests)
 
@@ -65,6 +67,15 @@ pytest -k "cache"             # run by keyword
 | `batches_respect_max_chars` | Every batch ≤ `max_chars`, no text lost |
 | `oversize_paragraph_falls_back_to_sentences` | Paragraph > cap splits on sentence boundaries |
 | `giant_single_sentence_is_hard_cut` | No sentence boundary → hard character cut |
+
+### Summary ceiling trim (`test_summary_trim.py` — 4 tests)
+
+| Test | What it guards |
+|------|----------------|
+| `short_summary_is_untouched` | Under-ceiling text passes through unchanged |
+| `overshoot_is_trimmed_at_a_sentence_boundary` | Over-ceiling text clipped ≤ `SUMMARY_WORD_CEILING`, on a sentence boundary |
+| `single_giant_sentence_is_kept` | Trim always keeps ≥ 1 sentence |
+| `custom_ceiling` | Explicit `ceiling` param respected |
 
 ---
 

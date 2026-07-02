@@ -64,10 +64,13 @@ responsive while a read job runs because all heavy work is pushed off it:
    `LLMClient.oneshot(system, user)` with a spoken-explanation system prompt when
    the article fits in one pass (≤ `reader.summary_max_chars`); longer input
    (book scans) is map-reduced across batches of that size instead of truncated.
-   Full mode skips this and reads `article.text` verbatim.
+   The result is clipped to a 250-word ceiling at a sentence boundary
+   (`_trim_to_word_ceiling`) — the prompt's limit alone is advisory. Full mode
+   skips this and reads `article.text` verbatim.
 3. **Chunk + synthesize** (`speak.py`) — `chunk_text` splits into TTS-sized,
-   paragraph-respecting chunks (~400 chars, sentence-aware, over-long sentences
-   split on commas). `synthesize_article` synthesizes each chunk fully,
+   paragraph-respecting chunks (sentence-aware, each chunk's cap randomized in
+   [280, 400] chars for varied pacing; over-long sentences split on commas, then
+   spaces). `synthesize_article` synthesizes each chunk fully,
    **silence-tidies** it (`_tidy_silence`: trim leading/trailing silence and cap
    internal pauses to ~300 ms), **fades out** the tail (100 ms linear fade via
    `_fade_out_tail`), retries all-silence chunks once, and joins with `reader.gap_sec`

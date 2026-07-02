@@ -6,6 +6,54 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-07-02 — PR #21 review fixes: ceiling trim, word-count threading, fast chunk band, fragment drop
+
+**Status: done** — branch `fix/summary-padding-short-articles`. A multi-angle
+review of PR #21 (time named the most important factor) surfaced four issues;
+all fixed on the branch:
+
+1. **Chunk band [120, 200] → [280, 400]** (`speak.py`). Measured on a
+   ~2,100-word text: the low band produced ~100 chunks vs 40 at the old fixed
+   400 (2.5-3x the CSM prefills — +60-120s on a Full-mode read at 1-2s/prefill);
+   the PR's own 104.9s→82.7s synth "win" came from the summary shrinking, not
+   the chunking. Verified randomization itself is free (fixed 200 vs randomized
+   [120, 200] chunk identically — boundaries dominate), so the cadence variation
+   and per-chunk expression are kept; only the band moved. Post-fix: 52-58
+   chunks on the same text.
+2. **250-word ceiling enforced in code** (`_trim_to_word_ceiling`,
+   `summarize.py`). The prompt's HARD LIMIT alone still measured 313 words from
+   a 3,446-word source; the trim clips at a sentence boundary at
+   `SUMMARY_WORD_CEILING` (exported from `tones.py`, single source of truth),
+   always keeping ≥1 sentence. Closes the ROADMAP overshoot item — and every
+   trimmed word is synthesis time saved.
+3. **Map-reduce length anchor fixed** (`source_words` threading,
+   `summarize.py`). The reduce step passed the joined digests as `body`, so the
+   new word-count anchor measured the compressed digests instead of the source —
+   mis-calibrated on exactly the long inputs map-reduce exists for. The original
+   `article.word_count` now rides through `_map_reduce` (and its recursion) into
+   every `_summarize_once`.
+4. **Fragment drop fixed** (`chunk_text`, `speak.py`). CONFIRMED by the review:
+   a sub-`_MIN_CHARS` buf ("Wow!") followed by a sentence overflowing a low
+   random cap was silently discarded — lost in ~21% of runs (415/2000) on the
+   [120, 200] band. Now carried into the next piece (or emitted as its own tiny
+   chunk if that would exceed `_MAX_CHARS`). Also added `_hard_split`: a
+   comma-free run > `_MAX_CHARS` (which risked the 20s `max_audio_length_ms`
+   mid-sentence cutoff) now space-splits under the cap.
+
+Cleanups from the same review: the duplicated length-policy prose in the two
+tone prompts hoisted into `_LENGTH_RULES`/`_PLAIN_PROSE_RULE` (`.format`-ed per
+tone, one source of truth); `_summarize_once` uses the threaded source count
+instead of re-deriving `Article.word_count`; stale "~400 chars" line in
+ARCHITECTURE.md refreshed.
+
+**Verified.** 44/44 pytest (6 new: 2 chunking regressions + 4 ceiling-trim).
+Empirical: "Wow!" retained in 2000/2000 runs (was ~79%); ~2,100-word text
+chunks 52-58 (was ~100); tone prompts render with no leftover `{src}`/`{out}`
+placeholders. Docs synced: CLAUDE.md, config.yaml guide, ARCHITECTURE.md,
+ROADMAP.md, TESTS.md.
+
+---
+
 ## 2026-07-02 — Merge `optimize/summary-map-reduce-threshold`, verify on a real slow read
 
 **Status: done** — branch `fix/summary-padding-short-articles`. User reported a

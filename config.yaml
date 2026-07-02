@@ -48,22 +48,24 @@ tts:
     # ── Synthesis speed vs quality guide ──
     #
     # Three knobs control the speed/quality tradeoff. Each chunk pays a fixed
-    # CSM reference-prefill cost (~1–2 s), so fewer chunks = faster reads. Smaller
-    # chunks also give the per-chunk expressive-temperature nudge (speak.py's
-    # _expressive_temperature) finer granularity to work with — more, shorter
-    # chunks means punctuation-driven delivery shifts land closer to the actual
-    # sentence that earned them instead of averaging over a larger chunk.
+    # CSM reference-prefill cost (~1–2 s), so fewer chunks = faster reads — and
+    # chunk count tracks the cap band's MEAN, so a low band is expensive: a
+    # [120, 200] band measured 2.5-3x the chunks (and prefills) of 400 for the
+    # same text. Smaller chunks do give the per-chunk expressive-temperature
+    # nudge (speak.py's _expressive_temperature) finer granularity, but the
+    # time cost dominates for Full-mode reads.
     #
-    #   Preset       precision   _MAX_CHARS (speak.py)   Notes
+    #   Preset       precision   chunk cap (speak.py)     Notes
     #   ─────────    ─────────   ────────────────────     ─────
-    #   Fast         bf16        400                      ~30% fewer chunks than Balanced
+    #   Current      bf16        randomized [280, 400]    fast (near the fixed-400 chunk
+    #                                                      count) + varied breath cadence
     #   Balanced     bf16        280                      more natural sentence breaks
-    #   Current      bf16        200 (randomized ±)       best intonation + finest expression
-    #                                                      granularity, no bf16→fp32 cost
-    #   Max quality  fp32        200                      max fidelity if bf16 ever sounds
-    #                                                      off on a clone voice, ~2× vs Fast
+    #   Max prosody  bf16        randomized [120, 200]    finest expression granularity,
+    #                                                      2.5-3x the chunks — slow
+    #   Max fidelity fp32        200                      only if bf16 sounds off on a
+    #                                                      clone voice, ~2× vs Current
     #
-    # To revert to fast: change _MAX_CHARS to 400 in src/readback/pipeline/speak.py.
+    # The band is [_MIN_CHUNK_CHARS, _MAX_CHARS] in src/readback/pipeline/speak.py.
 
 reader:
   # Generated WAVs are written here and served for playback + download. Kept

@@ -14,7 +14,7 @@ import logging
 import re
 
 from readback.pipeline.extract import Article
-from readback.pipeline.tones import ARTICLE as _ARTICLE_TONE
+from readback.pipeline.tones import ARTICLE as _ARTICLE_TONE, SUMMARY_WORD_CEILING
 
 log = logging.getLogger("readback.pipeline")
 
@@ -74,20 +74,45 @@ def _batches(text: str, max_chars: int) -> list[str]:
     return batches
 
 
-def _summarize_once(llm, title: str, body: str, system: str, truncated: bool = False) -> str:
+def _summarize_once(llm, title: str, body: str, system: str, truncated: bool = False,
+                    source_words: int | None = None) -> str:
     """Single spoken-explanation pass over `body` with the given `system` framing.
 
     The word count is spelled out to the model as a concrete length anchor — an
     abstract "don't pad" instruction wasn't enough on its own to stop the model
     padding short articles out toward the 250-word ceiling (it has no sense of
-    "short" without a number to calibrate against)."""
-    word_count = len(body.split())
+    "short" without a number to calibrate against). `source_words` overrides the
+    count when `body` isn't the original source: the map-reduce reduce step
+    passes condensed digests, and anchoring to *their* length would mis-calibrate
+    the target on exactly the long inputs map-reduce exists for."""
+    word_count = source_words if source_words is not None else len(body.split())
     user = (
         f"Title: {title}\n\n"
         f"Article{' (truncated)' if truncated else ''} ({word_count} words):\n{body}\n\n"
         "Give the spoken explanation now."
     )
     return llm.oneshot(system, user).strip()
+
+
+def _trim_to_word_ceiling(text: str, ceiling: int = SUMMARY_WORD_CEILING) -> str:
+    """Hard-enforce the tone prompts' word ceiling at a sentence boundary. The
+    prompt's HARD LIMIT is advisory — the model still overshoots on long sources
+    (measured 313 words from a 3,446-word article) — and every word past the
+    ceiling is paid for again in synthesis time. Always keeps at least one
+    sentence."""
+    kept: list[str] = []
+    words = 0
+    for sent in _SENT_SPLIT.split(text.strip()):
+        n = len(sent.split())
+        if kept and words + n > ceiling:
+            break
+        kept.append(sent)
+        words += n
+    trimmed = " ".join(kept)
+    if len(trimmed) < len(text.strip()):
+        log.info("summary trimmed to the %d-word ceiling: %d -> %d words",
+                 ceiling, len(text.split()), words)
+    return trimmed
 
 
 def summarize_article(
@@ -106,26 +131,28 @@ def summarize_article(
     if len(body) <= max_chars:
         if progress:
             progress(0, 1)
-        summary = _summarize_once(llm, article.title, body, system)
+        summary = _summarize_once(llm, article.title, body, system,
+                                  source_words=article.word_count)
         if progress:
             progress(1, 1)
         log.info("summary: %d words from %d-word article (single pass)",
                  len(summary.split()), article.word_count)
-        return summary or article.text
+        return _trim_to_word_ceiling(summary) if summary else article.text
 
-    summary = _map_reduce(llm, article.title, body, max_chars, system, progress=progress)
+    summary = _map_reduce(llm, article.title, body, max_chars, system, progress=progress,
+                          source_words=article.word_count)
     log.info("summary: %d words from %d-word article (map-reduce)",
              len(summary.split()), article.word_count)
-    return summary or article.text
+    return _trim_to_word_ceiling(summary) if summary else article.text
 
 
 def _map_reduce(llm, title: str, body: str, max_chars: int, system: str,
-                depth: int = 0, progress=None) -> str:
+                depth: int = 0, progress=None, source_words: int | None = None) -> str:
     batches = _batches(body, max_chars)
     if len(batches) == 1:
         if progress:
             progress(0, 1)
-        out = _summarize_once(llm, title, batches[0], system)
+        out = _summarize_once(llm, title, batches[0], system, source_words=source_words)
         if progress:
             progress(1, 1)
         return out
@@ -148,6 +175,10 @@ def _map_reduce(llm, title: str, body: str, max_chars: int, system: str,
     # The combined digests may still overflow context (many batches) — recurse,
     # depth-limited so a pathological input can't loop forever. The final reduce
     # uses the tone's `system` framing; intermediate maps stay tone-agnostic.
+    # `source_words` (the ORIGINAL source's count, not the digests') rides along
+    # so the length anchor stays calibrated to what the listener actually asked
+    # to have summarized.
     if len(combined) > max_chars and depth < _MAX_REDUCE_DEPTH:
-        return _map_reduce(llm, title, combined, max_chars, system, depth + 1)
-    return _summarize_once(llm, title, combined, system)
+        return _map_reduce(llm, title, combined, max_chars, system, depth + 1,
+                           source_words=source_words)
+    return _summarize_once(llm, title, combined, system, source_words=source_words)

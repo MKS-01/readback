@@ -18,6 +18,15 @@ intentionally lower priority.
   (`_expressive_temperature`); chunk boundaries are randomized within a range
   instead of a fixed cap, for a less mechanical breath cadence. See
   `docs/PLAN.md` 2026-07-02 entries for verification detail.
+- **Review fixes: 250-word ceiling enforced in code, chunk band moved to the
+  fast end** — the PR review measured the [120, 200] chunk band at 2.5-3x the
+  chunks (= CSM prefills = time) of the old fixed 400 cap, so the band is now
+  [280, 400] (randomized cadence kept — randomization itself adds ~zero chunks);
+  the summary ceiling is hard-enforced by a sentence-boundary trim
+  (`_trim_to_word_ceiling`) instead of prompt-only; the map-reduce reduce step
+  now anchors its length target to the original source's word count, not the
+  digests'; a mid-paragraph fragment-drop bug in `chunk_text` (short exclamations
+  lost ~21% of the time under low random caps) is fixed and regression-tested.
 - **Summary mode: raised the map-reduce threshold 16K → 60K chars** — the
   configured summary LLM (Qwen3.5-9B) has a 262K-token context, so the old
   16,000-char cutoff forced most long-form articles through 3-4 sequential LLM
@@ -62,7 +71,7 @@ intentionally lower priority.
 - [x] Degenerate-chunk guard — an all-silence chunk triggers one retry before being dropped
 - [x] LoRA fine-tune for higher fidelity — full pipeline ready (transcribe → convert → train → load adapter); add clips to `src/finetune/data/` to train. See [`src/finetune/README.md`](../src/finetune/README.md)
 - [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `codeword`; eventually clone a new voice from the CLI instead of editing `config.yaml`
-- [ ] Summary length still overshoots the 250-word hard ceiling on longer single-pass articles — a 3,446-word article produced a 313-word summary (down from 403 pre-fix, but still over). The word-count-anchor fix (`_summarize_once`, `summarize.py`) helps but isn't fully reliable once the source itself is long; needs a firmer enforcement mechanism (e.g. a post-hoc trim, or a stronger prompt anchor tied to output length rather than just input length). See the 2026-07-02 "Merge `optimize/summary-map-reduce-threshold`" entry in [PLAN.md](PLAN.md) for the measurement.
+- [x] Summary length still overshoots the 250-word hard ceiling on longer single-pass articles — resolved by `_trim_to_word_ceiling` (`summarize.py`): a post-hoc sentence-boundary trim at `SUMMARY_WORD_CEILING`, so the prompt's HARD LIMIT is now backed by code. The trim also caps synthesis time (overshoot words were paid for again in TTS).
 
 ## ⚡ CLI — tuning & performance — priority
 

@@ -79,9 +79,9 @@ readback/
 │                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
-├── tests/                     # 38 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
+├── tests/                     # 44 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
 │                              # silence-tidy, fade-out, extract scrub, library + cache, think-stripper,
-│                              # tones, map-reduce batching. See docs/TESTS.md for the full catalogue.
+│                              # tones, map-reduce batching, summary trim. See docs/TESTS.md for the catalogue.
 │                              # Config in pyproject.toml; runnable on Linux (requirements-pi.txt subset).
 ├── .github/workflows/
 │   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10 + 3.12 on Ubuntu;
@@ -250,6 +250,12 @@ readback/
   otherwise; forbids wrap-up sentences not grounded in a specific source fact,
   and asks for natural spoken rhythm (varied sentence length, emphasis on a
   genuinely notable point) instead of a flat, even-register list of facts.
+  The shared length policy lives ONCE, in `_LENGTH_RULES` (+ `_PLAIN_PROSE_RULE`),
+  `.format`-ed into both prompts — edit it there, not in the prompt bodies. The
+  ceiling itself is `SUMMARY_WORD_CEILING` (250), exported because the prompt is
+  only advisory: `summarize_article` **hard-enforces it post-hoc** with a
+  sentence-boundary trim (`_trim_to_word_ceiling` — the model measured 313 words
+  from a 3,446-word source on prompt alone).
   Tone shifts *delivery temperature*, NOT the voice — the user's
   `/voice` is untouched. Book sources also take their **title from the first ~3 OCR
   lines** (`_book_title_from_text`), which the BOOK prompt then leads with.
@@ -266,19 +272,34 @@ readback/
   old hard truncation that silently dropped everything past ~10-12 pages. Optional
   `progress(done, total)` fires per batch in the map phase (server → `summarizing
   section N / M`). Returns the article text unchanged if the LLM produced nothing.
+  ⚠ The **original source's word count rides through map-reduce** as
+  `source_words` — the reduce step's `body` is the compressed digests, and
+  anchoring the prompt's length target to *their* count mis-calibrates exactly
+  the long inputs map-reduce exists for. Non-empty summaries are then clipped by
+  `_trim_to_word_ceiling` (sentence-boundary cut at `SUMMARY_WORD_CEILING`,
+  always keeps ≥1 sentence) — the code-level backstop for the prompt's HARD
+  LIMIT, which also caps synthesis time (every overshoot word is paid for again
+  in TTS).
 - **Chunk + synth** (`speak.py`):
   - `chunk_text` — paragraph-respecting, sentence-aware merge; **each chunk's cap
-    is randomized** (`_next_chunk_cap`) between `_MIN_CHUNK_CHARS` (120) and
-    `_MAX_CHARS` (**200** — Max-quality preset, was 400/Fast; see speed/prosody
-    comment in `speak.py`) instead of always hitting the same fixed cap — a
+    is randomized** (`_next_chunk_cap`) between `_MIN_CHUNK_CHARS` (**280**) and
+    `_MAX_CHARS` (**400**) instead of always hitting the same fixed cap — a
     uniform cap gives every chunk the same length, which reads with a
     mechanical, same-every-time breath cadence; randomizing it per chunk (same
     input text produces a different chunk count/boundaries run to run — verified)
     varies pacing AND gives `_expressive_temperature` below more chances to land
     a short cap on a single sentence instead of merging it with a
-    differently-toned neighbor. The over-long-sentence comma-split safety net
-    still measures against the fixed `_MAX_CHARS`, not the random per-chunk cap.
-    Sub-`_MIN_CHARS` (8) fragments stitched onto neighbors.
+    differently-toned neighbor. ⚠ **Chunk count tracks the band's mean** — the
+    earlier [120, 200] band measured **2.5-3x** the chunks (= prefills = time) of
+    fixed 400, which is why the band sits at the fast end; randomization itself
+    adds ~zero chunks vs a fixed cap of the same size (see the guide in
+    `config.yaml`). The over-long-sentence safety net (comma split, then a
+    space-level `_hard_split` for comma-free runs) measures against the fixed
+    `_MAX_CHARS`, not the random per-chunk cap. Sub-`_MIN_CHARS` (8) fragments
+    are stitched onto a neighbor — mid-paragraph they're carried into the next
+    piece (⚠ never silently dropped; a low random cap made drops reachable —
+    "Wow!" was lost in ~21% of runs pre-fix, `test_short_fragment_is_never_dropped`
+    guards it).
   - `_tidy_silence` — ⚠ **this is what removes the halting feel.** CSM, conditioned
     on the casual/disfluent Sesame prompt, emits long mid-utterance pauses;
     `_tidy_silence` trims leading/trailing silence (−40 dB threshold) and caps any
@@ -290,10 +311,10 @@ readback/
     punctuation: `!` → +0.08 (emphatic), `?` → +0.04 (questioning), ≥3 commas and
     no `!`/`?` → −0.03 (dense/measured), clamped to `[0.55, 0.95]` (below ~0.55 a
     short clone reference destabilizes). Granularity is **per chunk, not per
-    sentence** — at the current 200-char cap most single sentences get their own
-    chunk (and their own temperature), but a chunk spanning multiple short
-    sentences still gets whichever punctuation rule matches first (see the
-    speed/quality guide in `config.yaml` for the tradeoff against `_MAX_CHARS`).
+    sentence** — at the [280, 400] band a chunk usually spans a few sentences and
+    gets whichever punctuation rule matches first; finer granularity means a
+    lower band and 2.5-3x the synthesis time (see the speed/quality guide in
+    `config.yaml`).
   - `synthesize_article` — synth each chunk (at its `_expressive_temperature`,
     when `base_temperature` is passed — the server always passes the reading
     tone's temperature), tidy, fade-out tail, join with

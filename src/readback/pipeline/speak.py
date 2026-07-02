@@ -26,20 +26,43 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 # Speed vs prosody tradeoff:
 #   400 — fast (fewer prefills, ~30% fewer chunks than 280)
 #   280 — balanced (more natural sentence-boundary breaks)
-#   200 — max prosody + finest expressive-temperature granularity, slowest
-_MAX_CHARS = 200
+#   200 — max prosody + finest expressive-temperature granularity, ~2.5-3x the
+#         chunk count (and prefills) of 400 — measured, too slow for Full mode
+_MAX_CHARS = 400
 # Each chunk's actual cap is drawn fresh from [_MIN_CHUNK_CHARS, _MAX_CHARS]
 # instead of always hitting _MAX_CHARS — a fixed cap produces a mechanical,
 # same-length-every-time breath cadence; real speech doesn't chunk that
 # uniformly. This also gives _expressive_temperature more varied windows: a
 # short random cap is more likely to land on a single sentence (its own
 # temperature) rather than merging it with a differently-toned neighbor.
-_MIN_CHUNK_CHARS = 120
+# The band sits at the fast end ([280, 400], not [120, 200]) because chunk
+# count — and therefore prefill cost — tracks the band's mean: [120, 200]
+# measured 2.5-3x the chunks of a fixed 400 for the same text.
+_MIN_CHUNK_CHARS = 280
 _MIN_CHARS = 8
 
 
 def _next_chunk_cap() -> int:
     return random.randint(_MIN_CHUNK_CHARS, _MAX_CHARS)
+
+
+def _hard_split(piece: str) -> list[str]:
+    """Last-resort split for a comma-less run longer than _MAX_CHARS: break on
+    spaces into ≤_MAX_CHARS runs. An over-cap chunk risks hitting the engine's
+    max_audio_length_ms bound and getting cut off mid-sentence in the audio."""
+    if len(piece) <= _MAX_CHARS:
+        return [piece]
+    out: list[str] = []
+    cur = ""
+    for word in piece.split(" "):
+        if cur and len(cur) + 1 + len(word) > _MAX_CHARS:
+            out.append(cur)
+            cur = word
+        else:
+            cur = f"{cur} {word}".strip()
+    if cur:
+        out.append(cur)
+    return out
 
 
 def chunk_text(text: str) -> list[str]:
@@ -57,18 +80,31 @@ def chunk_text(text: str) -> list[str]:
             sent = sent.strip()
             if not sent:
                 continue
-            # Hard-split an over-long single sentence on commas as a fallback.
-            # Always measured against _MAX_CHARS (not the current random cap) —
-            # this is a hard safety split, not the pacing variation.
+            # Hard-split an over-long single sentence on commas as a fallback,
+            # then on spaces if a comma-free run still exceeds the cap. Always
+            # measured against _MAX_CHARS (not the current random cap) — this
+            # is a hard safety split, not the pacing variation.
             pieces = [sent]
             if len(sent) > _MAX_CHARS:
-                pieces = [p.strip() for p in re.split(r",\s+", sent) if p.strip()]
+                pieces = [q for p in re.split(r",\s+", sent) if p.strip()
+                          for q in _hard_split(p.strip())]
             for piece in pieces:
                 if len(buf) + len(piece) + 1 <= cap:
                     buf = (buf + " " + piece).strip()
+                elif len(buf) >= _MIN_CHARS:
+                    chunks.append(buf)
+                    buf = piece
+                    cap = _next_chunk_cap()
+                elif len(buf) + len(piece) + 1 <= _MAX_CHARS:
+                    # A sub-_MIN_CHARS buf ("Wow!") can't stand alone — carry it
+                    # into this piece instead of dropping it (a low random cap
+                    # made silent mid-paragraph drops reachable otherwise).
+                    buf = (buf + " " + piece).strip()
+                    cap = _next_chunk_cap()
                 else:
-                    if len(buf) >= _MIN_CHARS:
-                        chunks.append(buf)
+                    # Piece is near the hard cap: emit the fragment as its own
+                    # tiny chunk rather than drop it or exceed _MAX_CHARS.
+                    chunks.append(buf)
                     buf = piece
                     cap = _next_chunk_cap()
         if len(buf) >= _MIN_CHARS:
