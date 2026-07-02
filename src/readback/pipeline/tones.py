@@ -34,7 +34,11 @@ _LENGTH_RULES = (
     "sentences that aren't grounded in a specific fact from the {src} (e.g. broad "
     "claims about 'a significant shift' or 'a smoother transition') just to fill "
     "space — every sentence must carry real information from the {src}, and it's "
-    "fine to stop early once you've covered the key points. HARD LIMIT: never "
+    "fine to stop early once you've covered the key points. OMIT the {src}'s own "
+    "housekeeping entirely — acknowledgements, thanks to the community, calls to "
+    "action ('try it out', 'share your feedback'), and subscription or contact "
+    "invites must not appear in your {out} in any form, even paraphrased; end on "
+    "a content point, never on an invitation or thanks. HARD LIMIT: never "
     f"exceed {SUMMARY_WORD_CEILING} words (roughly 10 to 15 sentences). "
 )
 _PLAIN_PROSE_RULE = (

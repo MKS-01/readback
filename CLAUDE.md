@@ -248,6 +248,8 @@ readback/
   in the user prompt, and both prompts explicitly frame 250 as a ceiling to
   reserve for long sources, targeting roughly half the source's word count
   otherwise; forbids wrap-up sentences not grounded in a specific source fact,
+  tells the model to skip the source's own housekeeping (acknowledgements,
+  thanks, calls to action — faithful but zero-information for a listener),
   and asks for natural spoken rhythm (varied sentence length, emphasis on a
   genuinely notable point) instead of a flat, even-register list of facts.
   The shared length policy lives ONCE, in `_LENGTH_RULES` (+ `_PLAIN_PROSE_RULE`),
