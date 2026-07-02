@@ -23,4 +23,4 @@ reader:
   library_db: "../readback-audio-db/library.db"
   default_mode: "full"
   gap_sec: 0.18
-  summary_max_chars: 16000
+  summary_max_chars: 60000

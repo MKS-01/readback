@@ -6,6 +6,7 @@ import type { PlayerSnapshot } from "../player";
 import { BLUE, DIM, FG } from "../theme";
 
 const SEEK_STEP_SEC = 5;
+const SPEED_STEP = 0.1;
 const TRANSCRIPT_MAX_LINES = 12;
 
 function fmt(sec: number): string {
@@ -105,6 +106,7 @@ interface Props {
   onTogglePause: () => void;
   onToggleTranscript: () => void;
   onSeek: (deltaSec: number) => void;
+  onSpeed: (delta: number) => void;
   onBack: () => void;
 }
 
@@ -116,6 +118,7 @@ export function PlayerView({
   onTogglePause,
   onToggleTranscript,
   onSeek,
+  onSpeed,
   onBack,
 }: Props) {
   const { stdout } = useStdout();
@@ -127,6 +130,8 @@ export function PlayerView({
     if (input === " ") onTogglePause();
     else if (key.leftArrow) onSeek(-SEEK_STEP_SEC);
     else if (key.rightArrow) onSeek(SEEK_STEP_SEC);
+    else if (input === "+" || input === "=") onSpeed(SPEED_STEP);
+    else if (input === "-" || input === "_") onSpeed(-SPEED_STEP);
     else if (input === "t" && result.text) onToggleTranscript();
     else if (input === "q" || key.escape) onBack();
   });
@@ -158,6 +163,7 @@ export function PlayerView({
           <Text color={DIM}>{"─".repeat(Math.max(0, barWidth - filled))}</Text>
         </Text>
         <Text color={DIM}> {fmt(total)}</Text>
+        {player.rate !== 1 && <Text color={BLUE}> {player.rate}×</Text>}
       </Box>
 
       {result.text && showTranscript && (
@@ -171,6 +177,8 @@ export function PlayerView({
           <Text color={FG}>space</Text> {player.state === "finished" ? "replay" : "pause/resume"}
           {"  ·  "}
           <Text color={FG}>←/→</Text> ±{SEEK_STEP_SEC}s
+          {"  ·  "}
+          <Text color={FG}>+/-</Text> speed
           {result.text && (
             <>
               {"  ·  "}

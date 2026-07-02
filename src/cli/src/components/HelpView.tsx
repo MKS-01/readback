@@ -13,12 +13,14 @@ const CMDS: Array<[cmd: string, desc: string]> = [
   ["/mode full",      "read the whole article"],
   ["/mode summary",   "spoken summary (local LLM)"],
   ["/lib",            "browse past reads"],
+  ["/speed <x>",      "playback speed 0.5–2 (persists)"],
   ["/quit",           "exit"],
 ];
 
 const KEYS: Array<[key: string, desc: string]> = [
   ["space",  "pause / resume"],
   ["← →",   "seek ±5s"],
+  ["+ -",   "speed ±0.1×"],
   ["t",      "toggle transcript"],
   ["q",      "back"],
 ];

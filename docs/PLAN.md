@@ -6,6 +6,303 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-07-02 — CLI playback speed controller (/speed + player +/- keys)
+
+**Status: done** — branch `fix/summary-padding-short-articles`. User found the
+reading pace a bit slow. Measured the two most recent reads: the *speech* is
+170–187 wpm (normal-to-brisk) — the slowness is pauses (10–11% of runtime) and,
+fundamentally, taste. CSM has no speed control, so pace is a playback concern:
+added a speed controller to the CLI player on `afplay -r RATE -q 1`
+(high-quality pitch-preserving rate scaling). `+`/`-` in the player steps
+0.1× (0.5–2×, live — restarts afplay at the current position via the seek-slice
+mechanism); `/speed <x>` sets it from the input screen; the rate shows next to
+the progress bar when ≠1× and persists to `~/.readback/cli.json` (`speed`).
+⚠ `player.ts`'s `elapsed` now advances at `rate ×` wall time (audio position,
+not wall clock) so seek slices and the synced transcript stay aligned.
+
+**Verified** via tmux-driven CLI (drive-cli): `/speed` show + set + persist;
+`+`/`-` mid-play (afplay respawns with `-r 1.3`/`-r 1.1`, indicator updates);
+pause/resume/seek/transcript all correct at non-1× rates; clean quit, no
+orphaned afplay. `tsc --noEmit` clean; binary rebuilt.
+
+---
+
+## 2026-07-02 — PR #21 review fixes: ceiling trim, word-count threading, fast chunk band, fragment drop
+
+**Status: done** — branch `fix/summary-padding-short-articles`. A multi-angle
+review of PR #21 (time named the most important factor) surfaced four issues;
+all fixed on the branch:
+
+1. **Chunk band [120, 200] → [280, 400]** (`speak.py`). Measured on a
+   ~2,100-word text: the low band produced ~100 chunks vs 40 at the old fixed
+   400 (2.5-3x the CSM prefills — +60-120s on a Full-mode read at 1-2s/prefill);
+   the PR's own 104.9s→82.7s synth "win" came from the summary shrinking, not
+   the chunking. Verified randomization itself is free (fixed 200 vs randomized
+   [120, 200] chunk identically — boundaries dominate), so the cadence variation
+   and per-chunk expression are kept; only the band moved. Post-fix: 52-58
+   chunks on the same text.
+2. **250-word ceiling enforced in code** (`_trim_to_word_ceiling`,
+   `summarize.py`). The prompt's HARD LIMIT alone still measured 313 words from
+   a 3,446-word source; the trim clips at a sentence boundary at
+   `SUMMARY_WORD_CEILING` (exported from `tones.py`, single source of truth),
+   always keeping ≥1 sentence. Closes the ROADMAP overshoot item — and every
+   trimmed word is synthesis time saved.
+3. **Map-reduce length anchor fixed** (`source_words` threading,
+   `summarize.py`). The reduce step passed the joined digests as `body`, so the
+   new word-count anchor measured the compressed digests instead of the source —
+   mis-calibrated on exactly the long inputs map-reduce exists for. The original
+   `article.word_count` now rides through `_map_reduce` (and its recursion) into
+   every `_summarize_once`.
+4. **Fragment drop fixed** (`chunk_text`, `speak.py`). CONFIRMED by the review:
+   a sub-`_MIN_CHARS` buf ("Wow!") followed by a sentence overflowing a low
+   random cap was silently discarded — lost in ~21% of runs (415/2000) on the
+   [120, 200] band. Now carried into the next piece (or emitted as its own tiny
+   chunk if that would exceed `_MAX_CHARS`). Also added `_hard_split`: a
+   comma-free run > `_MAX_CHARS` (which risked the 20s `max_audio_length_ms`
+   mid-sentence cutoff) now space-splits under the cap.
+
+Cleanups from the same review: the duplicated length-policy prose in the two
+tone prompts hoisted into `_LENGTH_RULES`/`_PLAIN_PROSE_RULE` (`.format`-ed per
+tone, one source of truth); `_summarize_once` uses the threaded source count
+instead of re-deriving `Article.word_count`; stale "~400 chars" line in
+ARCHITECTURE.md refreshed.
+
+**Verified.** 44/44 pytest (6 new: 2 chunking regressions + 4 ceiling-trim).
+Empirical: "Wow!" retained in 2000/2000 runs (was ~79%); ~2,100-word text
+chunks 52-58 (was ~100); tone prompts render with no leftover `{src}`/`{out}`
+placeholders. Docs synced: CLAUDE.md, config.yaml guide, ARCHITECTURE.md,
+ROADMAP.md, TESTS.md.
+
+---
+
+## 2026-07-02 — Merge `optimize/summary-map-reduce-threshold`, verify on a real slow read
+
+**Status: done** — branch `fix/summary-padding-short-articles`. User reported a
+real CLI read ("Chasing a Phantom Jump", 3,446 words / 20,701 chars) took 140.4s
+and asked whether that was worth it. Investigation found `fix/summary-padding-
+short-articles` had branched off `main` *before* the `summary_max_chars`
+16000→60000 fix (see that entry below) landed, so it was still on the old
+16,000-char threshold — this 20,701-char article just barely exceeded it and
+needlessly map-reduced. Worse, the map-reduce path's final reduce step anchors
+its word-count target off the *combined digest* length (not the original
+article), so it also blew through the 250-word hard ceiling (403 words).
+
+**Fix.** Merged `optimize/summary-map-reduce-threshold` into this branch
+(one conflict, in this file, both branches adding entries at the top — resolved
+by keeping both, correctly ordered).
+
+**Verified** — full pipeline, same URL, before vs after the merge:
+
+| | before (16K threshold, map-reduce) | after (60K threshold, single-pass) |
+|---|---|---|
+| summarize | 34.6s | 13.4s |
+| summary length | 403 words (over the 250 ceiling) | 313 words (better, still slightly over) |
+| synthesize | ~104.9s (est. from the original 140.4s total) | 82.7s |
+| **total** | **140.4s** | **97.0s** (31% faster) |
+
+Noted, not chased further: 313 words is closer to the 250-word ceiling than
+403 but still exceeds it — the word-count-anchor fix from the padding entry
+helps but isn't fully reliable on longer single-pass inputs; a candidate for a
+future follow-up. Full `pytest` suite: 38/38 pass after the merge.
+
+---
+
+## 2026-07-02 — Revert precision to bf16 (keep the 200-char / dynamic chunking)
+
+**Status: done** — branch `fix/summary-padding-short-articles`. Follow-up to the
+Max-quality preset entry below: user asked to stick with `bf16` after all.
+Reverted `config.yaml`'s `tts.csm.precision` back to `bf16` — per the engine's
+own docs, bf16 has no audible quality loss at normal listening (its only
+downside is a nonexistent one here, since the docs already say fp32 is for
+fixing audible artifacts on a clone voice, not a baseline upgrade). The
+`_MAX_CHARS: 200` + randomized chunk-boundary changes from the two entries below
+are unaffected — those are what actually drove the voice-quality/expression
+improvements the user asked for; the precision knob was the one piece of that
+change to walk back. Updated the speed/quality guide comments in `config.yaml`
+and `CLAUDE.md` to describe the current combination (bf16 + 200/randomized) as
+its own row rather than reusing the "Max quality" fp32 label. Full `pytest`
+suite: 38/38 pass.
+
+---
+
+## 2026-07-02 — Randomize chunk boundaries instead of a fixed cap
+
+**Status: done** — branch `fix/summary-padding-short-articles`. Follow-up to the
+Max-quality preset switch above: user asked to make chunk sizing dynamic and
+keep varying it, rather than every chunk hitting the same fixed 200-char cap.
+A uniform cap means every chunk is close to the same length, which reads with a
+mechanical, same-every-time breath cadence — real speech doesn't chunk that
+evenly.
+
+**Fix.** `chunk_text` (`speak.py`) now draws each chunk's actual cap fresh via
+`_next_chunk_cap()`, a `random.randint` between a new `_MIN_CHUNK_CHARS` (120)
+and the existing `_MAX_CHARS` (200) — redrawn every time a new chunk starts, so
+consecutive chunks vary in length instead of all targeting the same number. The
+over-long-sentence comma-split safety net still checks against the fixed
+`_MAX_CHARS`, not the random per-chunk cap, since that's a hard ceiling, not a
+pacing choice. This also compounds with the per-chunk `_expressive_temperature`
+feature: a shorter random cap is more likely to isolate a single sentence into
+its own chunk (and its own temperature) instead of merging it with a
+differently-toned neighbor.
+
+**Verified.** Ran `chunk_text` 3x on the same fixed input text: got 3 chunks
+(lengths 152/82/164) on runs 1 and 3, 4 chunks (75/76/82/164) on run 2 —
+confirmed genuinely different boundaries across runs, not just different
+content. Existing chunking tests (`test_chunk_text.py`) don't assert exact
+chunk boundaries, only bounds (`len(c) <= _MAX_CHARS`) and paragraph-splitting
+behavior, both of which hold regardless of which cap was drawn; ran them 20x in
+a loop to rule out flakiness from the new randomness — stable every time. Full
+`pytest` suite: 38/38 pass.
+
+---
+
+## 2026-07-02 — Switch to the Max-quality synthesis preset (fp32 + 200-char chunks)
+
+**Status: done** — branch `fix/summary-padding-short-articles`. After reviewing
+the per-chunk expression change, user asked to pick "the best version" for voice
+quality and summary accuracy, explicitly accepting a slighter delay in exchange.
+The already-documented "Max quality" preset in `config.yaml`'s speed/quality
+guide (`tts.csm.precision: fp32` + `_MAX_CHARS: 200` in `speak.py`) was exactly
+this tradeoff, previously left off by default in favor of "Fast" (`bf16` / 400).
+Switched both: `config.yaml` → `precision: "fp32"`, `speak.py` → `_MAX_CHARS = 200`.
+
+Smaller chunks are a direct win for the expressiveness feature from the prior
+entry too — `_expressive_temperature` nudges the *whole* chunk from whichever
+punctuation rule matches, so more, shorter chunks means the nudge tracks the
+actual sentence that earned it instead of averaging over a bigger span.
+
+**Verified** — same dramatic test paragraph as the expression-feature entry
+(measured intro → exclamation → question → dense factual close), regenerated
+under the new preset:
+
+| | 400 chars / bf16 (before) | 200 chars / fp32 (after) |
+|---|---|---|
+| chunks | 2 | 5 |
+| temperatures | 0.88, 0.77 | 0.77, 0.88, 0.84, 0.80, 0.80 |
+
+The calm opening sentence, which previously got dragged into the same chunk (and
+temperature) as the exclamation that followed it, now gets its own chunk and its
+own measured 0.77 — the finer resolution the "known limitation" note in the
+prior entry called out. Synth wall time for this short sample went from ~2 chunks
+worth to 26.6s for 39.4s of audio (5 chunks) — the expected "up to ~2×" cost of
+the Max-quality preset, accepted per the user's explicit trade-off call. Played
+both samples back with `afplay` for a live A/B. Full `pytest` suite: 38/38 pass.
+
+---
+
+## 2026-07-02 — Content-driven expression: per-chunk delivery temperature
+
+**Status: done** — branch `fix/summary-padding-short-articles` (extends the tone
+prompt work from the padding fix above). User asked for a more natural, human
+delivery where expression shifts with the content instead of one flat register
+for the whole read. CSM has no direct emotion/prosody control API — the only
+delivery lever it exposes is sampling temperature (`tts.csm.temperature`), which
+was previously set **once per read** from the tone (`ARTICLE` 0.8 / `BOOK` 0.6)
+and held fixed for every chunk.
+
+**Fix.** `_expressive_temperature(chunk, base)` in `speak.py` nudges the tone's
+base temperature per chunk from its punctuation — a real, trained-on prosody
+signal: `!` → +0.08 (emphatic), `?` → +0.04 (questioning), 3+ commas with
+neither → −0.03 (dense/measured), clamped to `[0.55, 0.95]` (below ~0.55 a short
+clone reference destabilizes, per existing voice-cloning notes). `synthesize_article`
+takes a new `base_temperature` param and calls `synth.set_temperature(...)`
+per chunk instead of once up front; `server.py` passes `tone.temperature` through
+instead of setting it before the loop. Also nudged both tone `summary_system`
+prompts (`tones.py`) to write with natural spoken rhythm — varied sentence
+length, real emphasis on a genuinely notable point — rather than a flat,
+even-register list of facts, since Summary mode's generated text is the other
+lever available for varying expression (Full mode reads the source verbatim,
+so only its own natural punctuation drives this).
+
+**Verified.** Real `Synthesizer` (no stub): a mixed-punctuation paragraph split
+into 2 chunks got temperatures 0.88 (a chunk with `!`/`?`, lively section) and
+0.77 (a comma-dense explanatory chunk, no `!`/`?`) from a base of 0.8 — confirmed
+real variation across chunks. Full `pytest` suite: 38/38 pass (the existing
+`_FakeSynth` test stub never receives `base_temperature`, so `set_temperature`
+is never called on it — no behavior change for those tests).
+
+**Known limitation.** Granularity is **per chunk (~400 chars), not per
+sentence** — `chunk_text`'s merge-up-to-400-chars behavior (tuned for synthesis
+speed) can fold a lively and a measured sentence into one chunk, which then gets
+whichever punctuation rule matches first. Finer per-sentence expression is
+possible by lowering `_MAX_CHARS` (already a documented, config-driven
+speed/quality tradeoff in `config.yaml`) at the cost of more, slower chunks —
+left as a follow-up rather than silently reintroducing the synthesis slowdown
+the July 2026 tuning pass removed.
+
+---
+
+## 2026-07-02 — Stop Summary mode padding short articles with invented filler
+
+**Status: done** — branch `fix/summary-padding-short-articles`. Reviewing a real
+library read (Android developer blog, 189-word source) surfaced a content-quality
+bug: the spoken summary came out **243 words — longer than the source** — and
+contained generic, ungrounded wrap-up sentences ("these changes represent a
+significant shift toward industry-wide safety standards", "protect users from
+unverified or malicious applications") that weren't in the article at all. The
+`ARTICLE`/`BOOK` `summary_system` prompts (`pipeline/tones.py`) said "don't pad"
+but only gave the model an upper bound (250 words) with no sense of what "short"
+meant for a given source, so it drifted toward the ceiling regardless of input
+length.
+
+**Fix.** `_summarize_once` (`summarize.py`) now spells out the source's word
+count in the user prompt (`"Article (189 words): ..."`) as a concrete anchor.
+Both tone prompts were rewritten to target roughly half the source's word count,
+explicitly frame 250 words as a ceiling reserved for genuinely long sources, and
+forbid wrap-up/editorializing sentences not grounded in a specific fact from the
+source.
+
+**Verified** — same 189-word Android article, direct `summarize_article` calls
+against the live LLM:
+
+| | before | after |
+|---|---|---|
+| summary length | 243 words (padded, longer than source) | 188 words, zero invented claims |
+
+Checked the fix doesn't regress long-form coverage: the 5,240-word "Haiku"
+Wikipedia article still produces a 280-word summary (near the ceiling, as
+intended for content-rich sources) rather than being clipped short. Full
+`pytest` suite: 38/38 pass.
+
+---
+
+## 2026-07-02 — Raise `summary_max_chars` 16000 → 60000 (stop unnecessary map-reduce)
+
+**Status: done** — branch `optimize/summary-map-reduce-threshold`. Summary mode's
+single-pass/map-reduce threshold (`reader.summary_max_chars`) was 16,000 chars
+(~4K tokens) — ~60x more conservative than the configured summary LLM
+(`mlx-community/Qwen3.5-9B-4bit`, 262,144-token context, confirmed via its HF
+`config.json`). Most long-form web articles were paying for 3-4 sequential
+`oneshot` calls (map digests generated then discarded once merged) when one call
+would do. Raised the default to 60,000 chars (~15K tokens, still <2% of the
+model's context) in `config.yaml`, `config.pi.example.yaml`,
+`ReaderConfig.summary_max_chars`, and `summarize_article`'s default param.
+Map-reduce itself is unchanged — it still exists for genuinely huge inputs
+(book scans) — and since the same value sizes each map batch, anything that
+still map-reduces now does so in fewer, larger batches too.
+
+**Verified — live before/after read** (Wikipedia "Haiku" article, 33,143 chars /
+5,240 words, Summary mode, cache cleared between runs so both timings are cold):
+
+| | before (map-reduce, 3 sections) | after (single-pass) |
+|---|---|---|
+| summarize | 51.3s | 13.4s |
+| synthesize | 50.0s | 57.6s |
+| **total conversion** | **102.2s** | **72.0s** (~30% faster) |
+
+Summary quality/length unaffected (227-word spoken summary either way — the tone
+prompt + `max_tokens` ceiling governs that, untouched by this change). Also
+confirmed map-reduce still triggers correctly above the new threshold: a
+225,900-char synthetic document packed into 4 batches and produced a coherent
+207-word summary in 39.8s. Full `pytest` suite: 38/38 pass.
+
+**Merged into `fix/summary-padding-short-articles` on 2026-07-02**, after this
+threshold gap was caught reviewing a real read that unnecessarily map-reduced
+(20,701 chars, just over the old 16,000 cutoff) — see the merge note in that
+branch's most recent entry above for the concrete before/after.
+
+---
+
 ## 2026-06-24 — Faster synthesis + CLI generation timer + venv auto-detect
 
 **Status: done** — branch `optimisation`. Synthesis speed tuning: default

@@ -29,3 +29,21 @@ def test_overlong_sentence_splits_on_commas():
     assert len(sentence) > _MAX_CHARS
     chunks = chunk_text(sentence)
     assert len(chunks) > 1
+
+
+def test_short_fragment_is_never_dropped():
+    # A sub-_MIN_CHARS sentence ("Wow!") followed by a sentence that may not fit
+    # the drawn random cap must be carried forward, not silently discarded.
+    sentence = "This deliberately padded sentence keeps going for long enough " \
+               "that it can overflow whichever random cap the chunker drew here."
+    for _ in range(100):
+        chunks = chunk_text("Wow! " + sentence)
+        assert "Wow!" in " ".join(chunks)
+
+
+def test_comma_free_overlong_sentence_is_hard_split():
+    sentence = "word" * 3 + " ".join(["antidisestablishmentarianism"] * 20) + "."
+    assert len(sentence) > _MAX_CHARS and "," not in sentence
+    chunks = chunk_text(sentence)
+    assert all(len(c) <= _MAX_CHARS for c in chunks)
+    assert len(chunks) > 1

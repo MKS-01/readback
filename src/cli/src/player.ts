@@ -1,10 +1,17 @@
-// afplay wrapper — module singleton outside React. Pause/resume via
-// SIGSTOP/SIGCONT (afplay has no transport control); elapsed time is
-// wall-clock tracked here because afplay reports nothing.
+// afplay wrapper — module singleton outside React. Pause kills afplay and
+// resume restarts from the recorded position (afplay has no transport
+// control); elapsed time is wall-clock tracked here because afplay reports
+// nothing.
 //
 // Seeking: afplay can't start at an offset, so seek() slices the PCM data of
 // the local WAV at the target byte offset into a temp file and relaunches
 // afplay on that. Rapid seeks are debounced; the UI clock jumps immediately.
+//
+// Speed: afplay -r RATE with -q 1 (high-quality, pitch-preserving rate
+// scaling). `elapsed` tracks AUDIO position, not wall time — at 1.2× it
+// advances 1.2 audio-seconds per wall-second, so seek slices and the synced
+// transcript stay aligned. Rate changes mid-play restart at the current
+// position via the same slice mechanism seek uses.
 
 import { openSync, readSync, closeSync, createReadStream, createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,8 +21,12 @@ export type PlayerState = "playing" | "paused" | "stopped" | "finished";
 
 export interface PlayerSnapshot {
   state: PlayerState;
-  elapsed: number; // seconds
+  elapsed: number; // audio seconds (advances at `rate` × wall time)
+  rate: number;    // playback speed, 1 = natural
 }
+
+export const MIN_RATE = 0.5;
+export const MAX_RATE = 2.0;
 
 type Listener = (snap: PlayerSnapshot) => void;
 
@@ -25,6 +36,7 @@ const SEEK_DEBOUNCE_MS = 180;
 let proc: ReturnType<typeof Bun.spawn> | null = null;
 let state: PlayerState = "stopped";
 let elapsed = 0;
+let rate = 1;
 let timer: ReturnType<typeof setInterval> | null = null;
 let listener: Listener | null = null;
 let generation = 0; // invalidates exit handlers from superseded plays
@@ -35,7 +47,7 @@ let seeking = false; // freezes the clock while a seek restart is in flight
 let seekTimer: ReturnType<typeof setTimeout> | null = null;
 
 function emit(): void {
-  listener?.({ state, elapsed });
+  listener?.({ state, elapsed, rate });
 }
 
 function clearTimer(): void {
@@ -47,7 +59,7 @@ function startTimer(): void {
   clearTimer();
   timer = setInterval(() => {
     if (state === "playing" && !seeking) {
-      elapsed = Math.min(elapsed + 0.25, currentDur);
+      elapsed = Math.min(elapsed + 0.25 * rate, currentDur);
       emit();
     }
   }, 250);
@@ -61,7 +73,8 @@ function killProc(): void {
 }
 
 function spawnAfplay(path: string, gen: number): void {
-  proc = Bun.spawn(["afplay", path], { stdout: "ignore", stderr: "ignore" });
+  const args = rate !== 1 ? ["-r", String(rate), "-q", "1"] : [];
+  proc = Bun.spawn(["afplay", ...args, path], { stdout: "ignore", stderr: "ignore" });
   proc.exited.then(() => {
     if (gen !== generation) return; // superseded by a newer play()/seek()/stop()
     clearTimer();
@@ -76,6 +89,29 @@ function spawnAfplay(path: string, gen: number): void {
 
 export function onPlayerChange(fn: Listener | null): void {
   listener = fn;
+}
+
+export function getRate(): number {
+  return rate;
+}
+
+/** Set playback speed (clamped, rounded to 0.05). Takes effect immediately on
+ * a playing read by restarting afplay at the current position. */
+export function setRate(r: number): void {
+  const next = Math.round(Math.min(Math.max(r, MIN_RATE), MAX_RATE) * 20) / 20;
+  if (next === rate) return;
+  rate = next;
+  if (state === "playing") {
+    seeking = true;
+    emit();
+    if (seekTimer) clearTimeout(seekTimer);
+    seekTimer = setTimeout(() => {
+      seekTimer = null;
+      void restartAt(elapsed);
+    }, SEEK_DEBOUNCE_MS);
+  } else {
+    emit(); // paused/stopped — new rate applies on next spawn
+  }
 }
 
 export function play(wavPath: string, durationSec: number): void {

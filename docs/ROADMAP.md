@@ -11,6 +11,32 @@ intentionally lower priority.
 
 ## Recently shipped
 
+- **CLI playback speed** — `/speed <x>` + live `+`/`-` in the player (0.5–2×,
+  0.1 steps, persisted). Pitch-preserving via `afplay -r -q 1`; CSM has no
+  native speed control, so pace lives at playback. Works on library replays;
+  transcript sync and seek stay aligned at any rate.
+- **Content-driven expression + summary content fixes** — Summary mode no
+  longer pads short articles with invented, ungrounded filler (word-count
+  anchor in `_summarize_once`); CSM delivery temperature now nudges per chunk
+  from punctuation instead of staying flat for the whole read
+  (`_expressive_temperature`); chunk boundaries are randomized within a range
+  instead of a fixed cap, for a less mechanical breath cadence. See
+  `docs/PLAN.md` 2026-07-02 entries for verification detail.
+- **Review fixes: 250-word ceiling enforced in code, chunk band moved to the
+  fast end** — the PR review measured the [120, 200] chunk band at 2.5-3x the
+  chunks (= CSM prefills = time) of the old fixed 400 cap, so the band is now
+  [280, 400] (randomized cadence kept — randomization itself adds ~zero chunks);
+  the summary ceiling is hard-enforced by a sentence-boundary trim
+  (`_trim_to_word_ceiling`) instead of prompt-only; the map-reduce reduce step
+  now anchors its length target to the original source's word count, not the
+  digests'; a mid-paragraph fragment-drop bug in `chunk_text` (short exclamations
+  lost ~21% of the time under low random caps) is fixed and regression-tested.
+- **Summary mode: raised the map-reduce threshold 16K → 60K chars** — the
+  configured summary LLM (Qwen3.5-9B) has a 262K-token context, so the old
+  16,000-char cutoff forced most long-form articles through 3-4 sequential LLM
+  calls when one pass would do. Verified live: a 33K-char article's conversion
+  time dropped from 102.2s → 72.0s (~30% faster); summarize alone dropped
+  51.3s → 13.4s. Map-reduce is unchanged for genuinely huge inputs (book scans).
 - **Summary/audio speedup — disabled LLM chain-of-thought** 🏁 _key milestone_.
   Qwen3.5 defaulted to thinking and spent its whole token budget on an untagged
   "Thinking Process:" monologue — slow, truncated before the real answer, and
@@ -49,6 +75,7 @@ intentionally lower priority.
 - [x] Degenerate-chunk guard — an all-silence chunk triggers one retry before being dropped
 - [x] LoRA fine-tune for higher fidelity — full pipeline ready (transcribe → convert → train → load adapter); add clips to `src/finetune/data/` to train. See [`src/finetune/README.md`](../src/finetune/README.md)
 - [ ] More reading voices — A/B and expose the built-in read-speech references beyond the two defaults + `codeword`; eventually clone a new voice from the CLI instead of editing `config.yaml`
+- [x] Summary length still overshoots the 250-word hard ceiling on longer single-pass articles — resolved by `_trim_to_word_ceiling` (`summarize.py`): a post-hoc sentence-boundary trim at `SUMMARY_WORD_CEILING`, so the prompt's HARD LIMIT is now backed by code. The trim also caps synthesis time (overshoot words were paid for again in TTS).
 
 ## ⚡ CLI — tuning & performance — priority
 

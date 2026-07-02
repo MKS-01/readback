@@ -228,7 +228,7 @@ handle the plumbing.
 
 ---
 
-## Stack snapshot (v4.1.0)
+## Stack snapshot (v4.2.0)
 
 | Layer | Tech |
 |---|---|

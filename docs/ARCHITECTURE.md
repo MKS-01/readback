@@ -1,4 +1,4 @@
-# Architecture — readback (v4.1.0)
+# Architecture — readback (v4.2.0)
 
 How the pieces fit together and why. System-level companion to
 [CLAUDE.md](../CLAUDE.md) (implementation notes, gotchas, exact knobs) and
@@ -61,12 +61,16 @@ responsive while a read job runs because all heavy work is pushed off it:
    collapses whitespace so the voice doesn't read markup aloud. Returns an
    `Article{title, text, url}`.
 2. **Summarize** (`summarize.py`, Summary mode only) — `summarize_article` calls
-   `LLMClient.oneshot(system, user)` with a spoken-explanation system prompt;
-   long articles are truncated to `reader.summary_max_chars`. Full mode skips
-   this and reads `article.text` verbatim.
+   `LLMClient.oneshot(system, user)` with a spoken-explanation system prompt when
+   the article fits in one pass (≤ `reader.summary_max_chars`); longer input
+   (book scans) is map-reduced across batches of that size instead of truncated.
+   The result is clipped to a 250-word ceiling at a sentence boundary
+   (`_trim_to_word_ceiling`) — the prompt's limit alone is advisory. Full mode
+   skips this and reads `article.text` verbatim.
 3. **Chunk + synthesize** (`speak.py`) — `chunk_text` splits into TTS-sized,
-   paragraph-respecting chunks (~400 chars, sentence-aware, over-long sentences
-   split on commas). `synthesize_article` synthesizes each chunk fully,
+   paragraph-respecting chunks (sentence-aware, each chunk's cap randomized in
+   [280, 400] chars for varied pacing; over-long sentences split on commas, then
+   spaces). `synthesize_article` synthesizes each chunk fully,
    **silence-tidies** it (`_tidy_silence`: trim leading/trailing silence and cap
    internal pauses to ~300 ms), **fades out** the tail (100 ms linear fade via
    `_fade_out_tail`), retries all-silence chunks once, and joins with `reader.gap_sec`

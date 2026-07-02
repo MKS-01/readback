@@ -41,8 +41,8 @@ gotchas, and exact knobs.
   uses **mlx-vlm** (default `mlx-community/Qwen2.5-VL-7B-Instruct-4bit`).
   `/model` can switch per-read; any downloaded MLX chat model works.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
-  via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in reading voices +
-  clone-condition voices + optional LoRA fine-tuning. English-best.
+  via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in
+  reading voices + clone-condition voices + optional LoRA fine-tuning. English-best.
 - **Server**: FastAPI + WebSocket (`/ws`) for live reads, plus a small REST
   surface (config / models / read-library). Two clients: the terminal CLI (the
   sole `/ws` consumer) and the web dashboard (REST + static, served at `/`).
@@ -79,9 +79,9 @@ readback/
 │                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
-├── tests/                     # 38 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
+├── tests/                     # 44 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
 │                              # silence-tidy, fade-out, extract scrub, library + cache, think-stripper,
-│                              # tones, map-reduce batching. See docs/TESTS.md for the full catalogue.
+│                              # tones, map-reduce batching, summary trim. See docs/TESTS.md for the catalogue.
 │                              # Config in pyproject.toml; runnable on Linux (requirements-pi.txt subset).
 ├── .github/workflows/
 │   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10 + 3.12 on Ubuntu;
@@ -233,20 +233,40 @@ readback/
   special-casing; long scans are map-reduced by `summarize_article`, not truncated).
   Progress fires `reading page N / M` via the existing `phase` WS channel.
 - **Tones** (`tones.py`): a `Tone` bundles a summary framing prompt + a CSM
-  delivery `temperature`. `classify_source(src)` → `"book"` (image / folder / glob)
+  *base* delivery `temperature` (per-chunk `_expressive_temperature` in
+  `speak.py` nudges it around this base — see Chunk + synth below).
+  `classify_source(src)` → `"book"` (image / folder / glob)
   or `"article"` (URL); `tone_for(kind)` → `BOOK` (measured, **0.6**, opens by
   naming the chapter/topic) or `ARTICLE` (livelier explainer, **0.8**). Auto,
   server-side, invisible to the CLI — **no `/tone` override or config yet** (room
-  for a 3rd tone). Both `summary_system` prompts carry a **hard ~250-word
+  for a 3rd tone). Both `summary_system` prompts carry a **hard 250-word
   (10–15 sentence) length ceiling** so the spoken summary stays a briefing, not a
-  retelling (paired with `oneshot`'s `max_tokens` bound). ⚠ Tone shifts
-  *delivery temperature*, NOT the voice — the user's
+  retelling (paired with `oneshot`'s `max_tokens` bound). ⚠ The ceiling alone let
+  the model pad short sources with generic, ungrounded wrap-up sentences to
+  approach 250 words regardless of how little the source actually said —
+  `_summarize_once` (`summarize.py`) now spells out the source's **word count**
+  in the user prompt, and both prompts explicitly frame 250 as a ceiling to
+  reserve for long sources, targeting roughly half the source's word count
+  otherwise; forbids wrap-up sentences not grounded in a specific source fact,
+  tells the model to skip the source's own housekeeping (acknowledgements,
+  thanks, calls to action — faithful but zero-information for a listener),
+  and asks for natural spoken rhythm (varied sentence length, emphasis on a
+  genuinely notable point) instead of a flat, even-register list of facts.
+  The shared length policy lives ONCE, in `_LENGTH_RULES` (+ `_PLAIN_PROSE_RULE`),
+  `.format`-ed into both prompts — edit it there, not in the prompt bodies. The
+  ceiling itself is `SUMMARY_WORD_CEILING` (250), exported because the prompt is
+  only advisory: `summarize_article` **hard-enforces it post-hoc** with a
+  sentence-boundary trim (`_trim_to_word_ceiling` — the model measured 313 words
+  from a 3,446-word source on prompt alone).
+  Tone shifts *delivery temperature*, NOT the voice — the user's
   `/voice` is untouched. Book sources also take their **title from the first ~3 OCR
   lines** (`_book_title_from_text`), which the BOOK prompt then leads with.
 - **Summarize** (`summarize.py`): short body (≤ `reader.summary_max_chars`, default
-  16000) → one `oneshot` with the spoken-explanation prompt (`_summarize_once`).
-  The framing prompt is the tone's `system` (passed by the server; defaults to the
-  article tone).
+  **60000** — Qwen3.5-9B's 262K-token context comfortably single-passes articles
+  up to this size; the old 16000 default forced most long-form articles through
+  map-reduce for no reason) → one `oneshot` with the spoken-explanation prompt
+  (`_summarize_once`). The framing prompt is the tone's `system` (passed by the
+  server; defaults to the article tone).
   Longer input (book scans) → **map-reduce** (`_map_reduce`): `_batches` packs the
   text into ≤`max_chars` batches (paragraph → sentence → hard-cut), each condensed
   with `_MAP_SYSTEM`, the digests joined and reduced via `_summarize_once`;
@@ -254,16 +274,52 @@ readback/
   old hard truncation that silently dropped everything past ~10-12 pages. Optional
   `progress(done, total)` fires per batch in the map phase (server → `summarizing
   section N / M`). Returns the article text unchanged if the LLM produced nothing.
+  ⚠ The **original source's word count rides through map-reduce** as
+  `source_words` — the reduce step's `body` is the compressed digests, and
+  anchoring the prompt's length target to *their* count mis-calibrates exactly
+  the long inputs map-reduce exists for. Non-empty summaries are then clipped by
+  `_trim_to_word_ceiling` (sentence-boundary cut at `SUMMARY_WORD_CEILING`,
+  always keeps ≥1 sentence) — the code-level backstop for the prompt's HARD
+  LIMIT, which also caps synthesis time (every overshoot word is paid for again
+  in TTS).
 - **Chunk + synth** (`speak.py`):
-  - `chunk_text` — paragraph-respecting, sentence-aware merge up to `_MAX_CHARS`
-    (400; was 280 — fewer chunks = fewer CSM prefills = faster reads; see
-    speed-vs-prosody comment in `speak.py`); over-long single sentences split on
-    commas; sub-`_MIN_CHARS` (8) fragments stitched onto neighbors.
+  - `chunk_text` — paragraph-respecting, sentence-aware merge; **each chunk's cap
+    is randomized** (`_next_chunk_cap`) between `_MIN_CHUNK_CHARS` (**280**) and
+    `_MAX_CHARS` (**400**) instead of always hitting the same fixed cap — a
+    uniform cap gives every chunk the same length, which reads with a
+    mechanical, same-every-time breath cadence; randomizing it per chunk (same
+    input text produces a different chunk count/boundaries run to run — verified)
+    varies pacing AND gives `_expressive_temperature` below more chances to land
+    a short cap on a single sentence instead of merging it with a
+    differently-toned neighbor. ⚠ **Chunk count tracks the band's mean** — the
+    earlier [120, 200] band measured **2.5-3x** the chunks (= prefills = time) of
+    fixed 400, which is why the band sits at the fast end; randomization itself
+    adds ~zero chunks vs a fixed cap of the same size (see the guide in
+    `config.yaml`). The over-long-sentence safety net (comma split, then a
+    space-level `_hard_split` for comma-free runs) measures against the fixed
+    `_MAX_CHARS`, not the random per-chunk cap. Sub-`_MIN_CHARS` (8) fragments
+    are stitched onto a neighbor — mid-paragraph they're carried into the next
+    piece (⚠ never silently dropped; a low random cap made drops reachable —
+    "Wow!" was lost in ~21% of runs pre-fix, `test_short_fragment_is_never_dropped`
+    guards it).
   - `_tidy_silence` — ⚠ **this is what removes the halting feel.** CSM, conditioned
     on the casual/disfluent Sesame prompt, emits long mid-utterance pauses;
     `_tidy_silence` trims leading/trailing silence (−40 dB threshold) and caps any
     internal silent run to `max_pause_ms` (300). Model-agnostic post-processing.
-  - `synthesize_article` — synth each chunk, tidy, fade-out tail, join with
+  - `_expressive_temperature` — ⚠ **the only expression-varies-with-content knob
+    CSM exposes.** CSM has no direct emotion/prosody API; sampling temperature
+    (more variation in pitch/pacing at higher values) is the one delivery lever
+    it has, so this nudges the tone's *base* temperature per chunk from its
+    punctuation: `!` → +0.08 (emphatic), `?` → +0.04 (questioning), ≥3 commas and
+    no `!`/`?` → −0.03 (dense/measured), clamped to `[0.55, 0.95]` (below ~0.55 a
+    short clone reference destabilizes). Granularity is **per chunk, not per
+    sentence** — at the [280, 400] band a chunk usually spans a few sentences and
+    gets whichever punctuation rule matches first; finer granularity means a
+    lower band and 2.5-3x the synthesis time (see the speed/quality guide in
+    `config.yaml`).
+  - `synthesize_article` — synth each chunk (at its `_expressive_temperature`,
+    when `base_temperature` is passed — the server always passes the reading
+    tone's temperature), tidy, fade-out tail, join with
     `reader.gap_sec` (0.18 s) gaps; `progress`/`should_stop` hooks; a chunk that
     throws is skipped, not fatal. **Degenerate-chunk guard:** if `_tidy_silence`
     returns empty (all silence), synthesis is retried once before dropping the chunk.
@@ -279,9 +335,10 @@ readback/
 
 - **Engine: `csm-mlx`** (`senstella/csm-1b-mlx`, `ckpt.safetensors`). float32 @
   24 kHz, cast to **bf16** by default (`cfg.precision`: `bf16`/`fp16`/`fp32`).
-  bf16 is ~6% faster than fp32 with no audible quality loss; fp32 is max
-  fidelity (revert to it if clone voices sound off). `_make_sampler` caches
-  per `(temperature, top_k)` to avoid recreation per chunk.
+  bf16 is ~6% faster than fp32 with no audible quality loss at normal
+  listening; switch to `fp32` for max fidelity if bf16 ever sounds off on a
+  clone voice. `_make_sampler` caches per
+  `(temperature, top_k)` to avoid recreation per chunk.
 - **MLX single-thread:** `ThreadPoolExecutor(max_workers=1)` owns load + all
   synth. `_impl` methods run ON that thread and must never re-submit. Never call
   `mx` ops or the engine's `_impl` from another thread.
@@ -408,7 +465,8 @@ readback/
   summary recommendation, switches the summary LLM per-read), `/vision` (same
   flow filtered to **vision** models — switches the image/book OCR model
   per-read; `handlePickModel(kind)` + `ModelList kind` serve both, no
-  recommendation marker for vision), `/library` (alias `/lib` —
+  recommendation marker for vision), `/speed [x]` (playback rate 0.5–2,
+  persisted; no server involvement — see Playback speed below), `/library` (alias `/lib` —
   `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, `space` to
   preview inline (plays audio without leaving the library; shows `♫` + elapsed;
   space again stops), Enter to open the full player, `d` twice to delete),
@@ -425,6 +483,14 @@ readback/
   routed `/model <hf-id>` to the read pipeline. Absolute paths (`/Users/…`),
   globs (`*`/`?`), and tilde paths (`~/…`) have a non-command first token and
   route to the server as local sources.
+- **Playback speed** (`player.ts` `setRate`, `/speed` + `+`/`-` in the player,
+  0.5–2× step 0.1): `afplay -r RATE -q 1` (high-quality **pitch-preserving**
+  rate scaling — CSM has no speed control, so pace is playback-side). ⚠ `elapsed`
+  tracks **audio position**, advancing at `rate ×` wall time — seek slices and
+  the synced transcript depend on this; don't revert the timer to plain wall
+  clock. A mid-play rate change restarts afplay at the current position via the
+  seek-slice mechanism (debounced like seek). Rate shows next to the progress
+  bar when ≠ 1×; persists in prefs (`speed`).
 - **Playback = `afplay`** (macOS-only): pause **SIGKILLs** the afplay process
   and records the elapsed position; resume restarts afplay from that position via
   the same WAV-slice mechanism seek uses (`restartAt`). ⚠ The old
@@ -461,7 +527,7 @@ readback/
   runtime `DEV` check the bundler can't eliminate. The binary is named
   `readback-cli` (not `readback`) so the server-lookup fallback
   `Bun.which("readback")` can't spawn the CLI itself.
-- **Prefs** (voice/mode/model/visionModel) persist to `~/.readback/cli.json`. Theme = the
+- **Prefs** (voice/mode/model/visionModel/speed) persist to `~/.readback/cli.json`. Theme = the
   Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel —
   inherited from the deleted web UI)
   plus CLI-only fit colors (#5dd17a green / #e6c35a yellow, `/model` list only)
@@ -530,7 +596,8 @@ readback/
 - **Summary mode has no first-token streaming.** Summary is a single `oneshot`
   call — the whole summary is produced, then synthesized. (Full mode skips the
   LLM entirely.)
-- **Speed has no effect.** `tts.csm.speed` is inert — CSM has no speed control.
+- **`tts.csm.speed` has no effect.** It's inert — CSM has no speed control.
+  Pace is playback-side: the CLI's `/speed` (afplay `-r`, pitch-preserving).
 - **Clone sounds garbled.** Almost always a `ref_text` that doesn't match the
   clip, or a too-short reference at low temperature. Fix the transcript / use a
   5–8 s clip / raise temperature toward 0.6–0.8.
@@ -561,13 +628,19 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v4.1.0** — audio quality + performance. Read cache skips the entire
-pipeline on re-reads (keyed by url/mode/voice/llm_model). Degenerate-chunk
-guard retries all-silence synthesis once. Light crossfade (100 ms fade-out) at
-chunk joins. New `llm_model` column in the reads table (auto-migrated).
+Current: **v4.2.0** — summary quality + delivery + CLI playback speed. Summary
+mode no longer pads short articles with invented filler (word-count anchor +
+code-enforced 250-word ceiling trim); map-reduce's length anchor now tracks
+the original source, not the compressed digests; CSM delivery temperature
+nudges per chunk from punctuation (`_expressive_temperature`); chunk
+boundaries randomize within a fast [280, 400]-char band instead of a fixed
+cap; `summary_max_chars` raised 16K→60K to skip needless map-reduce; CLI
+gained a playback speed controller (`/speed` + `+`/`-` in the player,
+pitch-preserving, persisted).
 
-Previously: v4.0.0 — full MLX LLM stack (Ollama removed); v3.0.0–v3.7.0 (see
-memory `version-history` for full changelog).
+Previously: v4.1.0 — audio quality + performance (read cache, degenerate-chunk
+guard, chunk-join crossfade, `llm_model` column); v4.0.0 — full MLX LLM stack
+(Ollama removed); v3.0.0–v3.7.0 (see memory `version-history` for full changelog).
 Set in `pyproject.toml`, `src/readback/__init__.py`,
 `src/cli/package.json`, and `src/dashboard/package.json` — bump all four when
 releasing. The standalone CLI binary needs `src/cli/install.sh` re-run to pick

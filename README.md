@@ -192,7 +192,7 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `reader.default_mode` | `full` (verbatim) or `summary` (LLM) | `full` |
 | `reader.output_dir` | Where generated WAVs are written/served (a `readback-audio-db/` folder beside the repo) | `../readback-audio-db/audio` |
 | `reader.gap_sec` | Silence inserted between synthesized chunks | `0.18` |
-| `reader.summary_max_chars` | Per-pass chunk size for Summary mode — longer inputs (book scans) are map-reduced across batches of this size, not truncated | `16000` |
+| `reader.summary_max_chars` | Per-pass chunk size for Summary mode — longer inputs (book scans) are map-reduced across batches of this size, not truncated | `60000` |
 | `reader.library_db` | SQLite library of past reads (powers the dashboard) | `../readback-audio-db/library.db` |
 
 Audio + library DB default to a **`readback-audio-db/`** folder beside the repo. Point `output_dir` / `library_db` anywhere (absolute or `~` both work).

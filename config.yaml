@@ -23,7 +23,7 @@ tts:
     speaker: "codeword"
     # Precision — speed vs fidelity:
     #   bf16 — ~6% faster than fp32, native on Apple Silicon, no audible quality
-    #          loss at normal listening. Recommended default.
+    #          loss at normal listening. Current default.
     #   fp32 — max fidelity (RTF ~0.72); use if you hear artifacts on a clone voice.
     #   fp16 — slightly faster than bf16, narrower dynamic range — not recommended.
     precision: "bf16"
@@ -48,16 +48,24 @@ tts:
     # ── Synthesis speed vs quality guide ──
     #
     # Three knobs control the speed/quality tradeoff. Each chunk pays a fixed
-    # CSM reference-prefill cost (~1–2 s), so fewer chunks = faster reads.
+    # CSM reference-prefill cost (~1–2 s), so fewer chunks = faster reads — and
+    # chunk count tracks the cap band's MEAN, so a low band is expensive: a
+    # [120, 200] band measured 2.5-3x the chunks (and prefills) of 400 for the
+    # same text. Smaller chunks do give the per-chunk expressive-temperature
+    # nudge (speak.py's _expressive_temperature) finer granularity, but the
+    # time cost dominates for Full-mode reads.
     #
-    #   Preset       precision   _MAX_CHARS (speak.py)   Notes
+    #   Preset       precision   chunk cap (speak.py)     Notes
     #   ─────────    ─────────   ────────────────────     ─────
-    #   Fast         bf16        400                      current default; ~30% fewer chunks
+    #   Current      bf16        randomized [280, 400]    fast (near the fixed-400 chunk
+    #                                                      count) + varied breath cadence
     #   Balanced     bf16        280                      more natural sentence breaks
-    #   Max quality  fp32        200                      best intonation, ~2× slower
+    #   Max prosody  bf16        randomized [120, 200]    finest expression granularity,
+    #                                                      2.5-3x the chunks — slow
+    #   Max fidelity fp32        200                      only if bf16 sounds off on a
+    #                                                      clone voice, ~2× vs Current
     #
-    # To revert to max quality: set precision: "fp32" above, and change
-    # _MAX_CHARS to 200 in src/readback/pipeline/speak.py.
+    # The band is [_MIN_CHUNK_CHARS, _MAX_CHARS] in src/readback/pipeline/speak.py.
 
 reader:
   # Generated WAVs are written here and served for playback + download. Kept
@@ -67,4 +75,7 @@ reader:
   output_dir: "../readback-audio-db/audio"   # sibling of the repo (resolved from here)
   default_mode: "full"               # "full" (verbatim) or "summary" (LLM)
   gap_sec: 0.18                      # silence between (trimmed) chunks
-  summary_max_chars: 16000           # cap article text fed to the LLM in summary mode
+  summary_max_chars: 60000           # cap article text fed to the LLM in one pass before
+                                      # map-reducing (Qwen3.5-9B has a 262K-token context —
+                                      # 60K chars/~15K tokens leaves it single-passing the
+                                      # vast majority of articles instead of map-reducing)

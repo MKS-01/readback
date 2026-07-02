@@ -6,7 +6,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import type { ServerHandle } from "./server";
 import { ReadbackSocket, type DoneMsg, type ServerMsg } from "./ws";
 import * as player from "./player";
-import type { PlayerSnapshot } from "./player";
+import { MIN_RATE, MAX_RATE, type PlayerSnapshot } from "./player";
 import { savePrefs, type Prefs } from "./prefs";
 import { DIM, RED } from "./theme";
 import { Header } from "./components/Header";
@@ -92,7 +92,7 @@ function reducer(state: State, action: Action): State {
         result: action.result,
         wavPath: action.wavPath,
         showTranscript: false,
-        player: { state: "playing", elapsed: 0 },
+        player: { ...state.player, state: "playing", elapsed: 0 },
       };
     case "error":
       return { ...state, screen: "input", error: action.message, notice: null, modelList: null };
@@ -163,7 +163,7 @@ function reducer(state: State, action: Action): State {
 // Recognized slash commands — keep in sync with handleCommand's switch. Used to
 // tell a command (`/model …`) from a local source path (`/Users/…`) at submit.
 const KNOWN_COMMANDS = new Set([
-  "help", "quit", "exit", "mode", "voice", "model", "vision", "library", "lib",
+  "help", "quit", "exit", "mode", "voice", "model", "vision", "library", "lib", "speed",
 ]);
 
 const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -221,7 +221,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     progress: null,
     result: null,
     wavPath: "",
-    player: { state: "stopped" as const, elapsed: 0 },
+    player: { state: "stopped" as const, elapsed: 0, rate: prefs.speed ?? 1 },
     showTranscript: false,
     voice: prefs.voice && voiceIds.includes(prefs.voice) ? prefs.voice : cfg.voice,
     mode: prefs.mode ?? cfg.default_mode,
@@ -270,6 +270,7 @@ export function App({ handle, prefs, onQuit }: Props) {
     sockRef.current = sock;
     sock.connect().catch(() => dispatch({ type: "error", message: "could not connect to /ws" }));
     player.onPlayerChange((snap) => dispatch({ type: "player", snap }));
+    if (prefs.speed) player.setRate(prefs.speed);
     return () => {
       player.onPlayerChange(null);
       sock.close();
@@ -291,7 +292,14 @@ export function App({ handle, prefs, onQuit }: Props) {
     mode: "full" | "summary",
     model: string,
     visionModel: string = stateRef.current.visionModel,
-  ) => savePrefs({ voice, mode, model, visionModel });
+  ) => savePrefs({ voice, mode, model, visionModel, speed: player.getRate() });
+
+  // Player speed controller (+/- in the player, /speed <x> on the input screen).
+  const applySpeed = (r: number) => {
+    player.setRate(r);
+    const s = stateRef.current;
+    savePrefs({ voice: s.voice, mode: s.mode, model: s.model, visionModel: s.visionModel, speed: player.getRate() });
+  };
 
   const fetchModels = async (): Promise<ModelsResp> => {
     const res = await fetch(handle.base + "/api/models");
@@ -414,6 +422,20 @@ export function App({ handle, prefs, onQuit }: Props) {
       case "lib":
         openLibrary();
         break;
+      case "speed": {
+        if (!arg) {
+          dispatch({ type: "notice", text: `speed is ${player.getRate()}× — /speed 0.5–2 (also +/- in the player)` });
+          break;
+        }
+        const r = Number(arg.replace(/x$/i, ""));
+        if (!Number.isFinite(r) || r < MIN_RATE || r > MAX_RATE) {
+          dispatch({ type: "error", message: `speed must be ${MIN_RATE}–${MAX_RATE} (e.g. /speed 1.2)` });
+          break;
+        }
+        applySpeed(r);
+        dispatch({ type: "notice", text: `speed → ${player.getRate()}×` });
+        break;
+      }
       default:
         dispatch({ type: "error", message: `unknown command /${cmd} — /help` });
     }
@@ -510,6 +532,7 @@ export function App({ handle, prefs, onQuit }: Props) {
             }}
             onToggleTranscript={() => dispatch({ type: "toggleTranscript" })}
             onSeek={(delta) => player.seek(delta)}
+            onSpeed={(delta) => applySpeed(player.getRate() + delta)}
             onBack={() => {
               player.stop();
               dispatch({ type: "back" });
