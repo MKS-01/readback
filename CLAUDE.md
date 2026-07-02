@@ -628,13 +628,19 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v4.1.0** — audio quality + performance. Read cache skips the entire
-pipeline on re-reads (keyed by url/mode/voice/llm_model). Degenerate-chunk
-guard retries all-silence synthesis once. Light crossfade (100 ms fade-out) at
-chunk joins. New `llm_model` column in the reads table (auto-migrated).
+Current: **v4.2.0** — summary quality + delivery + CLI playback speed. Summary
+mode no longer pads short articles with invented filler (word-count anchor +
+code-enforced 250-word ceiling trim); map-reduce's length anchor now tracks
+the original source, not the compressed digests; CSM delivery temperature
+nudges per chunk from punctuation (`_expressive_temperature`); chunk
+boundaries randomize within a fast [280, 400]-char band instead of a fixed
+cap; `summary_max_chars` raised 16K→60K to skip needless map-reduce; CLI
+gained a playback speed controller (`/speed` + `+`/`-` in the player,
+pitch-preserving, persisted).
 
-Previously: v4.0.0 — full MLX LLM stack (Ollama removed); v3.0.0–v3.7.0 (see
-memory `version-history` for full changelog).
+Previously: v4.1.0 — audio quality + performance (read cache, degenerate-chunk
+guard, chunk-join crossfade, `llm_model` column); v4.0.0 — full MLX LLM stack
+(Ollama removed); v3.0.0–v3.7.0 (see memory `version-history` for full changelog).
 Set in `pyproject.toml`, `src/readback/__init__.py`,
 `src/cli/package.json`, and `src/dashboard/package.json` — bump all four when
 releasing. The standalone CLI binary needs `src/cli/install.sh` re-run to pick
