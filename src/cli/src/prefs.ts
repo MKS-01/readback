@@ -7,6 +7,7 @@ export interface Prefs {
   mode: "full" | "summary" | null;
   model: string | null;
   visionModel: string | null;
+  speed: number | null; // playback rate, 0.5–2 (afplay -r)
 }
 
 const PREFS_PATH = join(homedir(), ".readback", "cli.json");
@@ -20,12 +21,16 @@ export function loadPrefs(): Prefs {
         mode: raw.mode === "full" || raw.mode === "summary" ? raw.mode : null,
         model: typeof raw.model === "string" ? raw.model : null,
         visionModel: typeof raw.visionModel === "string" ? raw.visionModel : null,
+        speed:
+          typeof raw.speed === "number" && raw.speed >= 0.5 && raw.speed <= 2
+            ? raw.speed
+            : null,
       };
     }
   } catch {
     // corrupt prefs file — fall through to defaults
   }
-  return { voice: null, mode: null, model: null, visionModel: null };
+  return { voice: null, mode: null, model: null, visionModel: null, speed: null };
 }
 
 export function savePrefs(prefs: Prefs): void {

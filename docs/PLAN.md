@@ -6,6 +6,27 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-07-02 — CLI playback speed controller (/speed + player +/- keys)
+
+**Status: done** — branch `fix/summary-padding-short-articles`. User found the
+reading pace a bit slow. Measured the two most recent reads: the *speech* is
+170–187 wpm (normal-to-brisk) — the slowness is pauses (10–11% of runtime) and,
+fundamentally, taste. CSM has no speed control, so pace is a playback concern:
+added a speed controller to the CLI player on `afplay -r RATE -q 1`
+(high-quality pitch-preserving rate scaling). `+`/`-` in the player steps
+0.1× (0.5–2×, live — restarts afplay at the current position via the seek-slice
+mechanism); `/speed <x>` sets it from the input screen; the rate shows next to
+the progress bar when ≠1× and persists to `~/.readback/cli.json` (`speed`).
+⚠ `player.ts`'s `elapsed` now advances at `rate ×` wall time (audio position,
+not wall clock) so seek slices and the synced transcript stay aligned.
+
+**Verified** via tmux-driven CLI (drive-cli): `/speed` show + set + persist;
+`+`/`-` mid-play (afplay respawns with `-r 1.3`/`-r 1.1`, indicator updates);
+pause/resume/seek/transcript all correct at non-1× rates; clean quit, no
+orphaned afplay. `tsc --noEmit` clean; binary rebuilt.
+
+---
+
 ## 2026-07-02 — PR #21 review fixes: ceiling trim, word-count threading, fast chunk band, fragment drop
 
 **Status: done** — branch `fix/summary-padding-short-articles`. A multi-angle

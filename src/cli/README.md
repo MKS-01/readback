@@ -70,6 +70,7 @@ esc cancels a running read.
 | `/vision [name]` | List downloaded MLX vision models / set the image-OCR model (persisted) |
 | `/mode [full\|summary]` | Show / set the read mode (persisted) |
 | `/library` (or `/lib`) | Browse past reads — arrow keys, Enter to replay, `d` to delete |
+| `/speed [x]` | Show / set playback speed, 0.5–2 (persisted; also `+`/`-` in the player) |
 | `/help` | List commands |
 | `/quit` | Exit (or press `q` when the input field is empty) |
 
@@ -84,7 +85,7 @@ OCR model (no recommendation marker; OCR has no single "best").
   <img src="../../docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts" width="820">
 </p>
 
-Prefs (voice/mode/model/visionModel) persist to `~/.readback/cli.json`.
+Prefs (voice/mode/model/visionModel/speed) persist to `~/.readback/cli.json`.
 
 ### Library
 
@@ -111,6 +112,7 @@ same machine, download into `~/.readback/cli-cache/` otherwise.
 |---|---|
 | `space` | Pause / resume (replays when finished) |
 | `←` / `→` | Seek back / forward 5 s |
+| `+` / `-` | Playback speed ±0.1× (0.5–2×, pitch preserved, persisted) |
 | `t` | Toggle transcript (Summary mode only) |
 | `q` / `esc` | Back to the URL input |
 
@@ -124,6 +126,11 @@ same machine, download into `~/.readback/cli-cache/` otherwise.
 - Pause/resume kills and restarts `afplay` at the saved position (via WAV
   slicing), so there's a brief (~50 ms) silence on resume. This replaced the
   old SIGSTOP/SIGCONT approach which caused audible buffer bleed.
+- **Speed** rides on `afplay -r` with high-quality pitch-preserving rate
+  scaling (`-q 1`) — CSM itself has no speed control, so pace is a playback
+  concern. The current rate shows next to the progress bar when it isn't 1×,
+  applies to library replays too, and changing it mid-play restarts at the
+  current position (same slice trick as seek).
 
 ## Caveats
 

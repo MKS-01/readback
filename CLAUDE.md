@@ -465,7 +465,8 @@ readback/
   summary recommendation, switches the summary LLM per-read), `/vision` (same
   flow filtered to **vision** models — switches the image/book OCR model
   per-read; `handlePickModel(kind)` + `ModelList kind` serve both, no
-  recommendation marker for vision), `/library` (alias `/lib` —
+  recommendation marker for vision), `/speed [x]` (playback rate 0.5–2,
+  persisted; no server involvement — see Playback speed below), `/library` (alias `/lib` —
   `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, `space` to
   preview inline (plays audio without leaving the library; shows `♫` + elapsed;
   space again stops), Enter to open the full player, `d` twice to delete),
@@ -482,6 +483,14 @@ readback/
   routed `/model <hf-id>` to the read pipeline. Absolute paths (`/Users/…`),
   globs (`*`/`?`), and tilde paths (`~/…`) have a non-command first token and
   route to the server as local sources.
+- **Playback speed** (`player.ts` `setRate`, `/speed` + `+`/`-` in the player,
+  0.5–2× step 0.1): `afplay -r RATE -q 1` (high-quality **pitch-preserving**
+  rate scaling — CSM has no speed control, so pace is playback-side). ⚠ `elapsed`
+  tracks **audio position**, advancing at `rate ×` wall time — seek slices and
+  the synced transcript depend on this; don't revert the timer to plain wall
+  clock. A mid-play rate change restarts afplay at the current position via the
+  seek-slice mechanism (debounced like seek). Rate shows next to the progress
+  bar when ≠ 1×; persists in prefs (`speed`).
 - **Playback = `afplay`** (macOS-only): pause **SIGKILLs** the afplay process
   and records the elapsed position; resume restarts afplay from that position via
   the same WAV-slice mechanism seek uses (`restartAt`). ⚠ The old
@@ -518,7 +527,7 @@ readback/
   runtime `DEV` check the bundler can't eliminate. The binary is named
   `readback-cli` (not `readback`) so the server-lookup fallback
   `Bun.which("readback")` can't spawn the CLI itself.
-- **Prefs** (voice/mode/model/visionModel) persist to `~/.readback/cli.json`. Theme = the
+- **Prefs** (voice/mode/model/visionModel/speed) persist to `~/.readback/cli.json`. Theme = the
   Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel —
   inherited from the deleted web UI)
   plus CLI-only fit colors (#5dd17a green / #e6c35a yellow, `/model` list only)
@@ -587,7 +596,8 @@ readback/
 - **Summary mode has no first-token streaming.** Summary is a single `oneshot`
   call — the whole summary is produced, then synthesized. (Full mode skips the
   LLM entirely.)
-- **Speed has no effect.** `tts.csm.speed` is inert — CSM has no speed control.
+- **`tts.csm.speed` has no effect.** It's inert — CSM has no speed control.
+  Pace is playback-side: the CLI's `/speed` (afplay `-r`, pitch-preserving).
 - **Clone sounds garbled.** Almost always a `ref_text` that doesn't match the
   clip, or a too-short reference at low temperature. Fix the transcript / use a
   5–8 s clip / raise temperature toward 0.6–0.8.

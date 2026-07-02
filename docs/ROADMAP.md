@@ -11,6 +11,10 @@ intentionally lower priority.
 
 ## Recently shipped
 
+- **CLI playback speed** — `/speed <x>` + live `+`/`-` in the player (0.5–2×,
+  0.1 steps, persisted). Pitch-preserving via `afplay -r -q 1`; CSM has no
+  native speed control, so pace lives at playback. Works on library replays;
+  transcript sync and seek stay aligned at any rate.
 - **Content-driven expression + summary content fixes** — Summary mode no
   longer pads short articles with invented, ungrounded filler (word-count
   anchor in `_summarize_once`); CSM delivery temperature now nudges per chunk
