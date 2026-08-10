@@ -34,7 +34,7 @@ README/`docs/` and let the **Dive in** band link to it.
 | Section | Update when… |
 |---|---|
 | `<head>` `og:` meta + `<title>`/description | the one-line pitch changed, or a better `og:image` exists (`media/<x>.png`) |
-| **hero** (kicker, tagline, pitch, CTA) | the core value prop changed (copy is mined from `docs/JOURNEY.md` — see CLAUDE/memory, not generic) |
+| **hero** (kicker, tagline, pitch, CTA) | the core value prop changed (see CLAUDE.md/memory, not generic) |
 | **sample player** (`#player`) | the sample WAV changed (`media/sample-read.wav`) |
 | **screenshot stepper** (`#shots`) | a new screenshot is worth showing — see §3 |
 | **Features** (`.feat-term` — a `readback --features` terminal listing) | a headline capability was added/removed |

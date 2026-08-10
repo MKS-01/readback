@@ -26,8 +26,7 @@
   <a href="#voices">Voices</a> ·
   <a href="#configuration">Config</a> ·
   <a href="#pi-deployment">Pi deploy</a> ·
-  <a href="#design-system">Design system</a> ·
-  <a href="docs/ROADMAP.md">Roadmap</a>
+  <a href="#design-system">Design system</a>
 </p>
 
 <p align="center">
@@ -258,8 +257,7 @@ Canonical tokens live in `src/design-system/tokens/` — the dashboard imports t
 |---|---|
 | [`docs/SETUP.md`](docs/SETUP.md) | Setup, flags, troubleshooting |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Pipeline, concurrency, WS protocol |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | What's planned and recently shipped |
-| [`docs/JOURNEY.md`](docs/JOURNEY.md) | Devlog — built agent-first with Claude Code |
+| [`docs/PLAN.md`](docs/PLAN.md) | Planning history |
 | [`src/cli/README.md`](src/cli/README.md) | Terminal client internals |
 | [`src/dashboard/README.md`](src/dashboard/README.md) | Web dashboard (Vue 3) |
 | [`src/finetune/README.md`](src/finetune/README.md) | LoRA voice fine-tuning |
@@ -271,5 +269,5 @@ Canonical tokens live in `src/design-system/tokens/` — the dashboard imports t
 MIT — see [LICENSE](LICENSE).
 
 <p align="center">
-  <sub>Built agent-first with <a href="https://claude.ai/code">Claude Code</a> — <a href="docs/JOURNEY.md">read the devlog →</a></sub>
+  <sub>Built agent-first with <a href="https://claude.ai/code">Claude Code</a></sub>
 </p>

@@ -81,7 +81,7 @@ readback/
 ├── README.md                  # user-facing (GitHub landing; stays at root)
 ├── tests/                     # 44 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
 │                              # silence-tidy, fade-out, extract scrub, library + cache, think-stripper,
-│                              # tones, map-reduce batching, summary trim. See docs/TESTS.md for the catalogue.
+│                              # tones, map-reduce batching, summary trim.
 │                              # Config in pyproject.toml; runnable on Linux (requirements-pi.txt subset).
 ├── .github/workflows/
 │   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10 + 3.12 on Ubuntu;
@@ -97,9 +97,6 @@ readback/
 │   ├── ARCHITECTURE.md        # system-level view
 │   ├── SETUP.md               # end-to-end setup guide
 │   ├── PLAN.md                # planning history (newest entry on top)
-│   ├── ROADMAP.md             # roadmap — planned + recently shipped (single open-item tracker)
-│   ├── TESTS.md               # test catalogue — every case grouped by module, what it guards
-│   ├── JOURNEY.md             # agent-first devlog (scaffold; user fills prose)
 │   └── media/                 # README screenshots + sample WAV + wordmark.png
 │                              # (brand banner; regen: make_wordmark.py — keep in
 │                              # sync with the CLI banner in Header.tsx)
