@@ -8,7 +8,31 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ## 2026-08-12 — Batched CSM synthesis (~2x); chunk band change tried and reverted
 
-**Status: done** — branch `optimisation-2`. Profiling a full read showed
+**Status: PARKED — not shipped, retry in a later session.** Branch
+`perf/batched-synthesis` (2 commits, unpushed, based on `optimisation-2`). The
+speedup works and is verified, but **audio quality was judged not up to the
+mark** on real reads and the user parked it. Do NOT merge without redoing the
+listening check.
+
+⚠ **Open symptom: the voice sounds MUFFLED.** Not yet explained, and measurement
+says it is *not* the batching: mean spectral centroid and energy above 4 kHz came
+out batched 1160 Hz / 7.05%, sequential 1108 Hz / 5.46%, reference-quality read
+1158 Hz / 6.49% — i.e. batched is marginally *brighter* than sequential and
+matches the good reference. So muffling most likely predates this branch and
+lives in the VOICE path, not the batch path. Next leads, in order:
+  1. the `codeword` clone reference itself (`src/voice/voice_codeword.wav` — a
+     12 s CSM-bootstrapped clip, i.e. a copy of a copy) — try a clean human clip
+     or a built-in reading voice (`conversational_a`) as a control;
+  2. `tts.csm.precision` — bf16 vs fp32 (fp32 is the fidelity setting; ~2x slower);
+  3. `ref_max_sec` / reference length effects on timbre;
+  4. `_peak_normalize` (0.95 peak) interacting with quiet clone references.
+  A/B the SAME text on `conversational_a` vs `codeword` first — if only the clone
+  is muffled, it's the reference clip, and none of this is a synthesis bug.
+
+**What is already done and verified on the branch** (keep, don't redo): batched
+generation with per-row temperature and per-row frame bounds, evened batch
+splits, length bucketing, sequential fallback, 55 passing tests, and the two
+reverts/fixes below. Profiling a full read showed
 synthesis was **77%** of wall time (fetch 3.8 s · summarize 15.2 s ·
 synthesize 65.1 s, for 93 s of audio) at a flat RTF ~0.67 regardless of chunk
 size.
