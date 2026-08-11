@@ -6,7 +6,7 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
-## 2026-08-12 — Batched CSM synthesis (2.7x) + chunk band → [120, 200]
+## 2026-08-12 — Batched CSM synthesis (~2x); chunk band change tried and reverted
 
 **Status: done** — branch `optimisation-2`. Profiling a full read showed
 synthesis was **77%** of wall time (fetch 3.8 s · summarize 15.2 s ·
@@ -32,16 +32,29 @@ length: pads stay small and rows finish together) + `_batches`, with the
 degenerate-chunk retry batched and a **fallback to the old sequential loop** if
 the batch path raises. New `tts.csm.batch_size` (default 8).
 
-Chunk band **[280, 400] → [120, 200]**. The old comment argued against this on
-prefill cost; that reasoning was measured and is wrong now — the reference
-prefill is nearly free (same text with the 12.3 s reference: 7.3 s vs 7.9 s with
-empty context) and total frames track total *audio*, not chunk count. On real
-prose the band costs +37% chunks (8 → 11 on a 93 s summary), which batching
-absorbs. It also retires a latent bug: at [280, 400] a 370-char chunk generated
-19.84 s against the 20 s `max_audio_length_ms` bound — clipped mid-sentence (the
-same text yields 21.84 s given room). At 200 chars the cap is unreachable.
+**The chunk band change was tried and REVERTED.** Batching makes small chunks
+cheap, so the band was narrowed [280, 400] → [120, 200] to give
+`_expressive_temperature` a per-sentence window instead of a per-paragraph one.
+On device it sounded worse — delivery shifted tone every sentence or two instead
+of settling ("audio is not stable, tone keeps changing") — so the band is back at
+[280, 400], the config behind the reference-quality reads. ⚠ Chunk size is a
+DELIVERY setting, not a speed setting; speed comes from `batch_size`, which
+doesn't change how the text is divided.
 
-Two findings worth keeping:
+Instead, `max_audio_length_ms` was raised **20 s → 30 s**. At [280, 400] a
+370-char chunk measured 19.84 s of audio against the 20 s bound — right at the
+edge of being clipped mid-sentence (the same text yields 21.84 s given room).
+The bound is a runaway-generation guard, and generation stops at EOS, so a higher
+ceiling costs nothing (measured identical wall time at 20 s vs 60 s caps).
+
+⚠ **Per-row generation bounds are load-bearing.** The first version took a
+single batch-wide frame budget (the max over rows), so a SHORT row that never
+emitted EOS kept generating on the LONGEST row's budget and tailed off into
+babble — reported as "the ending is broken", and visible as a batch rendering
+13 s longer than the same text done sequentially. `frame_bounds()` now returns
+one bound per row, guarded by `test_frame_bounds_are_per_row_not_batch_wide`.
+
+Two more findings worth keeping:
 - ⚠ **A runty tail batch wastes the win.** A batch's cost is nearly flat in
   batch size, so 11 chunks split 8+3 measured RTF 0.33 where an evened 6+5 gave
   **0.26**. `_batches` now evens the groups out.
@@ -49,16 +62,24 @@ Two findings worth keeping:
   hits EOS, so one runaway row stalls the batch: 16 measured RTF 0.17 and 0.37
   on consecutive runs, where 8 measured 0.23 twice.
 
-**Verified.** 54 pytest pass (10 new, all pure-logic with a fake synth: document
+**Verified.** 55 pytest pass (11 new, all pure-logic with a fake synth: document
 order, per-chunk progress, cancel between batches, degenerate retry, per-row
-temperature, even batch splits, and both fallback paths). On device, same
-93 s summary: **66.7 s → 24.3 s** synthesis (RTF 0.70 → 0.26), with silence
-fraction 28.0% → 26.8% and ZCR 0.102 → 0.104 (i.e. unchanged). Padding worst
-case — a 3-char row batched with a 112-char row — produced proportionate audio
-for both. Live `/ws` reads: Wikipedia Fresnel lens **total 44.5 s vs the 84.1 s
-baseline** (synthesize 24.3 s), plus posts from claude.com/blog and
-android-developers.googleblog.com. Cancel stops after one batch (8/36 chunks,
-8.0 s) and keeps the partial audio.
+temperature, per-row frame bounds, even batch splits, and both fallback paths).
+On device at the shipped [280, 400] band, same summary: **61.3 s → 28.6 s**
+synthesis (RTF 0.65 → 0.25). Padding worst case — a 3-char row batched with a
+112-char row — produced proportionate audio for both. Live `/ws` reads:
+Wikipedia Fresnel lens **total 44.5 s vs the 84.1 s baseline**, plus posts from
+claude.com/blog and android-developers.googleblog.com. Cancel stops after one
+batch (8/36 chunks, 8.0 s) and keeps the partial audio. **Batched vs sequential
+output was judged by ear** and accepted; the band change was rejected the same
+way.
+
+⚠ **Automated audio-quality metrics failed here.** A drift script (per-chunk
+pitch sd, loudness sd, spectral centroid) scored a reference-quality read at
+23.0 Hz pitch sd and a read the user rejected at 22.4 Hz — i.e. it ranked the bad
+one better. It measures natural sentence-to-sentence variation, not delivery
+instability. Judge delivery changes BY EAR; use the numbers only to catch gross
+breakage (silence fraction, duration, ZCR).
 
 ⚠ **Benchmark gotchas discovered here**, both of which produced wrong numbers
 before being caught: (1) `chunk_text` splits on every `\n`, so a hard-wrapped

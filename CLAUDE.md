@@ -291,23 +291,27 @@ readback/
   in TTS).
 - **Chunk + synth** (`speak.py`):
   - `chunk_text` — paragraph-respecting, sentence-aware merge; **each chunk's cap
-    is randomized** (`_next_chunk_cap`) between `_MIN_CHUNK_CHARS` (**120**) and
-    `_MAX_CHARS` (**200**) instead of always hitting the same fixed cap — a
+    is randomized** (`_next_chunk_cap`) between `_MIN_CHUNK_CHARS` (**280**) and
+    `_MAX_CHARS` (**400**) instead of always hitting the same fixed cap — a
     uniform cap gives every chunk the same length, which reads with a
     mechanical, same-every-time breath cadence; randomizing it per chunk (same
     input text produces a different chunk count/boundaries run to run — verified)
     varies pacing AND gives `_expressive_temperature` below more chances to land
     a short cap on a single sentence instead of merging it with a
-    differently-toned neighbor. ⚠ The band moved DOWN from [280, 400] when
-    batched synthesis landed — the old comment here argued [120, 200] cost
-    "2.5-3x the prefills", but the reference prefill is nearly free (same text
-    WITH the 12.3 s reference: 7.3 s vs 7.9 s empty) and total frames track total
-    AUDIO, not chunk count. On real prose the band change is +37% chunks (8 → 11
-    on a 93 s summary), which batching absorbs: 23.3 s at [280,400] vs 24.3 s at
-    [120,200], both batch 8. ⚠ `chunk_text` splits on EVERY `\n`, so hard-wrapped
-    test fixtures produce one chunk per LINE and silently defeat band changes —
-    measure with real article prose (trafilatura emits paragraphs as single
-    lines). The over-long-sentence safety net (comma split, then a
+    differently-toned neighbor. ⚠ **DON'T narrow this band for "finer
+    expression".** It was tried — batching made small chunks cheap, so the band
+    was moved to [120, 200] to give `_expressive_temperature` a per-sentence
+    window. It sounded WORSE: delivery shifted tone every sentence or two instead
+    of settling ("audio is not stable, tone keeps changing"), and it was
+    reverted. Chunk size is a DELIVERY setting; speed comes from
+    `tts.csm.batch_size`, which doesn't change how text is divided.
+    ⚠ `chunk_text` splits on EVERY `\n`, so hard-wrapped test fixtures produce one
+    chunk per LINE and silently defeat band changes — measure with real article
+    prose (trafilatura emits paragraphs as single lines).
+    ⚠ Measured drift metrics (per-chunk pitch sd, loudness sd) did NOT separate
+    good reads from bad here — a reference-quality read scored 23.0 Hz sd vs 22.4
+    for a read the user rejected. Judge delivery changes BY EAR.
+    The over-long-sentence safety net (comma split, then a
     space-level `_hard_split` for comma-free runs) measures against the fixed
     `_MAX_CHARS`, not the random per-chunk cap. Sub-`_MIN_CHARS` (8) fragments
     are stitched onto a neighbor — mid-paragraph they're carried into the next
@@ -325,17 +329,18 @@ readback/
     punctuation: `!` → +0.08 (emphatic), `?` → +0.04 (questioning), ≥3 commas and
     no `!`/`?` → −0.03 (dense/measured), clamped to `[0.55, 0.95]` (below ~0.55 a
     short clone reference destabilizes). Granularity is **per chunk, not per
-    sentence**, but at the [120, 200] band a chunk is roughly one sentence, so the
-    matched punctuation rule usually describes the text it applies to (at the old
-    [280, 400] band a chunk spanned several sentences and buried a measured one
-    inside a livelier neighbour's window). ⚠ In the batched path each row carries
-    its own temperature via `_make_batch_sampler` — batching does NOT flatten
-    delivery. See the speed/quality guide in `config.yaml`.
+    sentence** — at the [280, 400] band a chunk spans a few sentences and gets
+    whichever punctuation rule matches first. ⚠ That coarseness is DELIBERATE:
+    making the window per-sentence (the [120, 200] band) shifted tone too often
+    and sounded unstable. ⚠ In the batched path each row carries its own
+    temperature via `_make_batch_sampler` — batching does NOT flatten delivery.
+    See the speed/quality guide in `config.yaml`.
   - `synthesize_article` — **batched by default** (`_synthesize_batched`): chunks
     go to `synth.synthesize_batch` in groups of `tts.csm.batch_size` (8), each
     row carrying its OWN `_expressive_temperature`, then tidy → fade-out tail →
-    join with `reader.gap_sec` (0.18 s) gaps. Measured **2.7x** on synthesis
-    (66.7 s → 24.3 s for the same 93 s summary). Falls back to the old
+    join with `reader.gap_sec` (0.18 s) gaps. Measured **~2x** on synthesis
+    at the shipped [280, 400] band (61.3 s → 28.6 s on the same summary), and it
+    does NOT change how the text is divided. Falls back to the old
     sequential loop when the engine has no `synthesize_batch`, `batch_size` is 1,
     or the batch path raises — so a csm-mlx upgrade degrades to slow, not broken.
     `progress` still fires once per chunk; `should_stop` is checked **per batch**

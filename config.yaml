@@ -62,18 +62,15 @@ tts:
     #   batch 1 — 51.6 ms → 1.55 s      batch 4 — 82.1 ms → 3.90 s
     #   batch 2 — 80.5 ms → 1.99 s      batch 8 — 84.8 ms → 7.55 s
     #
-    # i.e. 8x the work for 1.64x the time. Batching is therefore worth far more
-    # than any chunk-size tuning, and it INVERTED the old advice here: chunk
-    # count used to drive cost (a [120, 200] band was rejected as "2.5-3x the
-    # prefills"), but the reference prefill is nearly free (same text WITH the
-    # 12.3 s reference: 7.3 s, vs 7.9 s with empty context) and total frames
-    # track total AUDIO, not chunk count. So the band now sits at [120, 200] for
-    # finer expressive-temperature granularity.
+    # i.e. 8x the work for 1.64x the time. Batching is where the speed comes
+    # from — NOT chunk size. ⚠ Narrowing the chunk band to [120, 200] was tried
+    # (batching makes small chunks cheap) and REVERTED: it sounded unstable,
+    # shifting tone every sentence or two. Chunk size is a DELIVERY knob; leave
+    # it at [280, 400] and take speed from batch_size.
     #
-    # End-to-end on one real summary (93 s of audio), synthesis wall time:
-    #   [280,400] + batch 1 (the old default) — 66.7 s   RTF 0.70
-    #   [280,400] + batch 8                   — 23.3 s   RTF 0.24
-    #   [120,200] + batch 8 (current)         — 24.3 s   RTF 0.26
+    # End-to-end on one real summary, synthesis wall time at [280, 400]:
+    #   batch 1 (the old default) — 61.3 s   RTF 0.65
+    #   batch 8 (current)         — 28.6 s   RTF 0.25
     #
     # ⚠ Don't raise batch_size much past 8: the frame loop runs until EVERY row
     # in the batch hits EOS, so one runaway row stalls the whole batch. At 16 the
@@ -84,7 +81,7 @@ tts:
     #   Knob            Value                 Notes
     #   ─────────       ─────────             ─────
     #   batch_size      8                     the speed lever; 1 = sequential
-    #   chunk band      randomized [120, 200] finest expression granularity;
+    #   chunk band      randomized [280, 400] DELIVERY, not speed — don't narrow;
     #                                          [_MIN_CHUNK_CHARS, _MAX_CHARS] in
     #                                          src/readback/pipeline/speak.py
     #   precision       bf16                  fp32 only if bf16 sounds off on a

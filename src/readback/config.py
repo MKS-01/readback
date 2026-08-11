@@ -47,7 +47,14 @@ class CsmTTSConfig(BaseModel):
     top_k: int = 50
     # Per-sentence generation cap (ms). Bounds runaway generation if EOS never
     # fires; kept under CSM's 2048-token budget. 20 s is ample for one sentence.
-    max_audio_length_ms: int = 20000
+    # ⚠ Raised 20000 → 30000: this is a runaway-generation SAFETY bound, but at
+    # 20 s it was being hit by ordinary chunks and clipping them mid-sentence —
+    # a 370-char chunk measured 19.84 s of audio against the cap, where the same
+    # text yields 21.84 s given room. Chunks run up to _MAX_CHARS (400), so the
+    # bound has to clear that. Costs nothing: generation stops at EOS, so a
+    # higher ceiling is never reached by a well-behaved chunk (measured
+    # identical wall time at 20 s vs 60 s caps).
+    max_audio_length_ms: int = 30000
     # Voice reference prompt cap (seconds). CSM conditions every sentence on the
     # built-in Sesame prompt clip for the active voice — this is what keeps the
     # voice GOOD and CONSISTENT (empty context drifts + degrades). None/0 = full

@@ -77,6 +77,17 @@ def _max_ms_for(text: str, cap_ms: int) -> int:
     return min(cap_ms, max(3000, len(text) * 120))
 
 
+def frame_bounds(items: list[tuple[str, float]], cap_ms: int) -> list[int]:
+    """Per-row frame budget for a batch — one bound per (text, temperature) row.
+
+    ⚠ Must stay PER ROW. `_max_ms_for` scales the runaway-generation bound with
+    each chunk's own length; collapsing it to a single batch-wide max lets a
+    SHORT row that never emits EOS keep generating on the LONGEST row's budget,
+    which tails off into babble at the end of the audio.
+    """
+    return [int(_max_ms_for(text, cap_ms) / 80) for text, _ in items]
+
+
 def _to_numpy(audio) -> np.ndarray:
     """Coerce an mlx/np audio array to 1-D float32."""
     if audio is None:
@@ -390,11 +401,14 @@ class CsmEngine:
         B = len(items)
         temps = mx.array([[max(1e-4, float(t))] for _, t in items])
         sampler = self._make_batch_sampler(temps)
-        # Each row stops at its own EOS; the loop runs to the LONGEST row's bound.
-        max_frames = max(
-            int(_max_ms_for(text, self.cfg.max_audio_length_ms) / 80)
-            for text, _ in items
-        )
+        # ⚠ PER-ROW generation bound. `_max_ms_for` scales the runaway-generation
+        # cap with the chunk's own length, and that bound must stay per row: with
+        # a single batch-wide max, a SHORT row that fails to emit EOS keeps
+        # generating on the LONGEST row's budget and tails off into babble —
+        # heard as "the ending is broken", and visible as a batch rendering 13 s
+        # longer than the same text synthesized sequentially.
+        row_max = frame_bounds(items, self.cfg.max_audio_length_ms)
+        max_frames = max(row_max)
 
         model.eval()                            # csm-mlx's generate() does this
         cache = make_prompt_cache(model.backbone)
@@ -409,8 +423,8 @@ class CsmEngine:
             for b in range(B):
                 if done[b]:
                     continue
-                if zeros[b]:
-                    done[b] = True
+                if zeros[b] or len(frames[b]) >= row_max[b]:
+                    done[b] = True          # own EOS, or own length bound
                 else:
                     frames[b].append(sample[b:b + 1])
             if all(done):

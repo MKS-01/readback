@@ -15,32 +15,31 @@ import numpy as np
 log = logging.getLogger("readback.pipeline")
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
-# Cap chars per TTS call. ⚠ This band USED to sit at [280, 400] because chunk
-# count tracked prefill cost — at batch 1, [120, 200] measured 2.5-3x the chunks
-# and was rejected as too slow. **Batched synthesis inverted that** (see
-# CsmEngine.synthesize_batch): chunks now ride together in one frame loop, and
-# the total frame count is set by total AUDIO seconds, not by how the text is
-# divided. Two measurements back this up:
-#   - reference prefill is ~free: the same text synthesized WITH the 12.3 s
-#     reference context took 7.3 s vs 7.9 s with empty context.
-#   - per-frame cost barely moves with batch size (51.6 ms at 1 → 84.8 ms at 8).
-# So smaller chunks are now nearly free, and they buy real quality:
-# _expressive_temperature nudges the WHOLE chunk from whichever punctuation rule
-# matches first, so a 400-char chunk buries a measured sentence inside a livelier
-# neighbour's window. At 200 the window is roughly per-sentence.
+# Cap chars per TTS call.
 #
-# 200 also keeps every chunk clear of the engine's max_audio_length_ms bound: a
-# 370-char chunk measured 19.84 s of audio against the 20 s cap (i.e. clipped
-# mid-sentence — the same text produces 21.84 s when given room), where a
-# 200-char chunk tops out near 10 s.
-_MAX_CHARS = 200
+# ⚠ DO NOT narrow this band for "finer expression". It was tried: batching made
+# small chunks cheap, so the band was moved to [120, 200] to give
+# _expressive_temperature a per-sentence window instead of a per-paragraph one.
+# The result was AUDIBLY WORSE — delivery shifted tone every sentence or two
+# instead of settling, reported as "audio is not stable, tone keeps changing".
+# Reverted to [280, 400], the band that produced the reference-quality reads.
+# Chunk size is a DELIVERY setting, not a speed setting — speed comes from
+# tts.csm.batch_size (see CsmEngine.synthesize_batch), which does not change how
+# the text is divided.
+#
+# ⚠ Note the interaction with the engine's max_audio_length_ms (20 s): a
+# 370-char chunk measured 19.84 s of audio against that cap, i.e. right at the
+# edge of being clipped mid-sentence (the same text yields 21.84 s given room).
+# 400-char chunks with dense punctuation can reach it. Raise the cap rather than
+# shrinking this band.
+_MAX_CHARS = 400
 # Each chunk's actual cap is drawn fresh from [_MIN_CHUNK_CHARS, _MAX_CHARS]
 # instead of always hitting _MAX_CHARS — a fixed cap produces a mechanical,
 # same-length-every-time breath cadence; real speech doesn't chunk that
 # uniformly. This also gives _expressive_temperature more varied windows: a
 # short random cap is more likely to land on a single sentence (its own
 # temperature) rather than merging it with a differently-toned neighbor.
-_MIN_CHUNK_CHARS = 120
+_MIN_CHUNK_CHARS = 280
 _MIN_CHARS = 8
 
 

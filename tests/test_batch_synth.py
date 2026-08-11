@@ -87,6 +87,25 @@ def test_batches_are_evened_out_not_strided():
     assert flat == list(range(11))
 
 
+def test_frame_bounds_are_per_row_not_batch_wide():
+    """A short row must keep its OWN generation budget inside a batch.
+
+    Regression: the batch used one bound (the max over rows), so a short chunk
+    that never emitted EOS kept generating on the longest chunk's budget and
+    tailed off into babble — reported as "the ending is broken".
+    """
+    from readback.tts.csm_engine import frame_bounds
+
+    items = [("short.", 0.8), ("x" * 400, 0.8)]
+    bounds = frame_bounds(items, 30000)
+    assert bounds[0] < bounds[1], "short row must not inherit the long row's budget"
+    assert bounds[0] == 3000 // 80          # the floor, for a tiny chunk
+    assert bounds[1] == 30000 // 80         # clamped by max_audio_length_ms
+    # The cap has to clear a full-size chunk: 400 chars * 120 ms = 48 s of budget
+    # demanded, so the configured ceiling is what bounds it.
+    assert frame_bounds([("y" * 400, 0.8)], 20000)[0] == 20000 // 80
+
+
 def test_progress_fires_once_per_chunk():
     chunks = ["one", "two", "three", "four", "five"]
     seen = []

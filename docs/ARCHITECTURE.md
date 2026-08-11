@@ -69,11 +69,11 @@ responsive while a read job runs because all heavy work is pushed off it:
    skips this and reads `article.text` verbatim.
 3. **Chunk + synthesize** (`speak.py`) — `chunk_text` splits into TTS-sized,
    paragraph-respecting chunks (sentence-aware, each chunk's cap randomized in
-   [120, 200] chars for varied pacing; over-long sentences split on commas, then
+   [280, 400] chars for varied pacing; over-long sentences split on commas, then
    spaces). `synthesize_article` sends those chunks to the engine in **batches**
    of `tts.csm.batch_size` (8) — CSM's frame loop is launch-latency bound, so a
    batch of 8 produces ~4.9x the audio per wall-second that batch 1 does
-   (measured 2.7x end-to-end on synthesis). It synthesizes each chunk fully,
+   (measured ~2x end-to-end on synthesis). It synthesizes each chunk fully,
    **silence-tidies** it (`_tidy_silence`: trim leading/trailing silence and cap
    internal pauses to ~300 ms), **fades out** the tail (100 ms linear fade via
    `_fade_out_tail`), retries all-silence chunks once, and joins with `reader.gap_sec`
