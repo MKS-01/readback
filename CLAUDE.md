@@ -83,9 +83,10 @@ readback/
 │                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
-├── tests/                     # 44 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
+├── tests/                     # 54 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
 │                              # silence-tidy, fade-out, extract scrub, library + cache, think-stripper,
-│                              # tones, map-reduce batching, summary trim.
+│                              # tones, map-reduce batching, summary trim, batched-synth
+│                              # drive loop (order/progress/cancel/retry/fallback).
 │                              # Config in pyproject.toml; runnable on Linux (requirements-pi.txt subset).
 ├── .github/workflows/
 │   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10 + 3.12 on Ubuntu;
@@ -290,18 +291,23 @@ readback/
   in TTS).
 - **Chunk + synth** (`speak.py`):
   - `chunk_text` — paragraph-respecting, sentence-aware merge; **each chunk's cap
-    is randomized** (`_next_chunk_cap`) between `_MIN_CHUNK_CHARS` (**280**) and
-    `_MAX_CHARS` (**400**) instead of always hitting the same fixed cap — a
+    is randomized** (`_next_chunk_cap`) between `_MIN_CHUNK_CHARS` (**120**) and
+    `_MAX_CHARS` (**200**) instead of always hitting the same fixed cap — a
     uniform cap gives every chunk the same length, which reads with a
     mechanical, same-every-time breath cadence; randomizing it per chunk (same
     input text produces a different chunk count/boundaries run to run — verified)
     varies pacing AND gives `_expressive_temperature` below more chances to land
     a short cap on a single sentence instead of merging it with a
-    differently-toned neighbor. ⚠ **Chunk count tracks the band's mean** — the
-    earlier [120, 200] band measured **2.5-3x** the chunks (= prefills = time) of
-    fixed 400, which is why the band sits at the fast end; randomization itself
-    adds ~zero chunks vs a fixed cap of the same size (see the guide in
-    `config.yaml`). The over-long-sentence safety net (comma split, then a
+    differently-toned neighbor. ⚠ The band moved DOWN from [280, 400] when
+    batched synthesis landed — the old comment here argued [120, 200] cost
+    "2.5-3x the prefills", but the reference prefill is nearly free (same text
+    WITH the 12.3 s reference: 7.3 s vs 7.9 s empty) and total frames track total
+    AUDIO, not chunk count. On real prose the band change is +37% chunks (8 → 11
+    on a 93 s summary), which batching absorbs: 23.3 s at [280,400] vs 24.3 s at
+    [120,200], both batch 8. ⚠ `chunk_text` splits on EVERY `\n`, so hard-wrapped
+    test fixtures produce one chunk per LINE and silently defeat band changes —
+    measure with real article prose (trafilatura emits paragraphs as single
+    lines). The over-long-sentence safety net (comma split, then a
     space-level `_hard_split` for comma-free runs) measures against the fixed
     `_MAX_CHARS`, not the random per-chunk cap. Sub-`_MIN_CHARS` (8) fragments
     are stitched onto a neighbor — mid-paragraph they're carried into the next
@@ -319,16 +325,31 @@ readback/
     punctuation: `!` → +0.08 (emphatic), `?` → +0.04 (questioning), ≥3 commas and
     no `!`/`?` → −0.03 (dense/measured), clamped to `[0.55, 0.95]` (below ~0.55 a
     short clone reference destabilizes). Granularity is **per chunk, not per
-    sentence** — at the [280, 400] band a chunk usually spans a few sentences and
-    gets whichever punctuation rule matches first; finer granularity means a
-    lower band and 2.5-3x the synthesis time (see the speed/quality guide in
-    `config.yaml`).
-  - `synthesize_article` — synth each chunk (at its `_expressive_temperature`,
-    when `base_temperature` is passed — the server always passes the reading
-    tone's temperature), tidy, fade-out tail, join with
-    `reader.gap_sec` (0.18 s) gaps; `progress`/`should_stop` hooks; a chunk that
-    throws is skipped, not fatal. **Degenerate-chunk guard:** if `_tidy_silence`
-    returns empty (all silence), synthesis is retried once before dropping the chunk.
+    sentence**, but at the [120, 200] band a chunk is roughly one sentence, so the
+    matched punctuation rule usually describes the text it applies to (at the old
+    [280, 400] band a chunk spanned several sentences and buried a measured one
+    inside a livelier neighbour's window). ⚠ In the batched path each row carries
+    its own temperature via `_make_batch_sampler` — batching does NOT flatten
+    delivery. See the speed/quality guide in `config.yaml`.
+  - `synthesize_article` — **batched by default** (`_synthesize_batched`): chunks
+    go to `synth.synthesize_batch` in groups of `tts.csm.batch_size` (8), each
+    row carrying its OWN `_expressive_temperature`, then tidy → fade-out tail →
+    join with `reader.gap_sec` (0.18 s) gaps. Measured **2.7x** on synthesis
+    (66.7 s → 24.3 s for the same 93 s summary). Falls back to the old
+    sequential loop when the engine has no `synthesize_batch`, `batch_size` is 1,
+    or the batch path raises — so a csm-mlx upgrade degrades to slow, not broken.
+    `progress` still fires once per chunk; `should_stop` is checked **per batch**
+    (measured cancel latency 8.0 s, better than the old per-chunk latency at the
+    old band). **Degenerate-chunk guard:** rows whose tidied audio is empty are
+    collected and retried once in a follow-up batch.
+  - `_length_buckets` + `_batches` — group chunks for the batch path.
+    `_length_buckets` sorts by text length so a batch's rows are near-equal
+    (prompts are left-padded to the batch max, and the frame loop runs until
+    EVERY row hits EOS, so a short row batched with a long one just idles).
+    ⚠ `_batches` **evens the groups out** — 11 chunks at size 8 is 6+5, never
+    8+3: a batch's cost is nearly flat in batch size, so a 3-row tail batch costs
+    about as much as a full one (measured RTF 0.33 for 8+3 vs 0.26 for 6+5).
+    Grouping is by index, so document order is unaffected.
   - `_fade_out_tail` — 100 ms linear fade-out on each chunk's tail before the
     silence gap, smoothing the voiced→silence transition (no hard cut → click).
   - `_peak_normalize` — ⚠ **levels every voice to the same loudness.** CSM matches
@@ -368,8 +389,33 @@ readback/
   (engine + Synthesizer) sets it per-read — `_make_sampler` reads `cfg.temperature`
   fresh each synth, so it takes effect on the next call with no reload (the server
   uses it to apply the reading tone; see Tones).
-- The reader synthesizes in **batch only** (`synthesize`); offline reads get no
-  benefit from streaming, so the csm-mlx `stream_generate` path was removed.
+- **`synthesize_batch(items)` is the throughput path** — ⚠ the single biggest
+  speed knob in the project. CSM emits one frame per 80 ms of audio and each frame
+  is 1 backbone step + 31 *sequential* decoder steps on a 1B model (~400 tiny
+  matmuls per audio-second), so it is **launch-latency bound, not compute bound**
+  and the GPU idles at batch 1. Measured (ms/frame → audio per wall-second):
+  1 → 51.6/1.55 · 2 → 80.5/1.99 · 4 → 82.1/3.90 · 8 → 84.8/**7.55** — 8x the work
+  for 1.64x the time. `_synthesize_batch_impl` mirrors `csm_mlx.generation.generate`
+  over the batch dim `generate_frame` already supports: prompts are
+  `ref ++ text` tokens **left-padded** to the batch max (`token_mask` zeroes the
+  pads), one `make_prompt_cache`, per-row EOS tracking, then `decode_audio` per
+  row. ⚠ It therefore leans on csm-mlx internals — `speak.py` falls back to the
+  sequential path if it raises. `_ref_tokens_for` caches the tokenized reference
+  per voice (csm-mlx re-runs that Mimi encode, ~0.03 s, on every `generate`).
+  ⚠ **Don't raise `batch_size` much past 8**: the loop runs until EVERY row hits
+  EOS, so one runaway row stalls the batch (16 measured RTF 0.17 and 0.37 on
+  consecutive runs; 8 measured 0.23 twice).
+- `_make_batch_sampler(temps)` — per-ROW sampling temperature, shape `(B, 1)`.
+  Mirrors mlx_lm's chain (`apply_top_k` then `categorical_sampling`, both
+  last-axis ops) so each chunk keeps its own `_expressive_temperature` inside a
+  shared batch. Without it, batching would flatten delivery across the batch.
+- One-chunk `synthesize` remains as the fallback path; offline reads get no
+  benefit from token streaming, so the csm-mlx `stream_generate` path was removed.
+- ⚠ **One engine per process.** `csm_mlx.generation` creates its `default_stream`
+  at import time, bound to whichever thread imported it — the executor thread of
+  the FIRST engine. A second `Synthesizer` in the same process gets a second
+  executor and dies with "no Stream(gpu, 0) in current thread". Benchmarks that
+  A/B two configs must fork a process per config.
 
 ### Voice cloning & fine-tuning
 
@@ -397,7 +443,9 @@ readback/
   falls to pydantic's `extra="ignore"`, an `ocr:` block to `Config.load()`'s
   unknown-top-level-key drop. Neither is migrated; nothing reads them.
 - `CsmTTSConfig{precision, speaker, temperature, top_k, max_audio_length_ms,
-  ref_max_sec, voices, lora_path}`. The checkpoint (`senstella/csm-1b-mlx`) is
+  ref_max_sec, batch_size, voices, lora_path}`. `batch_size` (**8**) is how many
+  chunks ride one CSM frame loop — the main speed knob (see TTS section); 1
+  restores the sequential path. The checkpoint (`senstella/csm-1b-mlx`) is
   fixed in the engine.
 - `ReaderConfig{output_dir, default_mode, gap_sec, summary_max_chars,
   library_db}`. `output_dir` + `library_db` default to a sibling

@@ -92,6 +92,11 @@ class CsmEngine:
         self._model = None
         # Cached reference Segment per voice (built once on the executor thread).
         self._ref_cache: dict = {}
+        # Cached TOKENIZED reference per voice, for the batched path. csm-mlx's
+        # generate() re-runs tokenize_segment (a Mimi encode of the ~12 s clip,
+        # ~0.03 s) on every call; the batch path owns the tokenization, so it
+        # pays that once per voice instead of once per chunk.
+        self._ref_token_cache: dict = {}
         self._sampler_cache: dict = {}
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="csm-tts",
@@ -137,6 +142,30 @@ class CsmEngine:
             return np.zeros(0, dtype=np.float32)
         return self._run(self._synthesize_impl, text)
 
+    def synthesize_batch(self, items: list[tuple[str, float]]) -> list[np.ndarray]:
+        """Synthesize several chunks in ONE frame loop. Returns audio in input order.
+
+        ⚠ This is the main throughput lever. CSM emits one frame per 80 ms of
+        audio, and each frame is 1 backbone step + 31 sequential decoder steps on
+        a 1B model — ~400 tiny sequential matmuls per second of audio, which
+        leaves the GPU mostly idle waiting on launch latency. Measured on M5 Pro
+        (steady-state decode, ms per frame → audio produced per wall-second):
+
+            batch 1 — 51.6 ms →  1.55 s     batch 4 — 82.1 ms →  3.90 s
+            batch 2 — 80.5 ms →  1.99 s     batch 8 — 84.8 ms →  7.55 s
+
+        i.e. 8x the work for 1.64x the time. `items` is [(text, temperature)] —
+        each row keeps its OWN sampling temperature (the reading tone's
+        `_expressive_temperature` for that chunk), so batching does not flatten
+        delivery. Rows generate until their own EOS; the loop runs until every
+        row is done, so batch rows of SIMILAR LENGTH (the caller buckets) or
+        short rows idle while a long one finishes.
+        """
+        items = [(t.strip(), temp) for t, temp in items]
+        if not items:
+            return []
+        return self._run(self._synthesize_batch_impl, items)
+
     # ---- impls (run ON the MLX executor thread; never re-submit) ----
 
     def _config_voice(self, voice: str):
@@ -162,6 +191,47 @@ class CsmEngine:
         sampler = make_sampler(temp=self.cfg.temperature, top_k=self.cfg.top_k)
         self._sampler_cache[key] = sampler
         return sampler
+
+    def _make_batch_sampler(self, temps):
+        """Sampler with a PER-ROW temperature (shape (B, 1)).
+
+        `_make_sampler` closes over one scalar temp, which would flatten every
+        chunk in a batch to the same delivery. This mirrors mlx_lm's sampler
+        chain exactly — `apply_top_k` then `categorical_sampling(logits, temp)`
+        (= `mx.random.categorical(logits * (1 / temp))`) — both of which act on
+        the last axis, so a (B, 1) temperature broadcasts across the batch.
+        """
+        import mlx.core as mx
+        from mlx_lm.sample_utils import apply_top_k
+
+        top_k = self.cfg.top_k
+
+        def sampler(logprobs):
+            if top_k and 0 < top_k < logprobs.shape[-1]:
+                logprobs = apply_top_k(logprobs, top_k)
+            return mx.random.categorical(logprobs * (1.0 / temps))
+
+        return sampler
+
+    def _ref_tokens_for(self, voice: str):
+        """Tokenized reference prompt for `voice` — (tokens, mask) or (None, None).
+
+        Cached per voice: the batch path builds prompts itself, so the Mimi
+        encode of the reference clip happens once instead of once per chunk.
+        """
+        if voice in self._ref_token_cache:
+            return self._ref_token_cache[voice]
+        from csm_mlx.tokenizers import tokenize_segment
+
+        ref = self._ref_for(voice)
+        if not ref:
+            self._ref_token_cache[voice] = (None, None)
+            return None, None
+        tok, mask = tokenize_segment(
+            ref[0], n_audio_codebooks=self._model.n_audio_codebooks,
+        )
+        self._ref_token_cache[voice] = (tok, mask)
+        return tok, mask
 
     def _ref_for(self, voice: str) -> list:
         """Cached reference-prompt context for `voice` (built once on the executor
@@ -268,3 +338,100 @@ class CsmEngine:
         )
         mx.eval(audio)
         return _to_numpy(audio)
+
+    def _synthesize_batch_impl(self, items: list[tuple[str, float]]) -> list[np.ndarray]:
+        """Batched twin of csm-mlx's `generate`, run on the executor thread.
+
+        ⚠ Mirrors `csm_mlx.generation.generate` (frame loop → `decode_audio`) but
+        over a batch dimension `generate_frame` already supports. It therefore
+        depends on csm-mlx internals (`generate_frame`, `tokenize_*`,
+        `decode_audio`); the caller falls back to the sequential path if this
+        raises, so a csm-mlx upgrade degrades to slow rather than broken.
+        """
+        import mlx.core as mx
+        from csm_mlx.generation import generate_frame
+        from csm_mlx.tokenizers import decode_audio, tokenize_text_segment
+        from mlx_lm.models.cache import make_prompt_cache
+
+        if self._model is None:
+            self._load_impl()
+        model = self._model
+        speaker = self._speaker_id()
+        ref_tok, ref_mask = self._ref_tokens_for(self.cfg.speaker)
+
+        # Build one prompt per row: [reference] ++ [text].
+        prompts, masks = [], []
+        for text, _ in items:
+            tok, msk = tokenize_text_segment(text, speaker)
+            if ref_tok is not None:
+                tok = mx.concat([ref_tok, tok], axis=0)
+                msk = mx.concat([ref_mask, msk], axis=0)
+            prompts.append(tok.astype(mx.int32))
+            masks.append(msk.astype(mx.bool_))
+
+        # LEFT-pad to the batch's longest prompt. `generate_frame` multiplies the
+        # embeddings by token_mask, so a zero-masked pad frame contributes
+        # nothing to the summed input. Padding still occupies causal positions,
+        # which is why the caller buckets by length to keep pads to a few frames
+        # against the ~204-frame reference prefix.
+        width = prompts[0].shape[1]            # codebooks + the text column
+        L = max(p.shape[0] for p in prompts)
+        padded, padded_masks = [], []
+        for tok, msk in zip(prompts, masks):
+            pad = L - tok.shape[0]
+            if pad:
+                tok = mx.concat([mx.zeros((pad, width), dtype=mx.int32), tok], axis=0)
+                msk = mx.concat([mx.zeros((pad, width), dtype=mx.bool_), msk], axis=0)
+            padded.append(tok)
+            padded_masks.append(msk)
+        inp = mx.stack(padded, axis=0)
+        inp_mask = mx.stack(padded_masks, axis=0)
+
+        B = len(items)
+        temps = mx.array([[max(1e-4, float(t))] for _, t in items])
+        sampler = self._make_batch_sampler(temps)
+        # Each row stops at its own EOS; the loop runs to the LONGEST row's bound.
+        max_frames = max(
+            int(_max_ms_for(text, self.cfg.max_audio_length_ms) / 80)
+            for text, _ in items
+        )
+
+        model.eval()                            # csm-mlx's generate() does this
+        cache = make_prompt_cache(model.backbone)
+        frames: list[list] = [[] for _ in range(B)]
+        done = [False] * B
+        for _ in range(max_frames):
+            sample = generate_frame(
+                model, inp, token_mask=inp_mask, sampler=sampler, cache=cache,
+            )
+            mx.eval(sample)
+            zeros = np.asarray(mx.sum(mx.abs(sample), axis=1)) == 0   # per-row EOS
+            for b in range(B):
+                if done[b]:
+                    continue
+                if zeros[b]:
+                    done[b] = True
+                else:
+                    frames[b].append(sample[b:b + 1])
+            if all(done):
+                break
+            inp = mx.expand_dims(
+                mx.concat([sample, mx.zeros((B, 1))], axis=1), 1,
+            ).astype(mx.int32)
+            inp_mask = mx.expand_dims(
+                mx.concat([mx.ones_like(sample), mx.zeros((B, 1))], axis=1), 1,
+            ).astype(mx.bool_)
+
+        model.train()
+        out: list[np.ndarray] = []
+        for b in range(B):
+            if not frames[b]:
+                out.append(np.zeros(0, dtype=np.float32))
+                continue
+            audio = decode_audio(
+                mx.stack(frames[b]).transpose(1, 2, 0),
+                n_audio_codebooks=model.n_audio_codebooks,
+            ).squeeze(0).squeeze(0)
+            mx.eval(audio)
+            out.append(_to_numpy(audio))
+        return out

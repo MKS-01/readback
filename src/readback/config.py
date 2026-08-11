@@ -55,6 +55,14 @@ class CsmTTSConfig(BaseModel):
     # need more headroom — trims the clip AND its transcript together (a
     # mismatched pair garbles the voice).
     ref_max_sec: Optional[float] = None
+    # How many chunks to synthesize in ONE CSM frame loop. ⚠ The single biggest
+    # speed knob. CSM's per-frame cost is launch-latency-bound, not compute-bound
+    # (1 backbone + 31 sequential decoder steps on a 1B model), so the GPU is
+    # mostly idle at batch 1. Measured on M5 Pro — ms/frame → audio per
+    # wall-second: 1 → 51.6 ms / 1.55 s · 2 → 80.5 / 1.99 · 4 → 82.1 / 3.90 ·
+    # 8 → 84.8 / 7.55. Costs KV cache proportional to the batch (trivial for a
+    # 1B model). 1 = the old sequential path.
+    batch_size: int = 8
     # Custom clone-condition voices (timbre + tone from a local clip). Each
     # appears in the voice picker alongside the two built-in reading voices.
     voices: list[CsmVoicePrompt] = Field(default_factory=list)

@@ -6,6 +6,72 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-08-12 — Batched CSM synthesis (2.7x) + chunk band → [120, 200]
+
+**Status: done** — branch `optimisation-2`. Profiling a full read showed
+synthesis was **77%** of wall time (fetch 3.8 s · summarize 15.2 s ·
+synthesize 65.1 s, for 93 s of audio) at a flat RTF ~0.67 regardless of chunk
+size.
+
+**Why it was slow.** Not compute — *launch latency*. CSM emits one frame per
+80 ms of audio and each frame is 1 backbone step + 31 **sequential** decoder
+steps on a 1B model: ~400 tiny matmuls per audio-second, with the GPU idle in
+between. Measured per-frame cost barely moves with batch size (ms/frame → audio
+per wall-second): 1 → 51.6/1.55 · 2 → 80.5/1.99 · 4 → 82.1/3.90 · 8 →
+84.8/**7.55**. Eight times the work for 1.64x the time.
+
+**What shipped.** `CsmEngine.synthesize_batch` mirrors
+`csm_mlx.generation.generate` over the batch dimension `generate_frame` already
+supports — prompts are `ref ++ text` tokens left-padded to the batch max
+(`token_mask` zeroes the pads), one `make_prompt_cache`, per-row EOS tracking,
+`decode_audio` per row. `_make_batch_sampler` gives each row its **own**
+sampling temperature (shape `(B, 1)`, mirroring mlx_lm's `apply_top_k` →
+`categorical_sampling` chain), so batching does not flatten
+`_expressive_temperature`. `speak.py` drives it via `_length_buckets` (sort by
+length: pads stay small and rows finish together) + `_batches`, with the
+degenerate-chunk retry batched and a **fallback to the old sequential loop** if
+the batch path raises. New `tts.csm.batch_size` (default 8).
+
+Chunk band **[280, 400] → [120, 200]**. The old comment argued against this on
+prefill cost; that reasoning was measured and is wrong now — the reference
+prefill is nearly free (same text with the 12.3 s reference: 7.3 s vs 7.9 s with
+empty context) and total frames track total *audio*, not chunk count. On real
+prose the band costs +37% chunks (8 → 11 on a 93 s summary), which batching
+absorbs. It also retires a latent bug: at [280, 400] a 370-char chunk generated
+19.84 s against the 20 s `max_audio_length_ms` bound — clipped mid-sentence (the
+same text yields 21.84 s given room). At 200 chars the cap is unreachable.
+
+Two findings worth keeping:
+- ⚠ **A runty tail batch wastes the win.** A batch's cost is nearly flat in
+  batch size, so 11 chunks split 8+3 measured RTF 0.33 where an evened 6+5 gave
+  **0.26**. `_batches` now evens the groups out.
+- ⚠ **Don't raise `batch_size` much past 8** — the loop runs until *every* row
+  hits EOS, so one runaway row stalls the batch: 16 measured RTF 0.17 and 0.37
+  on consecutive runs, where 8 measured 0.23 twice.
+
+**Verified.** 54 pytest pass (10 new, all pure-logic with a fake synth: document
+order, per-chunk progress, cancel between batches, degenerate retry, per-row
+temperature, even batch splits, and both fallback paths). On device, same
+93 s summary: **66.7 s → 24.3 s** synthesis (RTF 0.70 → 0.26), with silence
+fraction 28.0% → 26.8% and ZCR 0.102 → 0.104 (i.e. unchanged). Padding worst
+case — a 3-char row batched with a 112-char row — produced proportionate audio
+for both. Live `/ws` reads: Wikipedia Fresnel lens **total 44.5 s vs the 84.1 s
+baseline** (synthesize 24.3 s), plus posts from claude.com/blog and
+android-developers.googleblog.com. Cancel stops after one batch (8/36 chunks,
+8.0 s) and keeps the partial audio.
+
+⚠ **Benchmark gotchas discovered here**, both of which produced wrong numbers
+before being caught: (1) `chunk_text` splits on every `\n`, so a hard-wrapped
+test fixture yields one chunk per *line* and silently defeats band changes —
+measure with real article prose; (2) `csm_mlx.generation` binds its
+`default_stream` to the thread that imports it, so a second `Synthesizer` in one
+process dies with "no Stream(gpu, 0)" — A/B benchmarks must fork per config.
+
+**Not done:** streaming playback (time-to-first-audio 84 s → ~8 s), LLM
+speculative decoding for the 15–25 s summary step.
+
+---
+
 ## 2026-08-12 — One model for summary + OCR (the `ocr:` block removed)
 
 **Status: done** — branch `optimisation-2`. A dependency audit found the OCR

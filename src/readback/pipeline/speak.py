@@ -15,30 +15,32 @@ import numpy as np
 log = logging.getLogger("readback.pipeline")
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
-# Cap chars per TTS call — fewer, larger chunks = fewer CSM reference-prefills =
-# faster total synthesis, but coarser prosody AND coarser expressive-temperature
-# granularity (_expressive_temperature nudges the WHOLE chunk from whichever
-# punctuation rule matches first, so a big chunk can bury a measured sentence
-# inside a livelier neighbor's chunk). 400 stays well under CSM's 2048-token
-# budget either way (the _max_ms_for safety bound caps runaway generation per
-# chunk).
+# Cap chars per TTS call. ⚠ This band USED to sit at [280, 400] because chunk
+# count tracked prefill cost — at batch 1, [120, 200] measured 2.5-3x the chunks
+# and was rejected as too slow. **Batched synthesis inverted that** (see
+# CsmEngine.synthesize_batch): chunks now ride together in one frame loop, and
+# the total frame count is set by total AUDIO seconds, not by how the text is
+# divided. Two measurements back this up:
+#   - reference prefill is ~free: the same text synthesized WITH the 12.3 s
+#     reference context took 7.3 s vs 7.9 s with empty context.
+#   - per-frame cost barely moves with batch size (51.6 ms at 1 → 84.8 ms at 8).
+# So smaller chunks are now nearly free, and they buy real quality:
+# _expressive_temperature nudges the WHOLE chunk from whichever punctuation rule
+# matches first, so a 400-char chunk buries a measured sentence inside a livelier
+# neighbour's window. At 200 the window is roughly per-sentence.
 #
-# Speed vs prosody tradeoff:
-#   400 — fast (fewer prefills, ~30% fewer chunks than 280)
-#   280 — balanced (more natural sentence-boundary breaks)
-#   200 — max prosody + finest expressive-temperature granularity, ~2.5-3x the
-#         chunk count (and prefills) of 400 — measured, too slow for Full mode
-_MAX_CHARS = 400
+# 200 also keeps every chunk clear of the engine's max_audio_length_ms bound: a
+# 370-char chunk measured 19.84 s of audio against the 20 s cap (i.e. clipped
+# mid-sentence — the same text produces 21.84 s when given room), where a
+# 200-char chunk tops out near 10 s.
+_MAX_CHARS = 200
 # Each chunk's actual cap is drawn fresh from [_MIN_CHUNK_CHARS, _MAX_CHARS]
 # instead of always hitting _MAX_CHARS — a fixed cap produces a mechanical,
 # same-length-every-time breath cadence; real speech doesn't chunk that
 # uniformly. This also gives _expressive_temperature more varied windows: a
 # short random cap is more likely to land on a single sentence (its own
 # temperature) rather than merging it with a differently-toned neighbor.
-# The band sits at the fast end ([280, 400], not [120, 200]) because chunk
-# count — and therefore prefill cost — tracks the band's mean: [120, 200]
-# measured 2.5-3x the chunks of a fixed 400 for the same text.
-_MIN_CHUNK_CHARS = 280
+_MIN_CHUNK_CHARS = 120
 _MIN_CHARS = 8
 
 
@@ -192,6 +194,95 @@ def _expressive_temperature(chunk: str, base: float) -> float:
     return max(0.55, min(0.95, temp))
 
 
+def _batches(order: list[int], size: int) -> list[list[int]]:
+    """Split chunk indices into EVENLY-sized groups of at most `size`.
+
+    ⚠ Not a plain stride: 11 chunks at size 8 is split 6+5, not 8+3. A batch's
+    cost is dominated by its frame loop, which is nearly flat in batch size, so a
+    3-row tail batch costs about as much wall time as a full one — measured, an
+    8+3 split gave RTF 0.33 where the same text in one balanced pass gave 0.24.
+    Evening out the groups keeps every batch earning its frame loop.
+    """
+    n = len(order)
+    if n == 0:
+        return []
+    n_groups = -(-n // size)                  # ceil
+    base, extra = divmod(n, n_groups)
+    out, i = [], 0
+    for g in range(n_groups):
+        take = base + (1 if g < extra else 0)
+        out.append(order[i:i + take])
+        i += take
+    return out
+
+
+def _length_buckets(chunks: list[str], size: int) -> list[list[int]]:
+    """Group chunk indices into batches of near-equal TEXT LENGTH.
+
+    Two reasons, both about the batched frame loop:
+      - prompts are left-padded to the batch's longest, and padding occupies
+        causal positions, so we want the pads small;
+      - the loop runs until EVERY row hits EOS, so a short row batched with a
+        long one just idles. Equal-length rows finish together.
+    Returns batches of ORIGINAL indices; the caller reassembles by index, so
+    document order is unaffected by this regrouping.
+    """
+    by_len = sorted(range(len(chunks)), key=lambda i: len(chunks[i]))
+    return _batches(by_len, size)
+
+
+def _synthesize_batched(
+    synth,
+    chunks: list[str],
+    temps: list[Optional[float]],
+    sr: int,
+    progress: Optional[Callable[[int, int], None]],
+    should_stop: Optional[Callable[[], bool]],
+) -> Optional[list[np.ndarray]]:
+    """Synthesize every chunk via `synth.synthesize_batch`, tidied, in order.
+
+    Returns per-chunk audio (empty array for a chunk that failed), or None if the
+    engine has no batch path / it blew up — the caller then falls back to the
+    sequential loop, so a csm-mlx change degrades to slow rather than broken.
+    """
+    batch_fn = getattr(synth, "synthesize_batch", None)
+    if batch_fn is None:
+        return None
+    size = max(1, int(getattr(synth, "batch_size", 1) or 1))
+    if size == 1:
+        return None
+
+    audio: list[np.ndarray] = [np.zeros(0, dtype=np.float32)] * len(chunks)
+    done_count = 0
+    retry: list[int] = []
+    try:
+        for group in _length_buckets(chunks, size):
+            if should_stop is not None and should_stop():
+                log.info("synth aborted after %d/%d chunks", done_count, len(chunks))
+                break
+            items = [(chunks[i], temps[i] if temps[i] is not None else 0.0) for i in group]
+            for idx, raw in zip(group, batch_fn(items)):
+                tidied = _tidy_silence(raw, sr)
+                if tidied.size == 0:
+                    retry.append(idx)      # all silence — one more go below
+                audio[idx] = tidied
+                done_count += 1
+                if progress is not None:
+                    progress(done_count, len(chunks))
+        # Degenerate-chunk guard, batched: one retry for chunks that came back
+        # as pure silence (same policy as the sequential path).
+        if retry and not (should_stop is not None and should_stop()):
+            log.info("retrying %d all-silence chunk(s)", len(retry))
+            for group in _batches(retry, size):
+                items = [(chunks[i], temps[i] if temps[i] is not None else 0.0) for i in group]
+                for idx, raw in zip(group, batch_fn(items)):
+                    audio[idx] = _tidy_silence(raw, sr)
+    except Exception:
+        log.exception("batched synthesis failed — falling back to sequential")
+        return None
+    return audio
+
+
 def synthesize_article(
     synth,
     text: str,
@@ -213,7 +304,29 @@ def synthesize_article(
     chunks = chunk_text(text)
     if not chunks:
         return np.zeros(0, dtype=np.float32)
-    out: list[np.ndarray] = []
+
+    # Fast path: synthesize the chunks in batches through one CSM frame loop.
+    # Each chunk keeps its own _expressive_temperature (per-row sampler), so
+    # batching is a pure throughput change, not a delivery change.
+    temps: list[Optional[float]] = [
+        _expressive_temperature(c, base_temperature) if base_temperature is not None
+        else None
+        for c in chunks
+    ]
+    batched = _synthesize_batched(synth, chunks, temps, sr, progress, should_stop)
+    if batched is not None:
+        out: list[np.ndarray] = []
+        for audio in batched:
+            if audio.size:
+                out.append(_fade_out_tail(audio, sr))
+                out.append(gap)
+        if not out:
+            return np.zeros(0, dtype=np.float32)
+        return _peak_normalize(np.concatenate(out))
+
+    # Sequential fallback: no batch path on this engine, batch_size=1, or the
+    # batched attempt raised.
+    out = []
     for i, chunk in enumerate(chunks):
         if should_stop is not None and should_stop():
             log.info("synth aborted at chunk %d/%d", i + 1, len(chunks))
