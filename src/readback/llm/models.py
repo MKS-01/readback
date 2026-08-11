@@ -60,6 +60,10 @@ def _is_chat_model(name: str) -> bool:
 
 
 def _is_vision_model(name: str) -> bool:
+    """Vision-ONLY models (Qwen2.5-VL and friends). These are excluded from the
+    picker: the one model does both summary and OCR now, and a VL-only checkpoint
+    can't drive Summary mode through mlx-lm. A dual-capable model (Qwen3.5) is not
+    matched by these markers, so it stays listed."""
     return any(m in name for m in _VISION_MARKERS)
 
 
@@ -133,21 +137,19 @@ def installed_model_names(cfg: LLMConfig) -> list[str]:
         return []
 
 
-def list_models(cfg: LLMConfig, vision_model: str = "") -> dict:
+def list_models(cfg: LLMConfig) -> dict:
     """Downloaded models + fit verdicts + a summarization recommendation.
 
-    `vision_model` is the active OCR model id (from `cfg.ocr.model`), surfaced as
-    `current_vision` so the CLI `/vision` picker can mark it. Returns
-    `{"models": [...], "recommended": str|None, "current": str,
-    "current_vision": str, "total_ram_gb": int}`; on error, `models` is empty and
-    an `error` message is added instead.
+    Returns `{"models": [...], "recommended": str|None, "current": str,
+    "total_ram_gb": int}`; on error, `models` is empty and an `error` message is
+    added instead. The listed model serves BOTH summary and OCR, so vision-only
+    checkpoints are filtered out.
     """
     total_ram = _total_ram_bytes()
     out: dict = {
         "models": [],
         "recommended": None,
         "current": cfg.model,
-        "current_vision": vision_model,
         "total_ram_gb": round(total_ram / _GIB),
     }
     try:
@@ -165,10 +167,7 @@ def list_models(cfg: LLMConfig, vision_model: str = "") -> dict:
         model_id = m["model_id"]
         size = m["size_bytes"]
         short = _short_name(model_id)
-        is_vision = _is_vision_model(short)
-        is_chat = _is_chat_model(short) and not is_vision
-
-        if not is_chat and not is_vision:
+        if _is_vision_model(short) or not _is_chat_model(short):
             continue
 
         fit = _fit(size, total_ram)
@@ -185,10 +184,9 @@ def list_models(cfg: LLMConfig, vision_model: str = "") -> dict:
             "size_gb": round(size / _GIB, 1),
             "params": params_str,
             "fit": fit,
-            "chat": is_chat,
-            "vision": is_vision,
+            "chat": True,
         })
-        if fit == "good" and is_chat:
+        if fit == "good":
             if best_any is None or size > best_any[0]:
                 best_any = (size, model_id)
             family = short.split("-")[0].lower()

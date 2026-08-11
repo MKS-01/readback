@@ -4,8 +4,8 @@
 # Edit /home/<you>/readback/config.yaml on Pi to customise.
 
 llm:
+  # Serves summary, titles and OCR alike — but nothing loads it on Pi.
   model: "mlx-community/Qwen3.5-9B-4bit"
-  vision_model: "mlx-community/Qwen2.5-VL-3B-Instruct-4bit"
 
 tts:
   engine: "csm"

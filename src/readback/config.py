@@ -6,17 +6,13 @@ from pydantic import BaseModel, Field
 
 
 class LLMConfig(BaseModel):
-    # Summary mode (spoken explanation via LLMClient.oneshot) + title generation.
-    # The text LLM only — image OCR lives in its own OcrConfig (the `ocr:` block).
-    # Models are HuggingFace IDs loaded in-process via mlx-lm.
+    # ONE model for both jobs: Summary mode (spoken explanation via
+    # LLMClient.oneshot) + title generation via mlx-lm, AND image / book-scan OCR
+    # via mlx-vlm. The default is a VLM (`model_type: qwen3_5` carries a
+    # `vision_config`, and mlx-vlm ships a `qwen3_5` handler), so a second OCR
+    # model would be redundant — the separate `ocr:` block was removed.
+    # ⚠ Switching this to a text-only model disables image/book reads.
     model: str = "mlx-community/Qwen3.5-9B-4bit"
-
-
-class OcrConfig(BaseModel):
-    # Vision model (mlx-vlm) for image / book-scan OCR. Separate from the summary
-    # LLM (`llm:`) — different job, different model family. Loaded lazily on first
-    # image read; switchable per-read via the CLI `/vision` command.
-    model: str = "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
 
 
 class CsmVoicePrompt(BaseModel):
@@ -105,7 +101,6 @@ class ReaderConfig(BaseModel):
 
 class Config(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
-    ocr: OcrConfig = Field(default_factory=OcrConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
     reader: ReaderConfig = Field(default_factory=ReaderConfig)
 
@@ -122,11 +117,10 @@ class Config(BaseModel):
         if "ollama" in data and "llm" not in data:
             data["llm"] = data.pop("ollama")
 
-        # Migrate old `llm.vision_model` → `ocr.model` (OCR moved to its own
-        # section). Runs after the ollama→llm rename so a migrated block is caught.
-        llm_block = data.get("llm")
-        if isinstance(llm_block, dict) and "vision_model" in llm_block:
-            data.setdefault("ocr", {}).setdefault("model", llm_block.pop("vision_model"))
+        # Old configs may still carry a separate OCR model (`ocr.model`, or the
+        # even older `llm.vision_model`). OCR now runs on `llm.model`, so both are
+        # simply ignored — `llm.vision_model` by pydantic's extra="ignore", the
+        # `ocr:` block by the unknown-key drop below.
 
         # Drop unknown top-level keys so older config.yaml files with removed
         # sections don't cause validation errors.

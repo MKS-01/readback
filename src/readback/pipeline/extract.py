@@ -5,8 +5,10 @@ body out of arbitrary blog/news HTML, then lightly normalizes the text so the
 TTS doesn't read URLs, citation markers, or stray markup aloud.
 
 For images (.png/.jpg/.jpeg/.heic/.webp/.tiff/.bmp): the file is converted to
-JPEG via sips (macOS built-in, no deps) if needed, then OCR'd via mlx-vlm
-(in-process vision model on Apple Silicon).
+JPEG via sips (macOS built-in, no deps) if needed, then OCR'd via mlx-vlm using
+`cfg.llm.model` — the SAME model that writes the summary. The default Qwen3.5 is
+a VLM, so a second OCR model would just be a redundant download and a second
+resident copy of the weights.
 """
 from __future__ import annotations
 
@@ -59,6 +61,26 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".tiff", ".tif", ".bmp
 # Formats mlx-vlm can't load natively — convert to JPEG first via sips.
 _NEEDS_CONVERT = {".heic", ".tiff", ".tif", ".bmp", ".webp"}
 
+
+def _has_alpha(path: Path) -> bool:
+    """True if the image carries an alpha channel (per macOS sips).
+
+    ⚠ Load-bearing for transparent PNGs: mlx-vlm flattens alpha onto BLACK, so a
+    page of black-on-transparent text arrives at the model as a solid black
+    rectangle and OCR returns confident garbage rather than an error. Routing
+    those through sips (which flattens onto white) is what makes them readable.
+    """
+    import subprocess
+
+    try:
+        r = subprocess.run(
+            ["sips", "-g", "hasAlpha", str(path)], capture_output=True, text=True,
+        )
+        return "hasAlpha: yes" in r.stdout
+    except Exception:
+        log.debug("alpha check failed for %s", path, exc_info=True)
+        return False
+
 def _natural_sort_key(name: str):
     return [int(c) if c.isdigit() else c.lower() for c in re.split(r"(\d+)", name)]
 
@@ -103,30 +125,32 @@ def _resolve_image_path(path: str) -> Path:
     return Path(path.replace("\\ ", " ")).expanduser().resolve()
 
 
-def _image_to_jpeg(src: Path) -> bytes:
-    """Convert image to JPEG bytes using macOS sips (built-in, no extra deps)."""
+def _image_to_jpeg(src: Path) -> str:
+    """Convert image to a temp JPEG using macOS sips (built-in, no extra deps).
+
+    Returns the temp file's path — mlx-vlm takes paths, so the bytes never need
+    to round-trip through memory. The caller owns the file and unlinks it.
+    """
     import os
     import subprocess
     import tempfile
 
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
         tmp_path = tmp.name
-    try:
-        result = subprocess.run(
-            ["sips", "-s", "format", "jpeg", str(src), "--out", tmp_path],
-            capture_output=True,
-        )
-        if result.returncode != 0:
-            raise ExtractError(
-                f"\U0001f5bc️ couldn't convert {src.suffix.upper()} to JPEG: "
-                f"{result.stderr.decode().strip()}"
-            )
-        return Path(tmp_path).read_bytes()
-    finally:
+    result = subprocess.run(
+        ["sips", "-s", "format", "jpeg", str(src), "--out", tmp_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
+        raise ExtractError(
+            f"\U0001f5bc️ couldn't convert {src.suffix.upper()} to JPEG: "
+            f"{result.stderr.decode().strip()}"
+        )
+    return tmp_path
 
 
 _vision_model = None
@@ -155,8 +179,13 @@ def _ensure_vision_model(model_id: str):
     log.info("vision model ready: %s", model_id)
 
 
-def _ocr_via_mlx(path: str, vision_model: str) -> str:
-    """Resolve, convert if needed, then OCR an image via mlx-vlm `vision_model`."""
+def _ocr_via_mlx(path: str, model_id: str) -> str:
+    """Resolve, convert if needed, then OCR an image via mlx-vlm.
+
+    `model_id` is the summary LLM (`cfg.llm.model`) — the default Qwen3.5 is a
+    VLM, so there's no separate OCR model to configure. A text-only model here
+    fails to load and surfaces as an ExtractError.
+    """
     from mlx_vlm import generate as vlm_generate
     from mlx_vlm.prompt_utils import apply_chat_template
 
@@ -164,21 +193,17 @@ def _ocr_via_mlx(path: str, vision_model: str) -> str:
     if not abs_path.exists():
         raise ExtractError(f"\U0001f5bc️ image not found: {abs_path}")
 
-    log.info("OCR %s via %s", abs_path.name, vision_model)
+    log.info("OCR %s via %s", abs_path.name, model_id)
 
-    if abs_path.suffix.lower() in _NEEDS_CONVERT:
-        log.info("converting %s to JPEG for OCR", abs_path.suffix)
-        import tempfile
-        img_bytes = _image_to_jpeg(abs_path)
-        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-        tmp.write(img_bytes)
-        tmp.close()
-        image_path = tmp.name
+    suffix = abs_path.suffix.lower()
+    if suffix in _NEEDS_CONVERT or _has_alpha(abs_path):
+        log.info("converting %s to JPEG for OCR", suffix)
+        image_path = _image_to_jpeg(abs_path)
     else:
         image_path = str(abs_path)
 
     try:
-        _ensure_vision_model(vision_model)
+        _ensure_vision_model(model_id)
         prompt_text = (
             "Extract all text from this image verbatim. "
             "Preserve line breaks and structure. Output only the text, no commentary."
@@ -191,7 +216,7 @@ def _ocr_via_mlx(path: str, vision_model: str) -> str:
             [image_path], max_tokens=4096, temperature=0.0, verbose=False,
         )
     except Exception as e:
-        raise ExtractError(f"\U0001f916 OCR failed ({vision_model}): {e}") from e
+        raise ExtractError(f"\U0001f916 OCR failed ({model_id}): {e}") from e
     finally:
         if image_path != str(abs_path):
             import os
@@ -249,7 +274,6 @@ def fetch_multi_page(
     llm_cfg: "LLMConfig",
     progress_cb=None,
     llm: "LLMClient | None" = None,
-    vision_model: str = "",
 ) -> Article:
     """OCR every image in a folder/glob and stitch them into one continuous Article.
 
@@ -261,7 +285,7 @@ def fetch_multi_page(
     """
     images = _collect_images(source)
     total = len(images)
-    log.info("multi-page OCR via %s (%d pages)", vision_model, total)
+    log.info("multi-page OCR via %s (%d pages)", llm_cfg.model, total)
 
     pages: list[str] = []
     for i, img_path in enumerate(images):
@@ -269,7 +293,7 @@ def fetch_multi_page(
             progress_cb(i, total)
         log.info("OCR page %d/%d: %s", i + 1, total, img_path.name)
         try:
-            pages.append(_ocr_via_mlx(str(img_path), vision_model))
+            pages.append(_ocr_via_mlx(str(img_path), llm_cfg.model))
         except ExtractError:
             log.warning("skipping page %d (%s): OCR failed", i + 1, img_path.name, exc_info=True)
 
@@ -320,13 +344,12 @@ def fetch_article(
     source: str,
     llm_cfg: "LLMConfig | None" = None,
     llm: "LLMClient | None" = None,
-    vision_model: str = "",
 ) -> Article:
     """Fetch `source` and return the extracted, TTS-ready article.
 
-    `source` may be a URL (http/https) or a local image path. `vision_model` is
-    the OCR model id (needed only for image sources). Raises ExtractError on a
-    failed fetch or when no article text is found.
+    `source` may be a URL (http/https) or a local image path. `llm_cfg.model` is
+    used for both the OCR pass (image sources) and title generation. Raises
+    ExtractError on a failed fetch or when no article text is found.
     """
     source = (source or "").strip()
     if not source:
@@ -334,9 +357,9 @@ def fetch_article(
 
     # --- local image (a book page, in this tool) ---
     if _is_image_path(source):
-        if not vision_model:
-            raise ExtractError("\U0001f5bc️ image OCR requires an OCR model")
-        text = _ocr_via_mlx(source, vision_model)
+        if llm_cfg is None:
+            raise ExtractError("\U0001f5bc️ image OCR requires an LLM config")
+        text = _ocr_via_mlx(source, llm_cfg.model)
         title = _book_title_from_text(text, llm_cfg, llm=llm)
         article = Article(title=title, text=_clean_for_tts(text), url=source)
         log.info("OCR extracted %r (%d words) from %s", title, article.word_count, source)

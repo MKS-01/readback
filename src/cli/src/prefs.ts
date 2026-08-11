@@ -6,7 +6,6 @@ export interface Prefs {
   voice: string | null;
   mode: "full" | "summary" | null;
   model: string | null;
-  visionModel: string | null;
   speed: number | null; // playback rate, 0.5–2 (afplay -r)
 }
 
@@ -20,7 +19,6 @@ export function loadPrefs(): Prefs {
         voice: typeof raw.voice === "string" ? raw.voice : null,
         mode: raw.mode === "full" || raw.mode === "summary" ? raw.mode : null,
         model: typeof raw.model === "string" ? raw.model : null,
-        visionModel: typeof raw.visionModel === "string" ? raw.visionModel : null,
         speed:
           typeof raw.speed === "number" && raw.speed >= 0.5 && raw.speed <= 2
             ? raw.speed
@@ -30,7 +28,7 @@ export function loadPrefs(): Prefs {
   } catch {
     // corrupt prefs file — fall through to defaults
   }
-  return { voice: null, mode: null, model: null, visionModel: null, speed: null };
+  return { voice: null, mode: null, model: null, speed: null };
 }
 
 export function savePrefs(prefs: Prefs): void {

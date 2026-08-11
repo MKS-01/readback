@@ -21,7 +21,8 @@ gotchas, and exact knobs.
 ## Hardware
 
 - Apple M5 Pro, 48 GB unified memory (primary target). No CUDA.
-- **MLX/Metal (20-core GPU)** runs CSM-1B TTS + the summary LLM (mlx-lm) + vision OCR (mlx-vlm) — all in-process.
+- **MLX/Metal (20-core GPU)** runs CSM-1B TTS + the LLM — text via mlx-lm, OCR via
+  mlx-vlm on the SAME weights — all in-process.
 - **MLX is not multi-thread safe** — its default GPU stream binds to the thread
   that first touches the device, so `CsmEngine` owns a single-thread executor and
   runs all model work on it (see TTS section).
@@ -30,15 +31,18 @@ gotchas, and exact knobs.
 
 - **Extraction**: `trafilatura` (URL → clean article text) + a browser-UA urllib
   fallback for sites that 403 the default agent. Local images (`.png/.jpg/.heic/…`)
-  → mlx-vlm vision OCR (config-driven model). Folder or glob → multi-page
+  → mlx-vlm OCR on `cfg.llm.model`. Folder or glob → multi-page
   mode: pages OCR'd in natural-filename order and stitched into one continuous
   Article (a scanned page is a page, not a chapter — no synthetic headers), then
   summarized/read like any article.
  - **LLM**: **mlx-lm** (in-process on MLX/Metal), default
   **`mlx-community/Qwen3.5-9B-4bit`** (chain-of-thought disabled via
   `enable_thinking=False`; `<think>` stripping as backup — see LLM section). Used
-  **only by Summary mode** (`LLMClient.oneshot`) + title generation. Vision OCR
-  uses **mlx-vlm** (default `mlx-community/Qwen2.5-VL-7B-Instruct-4bit`).
+  by Summary mode (`LLMClient.oneshot`), title generation, **and image/book OCR**
+  (via mlx-vlm — same HF id, separate loader). ⚠ There is **no separate OCR
+  model**: Qwen3.5 is a VLM (`model_type: qwen3_5` + a `vision_config`, and
+  mlx-vlm ships a `qwen3_5` handler), so the old `ocr:` block was a redundant
+  ~5.6 GB download. A text-only `/model` pick disables image/book reads.
   `/model` can switch per-read; any downloaded MLX chat model works.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in
@@ -143,9 +147,9 @@ readback/
     │                          # BusyView,PlayerView,ModelList,LibraryView}.tsx
     └── readback/              # python package (src layout; wheel packages src/readback)
         ├── __main__.py        # `readback` CLI: argparse --host/--port/--model/--config, uvicorn boot
-        ├── config.py          # Pydantic config: LLMConfig / OcrConfig / CsmTTSConfig
+        ├── config.py          # Pydantic config: LLMConfig / CsmTTSConfig
         │                      # (+ CsmVoicePrompt) / ReaderConfig; load() resolves clone wav +
-        │                      # lora + library_db, migrates old llm.vision_model → ocr.model
+        │                      # lora + library_db; stale llm.vision_model / ocr: keys are ignored
         ├── library.py         # SQLite read library (stdlib sqlite3): Library class
         │                      # (add/list/get/delete/find_cached over a `reads` table) — powers
         │                      # the dashboard + the read cache
@@ -154,7 +158,7 @@ readback/
         │   └── models.py      # MLX model listing (HF cache scan) + RAM-fit verdict (GET /api/models)
         ├── pipeline/
         │   ├── extract.py     # fetch_article (URL/image) + fetch_multi_page (folder/glob);
-        │   │                  # trafilatura + UA fallback; mlx-vlm vision OCR; TTS-prep scrub
+        │   │                  # trafilatura + UA fallback; mlx-vlm OCR on cfg.llm.model; TTS-prep scrub
         │   ├── tones.py       # reading tones: Tone(summary_system, temperature);
         │   │                  # ARTICLE (URL) / BOOK (image) + tone_for(kind)
         │   ├── summarize.py   # summarize_article: LLM oneshot/map-reduce → spoken
@@ -220,8 +224,13 @@ readback/
 - **Extract** (`extract.py`): trafilatura first, browser-UA urllib fallback on
   empty/403. `_clean_for_tts` strips `https?://…`, `[12]` citation markers, and
   collapses whitespace. Missing title → slug from the URL tail. Local images →
-  `_ocr_via_mlx` (sips converts HEIC/TIFF/BMP/WebP → JPEG; mlx-vlm vision model
-  from `cfg.ocr.model`). **Multi-page** (`_is_multi_page` → folder or
+  `_ocr_via_mlx` (mlx-vlm, model = `cfg.llm.model` — the summary model does OCR
+  too). sips converts HEIC/TIFF/BMP/WebP → JPEG, and **also any image with an
+  alpha channel** (`_has_alpha`): ⚠ mlx-vlm flattens alpha onto BLACK, so a
+  transparent PNG of black text arrives as a solid black rectangle and OCR
+  returns confident garbage (`$$\frac{1}{2}$$`) instead of erroring — sips
+  flattens onto white. `_image_to_jpeg` returns the temp file's **path** (mlx-vlm
+  takes paths); don't reintroduce a bytes round-trip. **Multi-page** (`_is_multi_page` → folder or
   glob): `_collect_images` natural-sorts by filename, `fetch_multi_page` OCRs each
   page (the vision model is loaded once and cached across calls) and joins
   the pages with a single space at each seam (a book sentence runs across page
@@ -381,13 +390,12 @@ readback/
 
 ### Config (`config.py`)
 
-- `LLMConfig{model}` (`llm:`) — HuggingFace ID for mlx-lm (summary + title gen).
-- `OcrConfig{model}` (`ocr:`) — HuggingFace ID for mlx-vlm (image / book-scan OCR).
-  ⚠ OCR has its **own** top-level section (not under `llm:`) — different job,
-  different model family. `Config.load()` auto-migrates an old `llm.vision_model`
-  → `ocr.model`. On the wire the field stays `vision_model` (WS read /
-  `/api/config`) and `current_vision` (`/api/models`) — only the YAML/config
-  object moved.
+- `LLMConfig{model}` (`llm:`) — the ONE HuggingFace ID: mlx-lm for summary +
+  title gen, mlx-vlm for image / book-scan OCR. ⚠ The separate `OcrConfig`
+  (`ocr:` block) and the `vision_model` / `current_vision` wire fields were
+  **removed** — one model does both. Old configs still load: `llm.vision_model`
+  falls to pydantic's `extra="ignore"`, an `ocr:` block to `Config.load()`'s
+  unknown-top-level-key drop. Neither is migrated; nothing reads them.
 - `CsmTTSConfig{precision, speaker, temperature, top_k, max_audio_length_ms,
   ref_max_sec, voices, lora_path}`. The checkpoint (`senstella/csm-1b-mlx`) is
   fixed in the engine.
@@ -423,16 +431,17 @@ readback/
 - `_ThinkStripper` removes `<think>…</think>` across chunk boundaries. The
   streaming/tool-calling methods and the `tools/` module were removed in the
   v0.8.0 cleanup.
-- `llm/models.py` (`GET /api/models` + the `read` message's `model`/`vision_model`
-  fields): scans downloaded MLX models in the HuggingFace cache with a RAM-fit
+- `llm/models.py` (`GET /api/models` + the `read` message's `model` field):
+  scans downloaded MLX models in the HuggingFace cache with a RAM-fit
   verdict (need ≈ size×1.2+1 GiB; good ≤50% / tight ≤75% of total RAM via
-  `sysctl hw.memsize`) and recommends the largest good-fit chat model. Each model
-  is tagged `chat`/`vision`; the response carries `current` (summary) +
-  `current_vision`. A per-read `model` mutates `cfg.llm.model` and `vision_model`
-  mutates `cfg.ocr.model`, in place (process-wide, like `swap_voice`;
-  **not** written back to `config.yaml`) — the LLM client / vision loader detect
-  the change and reload on next use (`oneshot()` / `_ocr_via_mlx`). The read job
-  scans installed models once when either changed.
+  `sysctl hw.memsize`) and recommends the largest good-fit model. ⚠
+  **Vision-ONLY** checkpoints (`_VISION_MARKERS` — `VL`/`vision`/`vlm`) are
+  filtered OUT: the listed model must drive Summary mode through mlx-lm, which a
+  VL-only checkpoint can't. A dual-capable model (Qwen3.5) isn't matched by those
+  markers, so it stays listed. A per-read `model` mutates `cfg.llm.model` in
+  place (process-wide, like `swap_voice`; **not** written back to `config.yaml`)
+  — the LLM client and the vision loader each detect the change and reload on
+  next use (`oneshot()` / `_ocr_via_mlx`).
 
 ### CLI (`src/cli/`)
 
@@ -458,11 +467,10 @@ readback/
 - **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
   (`input` | `busy` | `player` | `library` | `quitting`), so key handlers only
   land on the active screen. Slash commands: `/voice`, `/mode`, `/model` (lists
-  downloaded MLX **chat** models via `GET /api/models` with a RAM-fit verdict +
-  summary recommendation, switches the summary LLM per-read), `/vision` (same
-  flow filtered to **vision** models — switches the image/book OCR model
-  per-read; `handlePickModel(kind)` + `ModelList kind` serve both, no
-  recommendation marker for vision), `/speed [x]` (playback rate 0.5–2,
+  downloaded MLX models via `GET /api/models` with a RAM-fit verdict +
+  recommendation, switches the LLM per-read — it serves Summary mode AND
+  image/book OCR, so there is no second picker; `/vision` was removed along with
+  the separate OCR model), `/speed [x]` (playback rate 0.5–2,
   persisted; no server involvement — see Playback speed below), `/library` (alias `/lib` —
   `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, `space` to
   preview inline (plays audio without leaving the library; shows `♫` + elapsed;
@@ -524,7 +532,7 @@ readback/
   runtime `DEV` check the bundler can't eliminate. The binary is named
   `readback-cli` (not `readback`) so the server-lookup fallback
   `Bun.which("readback")` can't spawn the CLI itself.
-- **Prefs** (voice/mode/model/visionModel/speed) persist to `~/.readback/cli.json`. Theme = the
+- **Prefs** (voice/mode/model/speed) persist to `~/.readback/cli.json`. Theme = the
   Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel —
   inherited from the deleted web UI)
   plus CLI-only fit colors (#5dd17a green / #e6c35a yellow, `/model` list only)

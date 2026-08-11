@@ -138,9 +138,9 @@ written back to `config.yaml`.
   `DELETE /api/library/{id}` (deletes the row + its WAV). All wrap blocking
   sqlite in `asyncio.to_thread`.
 - **WS protocol** —
-  - client → `read {url, mode, voice?, model?, vision_model?}`, `cancel`
-    (`model` swaps the summary LLM, `vision_model` the image/book OCR model, for
-    this and later reads; both validated against downloaded MLX models)
+  - client → `read {url, mode, voice?, model?}`, `cancel`
+    (`model` swaps the LLM — which serves Summary mode *and* image/book OCR —
+    for this and later reads; validated against downloaded MLX models)
   - server → `phase {value}`, `progress {done, total}`,
     `done {title, audio_url, duration_sec, word_count, mode, text?}`, `error {message}`
   - `done.text` carries the spoken summary (Summary mode only) for the

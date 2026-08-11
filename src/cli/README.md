@@ -66,26 +66,25 @@ esc cancels a running read.
 | Command | What |
 |---|---|
 | `/voice [id]` | Show / set the voice (persisted) |
-| `/model [name]` | List downloaded MLX chat models / set the summary LLM (persisted) |
-| `/vision [name]` | List downloaded MLX vision models / set the image-OCR model (persisted) |
+| `/model [name]` | List downloaded MLX models / set the LLM used for summaries + OCR (persisted) |
 | `/mode [full\|summary]` | Show / set the read mode (persisted) |
 | `/library` (or `/lib`) | Browse past reads — arrow keys, Enter to replay, `d` to delete |
 | `/speed [x]` | Show / set playback speed, 0.5–2 (persisted; also `+`/`-` in the player) |
 | `/help` | List commands |
 | `/quit` | Exit (or press `q` when the input field is empty) |
 
-`/model` shows every downloaded MLX chat model with its size and a RAM-fit
-verdict for this Mac (green fits · yellow tight · red too big), recommends the
-best fit for summaries, and marks the active one with ★. The model is used by
-Summary mode only and switches on the next read — no server restart. `/vision`
-is the same picker filtered to vision models — it switches the image/book-scan
-OCR model (no recommendation marker; OCR has no single "best").
+`/model` shows every downloaded MLX model with its size and a RAM-fit verdict
+for this Mac (green fits · yellow tight · red too big), recommends the best fit,
+and marks the active one with ★. One model does both jobs — Summary mode and
+image/book OCR — and it switches on the next read, no server restart. Vision-only
+checkpoints (Qwen2.5-VL and friends) are filtered out of the list: they can't
+drive Summary mode. ⚠ Picking a text-only model disables image/book reads.
 
 <p align="center">
   <img src="../../docs/media/cli-model.png" alt="readback CLI — /model list with RAM-fit verdicts" width="820">
 </p>
 
-Prefs (voice/mode/model/visionModel/speed) persist to `~/.readback/cli.json`.
+Prefs (voice/mode/model/speed) persist to `~/.readback/cli.json`.
 
 ### Library
 

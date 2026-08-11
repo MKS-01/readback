@@ -6,6 +6,58 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-08-12 — One model for summary + OCR (the `ocr:` block removed)
+
+**Status: done** — branch `optimisation-2`. A dependency audit found the OCR
+model redundant: `mlx-community/Qwen3.5-9B-4bit`, already loaded for summaries,
+is `Qwen3_5ForConditionalGeneration` with a `vision_config` — a VLM — and the
+installed mlx-vlm 0.6.3 ships a `qwen3_5` handler. So `ocr.model`
+(`Qwen2.5-VL-7B-Instruct-4bit`, 5.65 GB) was a second download doing a job the
+summary model already covers. **Supersedes** the 2026-06-20 entries that split
+OCR into its own `ocr:` section and added `/vision`.
+
+**What shipped.** OCR runs on `cfg.llm.model`. Deleted: `OcrConfig` + the `ocr:`
+YAML block, the `vision_model` field on the WS `read` message / `/api/config` /
+WS `config`, `current_vision` + the per-model `vision` tag on `/api/models`, the
+CLI `/vision` command, `ModelList`'s `kind` prop, the `visionModel` pref, and
+`fetch_article`/`fetch_multi_page`'s `vision_model` parameter. `list_models`
+now *filters out* vision-only checkpoints (`_is_vision_model`) rather than
+tagging them — the listed model must also drive Summary mode through mlx-lm.
+Old configs still load unchanged: `llm.vision_model` hits pydantic's
+`extra="ignore"`, an `ocr:` block hits the unknown-top-level-key drop.
+`llm.model` stays `Qwen3.5-9B-4bit` — the audit floated a 4B for both, but URL
+summary quality is the priority and OCR was the riskier half of that downgrade.
+
+Two bugs found while verifying, both fixed here:
+- ⚠ **Transparent PNGs OCR'd to garbage.** mlx-vlm flattens alpha onto BLACK, so
+  a page of black-on-transparent text arrives as a solid black rectangle; the
+  model doesn't error, it confidently returns `$$\frac{1}{2}$$`. `_has_alpha`
+  (sips) now routes any alpha image through the JPEG conversion, which flattens
+  onto white. This was pre-existing, not introduced by the model swap.
+- `reading page N / M` showed "page 3 / 2" on a 2-page book — `fetch_multi_page`
+  fires a final `progress(total, total)` as a completion signal; the server's
+  phase string now clamps with `min(pi + 1, tot)`.
+
+Also removed a redundant temp-file round-trip: `_image_to_jpeg` wrote a temp
+JPEG, read it back to bytes, deleted it, and the caller wrote those bytes to a
+*second* temp file. It now returns the path directly.
+
+**Verified.** 44 pytest pass; `Config.load()` on a config carrying both stale
+keys loads clean with no `ocr` attribute; `/api/config` + `/api/models` carry no
+vision fields and the old Qwen2.5-VL correctly drops out of the picker; CLI
+`tsc --noEmit` + `bun build` clean. End-to-end over a live `/ws`: a Wikipedia
+URL → Summary mode read (5209 words, 93 s audio, summarize 15.2 s / synthesize
+65.1 s), and a 2-page transparent-PNG book folder → both pages OCR'd verbatim,
+sentence stitched across the page seam, title `Chapter Four` from the opening
+lines. Single-image OCR reproduces the source text exactly.
+
+**Not done:** the 4B model swap (11.6 GB → 3.06 GB) and any translation path
+from the same audit; the unreferenced 19 GB `Qwen3.6-35B-A3B-4bit-DWQ` in the HF
+cache is still there. The older "auto-pick OCR model by source" follow-up is
+moot — there's one model now.
+
+---
+
 ## 2026-07-02 — CLI playback speed controller (/speed + player +/- keys)
 
 **Status: done** — branch `fix/summary-padding-short-articles`. User found the

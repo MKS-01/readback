@@ -5,7 +5,6 @@ export interface ServerConfig {
   voices_available: { id: string; label: string }[];
   voice: string;
   model: string;
-  vision_model: string;
   default_mode: "full" | "summary";
   audio_dir?: string;   // server's output_dir — same-machine playback shortcut
 }
