@@ -117,22 +117,24 @@ reader:
                                       # vast majority of articles instead of map-reducing)
 
   # ── Feed picks ──────────────────────────────────────────────────────────
-  # The sites you read. Their newest posts show up as numbered picks the moment
+  # The sites YOU read. Their newest posts show up as numbered picks the moment
   # the CLI opens — press the number and it's fetched + summarized immediately
   # (no URL to paste). Nothing is stored: the list is crawled live and cached
-  # for feed_ttl_sec, and /feed in the CLI forces a refresh.
+  # for feed_ttl_sec, /feed in the CLI forces a refresh, and a post you've
+  # already read drops off so the next one takes its slot.
   #
   # Each entry is a blog INDEX url (a direct feed url also works). readback
   # finds the RSS/Atom feed by autodiscovery, then by the usual paths (/feed,
   # /rss.xml, /feeds/posts/default …), and falls back to scraping the index's
-  # own post links for sites that ship no feed at all (e.g. claude.com/blog).
-  # Optional `name:` overrides the label shown next to a pick.
-  feeds:
-    - url: "https://android-developers.googleblog.com/"
-      name: "android"
-    - url: "https://claude.com/blog"
-      name: "claude"
-    - url: "https://netflixtechblog.com/"
-      name: "netflix"
+  # own post links for sites that ship no feed at all. Optional `name:`
+  # overrides the label shown next to a pick (default: the site's host).
+  #
+  # Empty list = no picks section at all. Add your own, e.g.:
+  #
+  #   feeds:
+  #     - "https://some-engineering-blog.example/"        # bare url is fine
+  #     - url: "https://another-blog.example/blog"        # …or name it
+  #       name: "another"
+  feeds: []
   feed_picks: 5        # how many picks to show; keyed 1..N in the CLI
   feed_ttl_sec: 900    # re-crawl at most every 15 min (/feed refreshes now)

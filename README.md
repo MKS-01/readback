@@ -230,7 +230,7 @@ Point it anywhere with `--config path`. The defaults work out of the box.
 | `reader.gap_sec` | Base pause between chunks — scaled per join (2× at a paragraph break, 0.6× mid-paragraph) | `0.18` |
 | `reader.summary_max_chars` | Per-pass chunk size for Summary mode — longer inputs are map-reduced, not truncated | `60000` |
 | `reader.library_db` | SQLite library of past reads (powers the dashboard) | `../readback-audio-db/library.db` |
-| `reader.feeds` | Sites whose newest posts become the CLI's numbered picks — a blog index URL (a feed URL works too), optionally `{url, name}` | 3 sample blogs |
+| `reader.feeds` | Sites whose newest posts become the CLI's numbered picks — a blog index URL (a feed URL works too), optionally `{url, name}`. Empty = no picks section | `[]` (add your own) |
 | `reader.feed_picks` | How many picks to show; keyed `1`–`N` in the CLI. `0` feeds = no picks section | `5` |
 | `reader.feed_ttl_sec` | How long a crawl is cached before re-fetching (`/feed` forces it) | `900` |
 
