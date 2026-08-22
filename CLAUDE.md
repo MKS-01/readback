@@ -357,6 +357,17 @@ readback/
     8+3: a batch's cost is nearly flat in batch size, so a 3-row tail batch costs
     about as much as a full one (measured RTF 0.33 for 8+3 vs 0.26 for 6+5).
     Grouping is by index, so document order is unaffected.
+  - `_gap_for` + `chunk_spans` — ⚠ **the pause follows the TEXT, not a flat
+    constant.** `chunk_spans` returns each chunk paired with *does it end a
+    paragraph*, and the join takes its length from that: a paragraph end is real
+    structure the author wrote (`_PARA_GAP_SCALE` **2.0**), while a mid-paragraph
+    join is an ARTIFACT of the random chunk cap splitting a running sentence, so
+    it carries on (`_MID_GAP_SCALE` **0.6**). Both are multiples of
+    `reader.gap_sec` (0.18), which still moves the whole read's pacing. Impact is
+    concentrated in Full mode / book reads: an 8-paragraph article goes 1.44 s →
+    2.88 s of join silence, while a Summary (the LLM emits ONE paragraph) barely
+    moves — 0.90 s → 0.79 s, i.e. slightly tighter. `chunk_text` is the
+    plain-text view of `chunk_spans` for callers that only need the strings.
   - `_fade_out_tail` — 100 ms linear fade-out on each chunk's tail before the
     silence gap, smoothing the voiced→silence transition (no hard cut → click).
   - `_peak_normalize` — ⚠ **levels every voice to the same loudness.** CSM matches

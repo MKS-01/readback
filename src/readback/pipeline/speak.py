@@ -66,11 +66,17 @@ def _hard_split(piece: str) -> list[str]:
     return out
 
 
-def chunk_text(text: str) -> list[str]:
-    """Split article text into TTS-sized chunks: sentence-aware, merged up to a
-    per-chunk cap randomized within [_MIN_CHUNK_CHARS, _MAX_CHARS] (never above
-    _MAX_CHARS), paragraph boundaries respected (so prosody resets per para)."""
+def chunk_spans(text: str) -> list[tuple[str, bool]]:
+    """`chunk_text`, but each chunk is paired with **does it end a paragraph**.
+
+    The flag drives the pause after the chunk (see `_gap_for`). A join in the
+    middle of a paragraph is an ARTIFACT of chunking — the sentence flow is meant
+    to continue — while a paragraph end is real structure the author wrote, so
+    the two should not get the same silence. `chunk_text` is the plain-text view
+    of this for callers that only need the strings.
+    """
     chunks: list[str] = []
+    ends_para: list[bool] = []
     for para in text.split("\n"):
         para = para.strip()
         if not para:
@@ -94,6 +100,7 @@ def chunk_text(text: str) -> list[str]:
                     buf = (buf + " " + piece).strip()
                 elif len(buf) >= _MIN_CHARS:
                     chunks.append(buf)
+                    ends_para.append(False)
                     buf = piece
                     cap = _next_chunk_cap()
                 elif len(buf) + len(piece) + 1 <= _MAX_CHARS:
@@ -106,13 +113,27 @@ def chunk_text(text: str) -> list[str]:
                     # Piece is near the hard cap: emit the fragment as its own
                     # tiny chunk rather than drop it or exceed _MAX_CHARS.
                     chunks.append(buf)
+                    ends_para.append(False)
                     buf = piece
                     cap = _next_chunk_cap()
         if len(buf) >= _MIN_CHARS:
             chunks.append(buf)
+            ends_para.append(False)
         elif buf and chunks:
+            # ⚠ May merge into the PREVIOUS paragraph's last chunk when this one
+            # produced nothing else; that chunk is already flagged, and re-flagging
+            # below is a no-op. Never drop the fragment (see the test).
             chunks[-1] = (chunks[-1] + " " + buf).strip()
-    return chunks
+        if ends_para:
+            ends_para[-1] = True          # this paragraph's last chunk
+    return list(zip(chunks, ends_para))
+
+
+def chunk_text(text: str) -> list[str]:
+    """Split article text into TTS-sized chunks: sentence-aware, merged up to a
+    per-chunk cap randomized within [_MIN_CHUNK_CHARS, _MAX_CHARS] (never above
+    _MAX_CHARS), paragraph boundaries respected (so prosody resets per para)."""
+    return [chunk for chunk, _ in chunk_spans(text)]
 
 
 def _tidy_silence(audio: np.ndarray, sr: int, *, thresh_db: float = -40.0,
@@ -282,6 +303,28 @@ def _synthesize_batched(
     return audio
 
 
+# Pause after a chunk, as a multiple of `reader.gap_sec`. ⚠ A flat gap for every
+# join reads wrong in BOTH directions: it puts a paragraph-sized silence inside a
+# sentence that the random chunk cap happened to split, and gives a real
+# paragraph break the same weight as that artifact. The chunker already knows
+# which is which (`chunk_spans`), so the join takes its length from the text:
+#
+#   paragraph end   — real structure the author wrote; a full breath.
+#   mid-paragraph   — an artifact of chunking; the voice should carry on, so the
+#                     gap is short. The 100 ms `_fade_out_tail` already tapers
+#                     the join, and `_tidy_silence` has trimmed the chunk's own
+#                     edges, so this is a breath, not a hard cut.
+#
+# Scales, not absolutes, so `reader.gap_sec` still moves the whole read's pacing.
+_PARA_GAP_SCALE = 2.0
+_MID_GAP_SCALE = 0.6
+
+
+def _gap_for(ends_para: bool, gap_sec: float, sr: int) -> np.ndarray:
+    scale = _PARA_GAP_SCALE if ends_para else _MID_GAP_SCALE
+    return np.zeros(int(gap_sec * scale * sr), dtype=np.float32)
+
+
 def synthesize_article(
     synth,
     text: str,
@@ -292,17 +335,20 @@ def synthesize_article(
     should_stop: Optional[Callable[[], bool]] = None,
 ) -> np.ndarray:
     """Synthesize `text` chunk-by-chunk into one float32 buffer (engine sample
-    rate). Each chunk is silence-trimmed, then joined with a short uniform gap so
-    pacing is natural (no stacked CSM trailing-silence). `progress(done, total)`
+    rate). Each chunk is silence-trimmed, then joined with a gap whose length
+    depends on whether the chunk ENDS A PARAGRAPH (`_gap_for`) — a real break
+    breathes, a mid-paragraph split carries on — so pacing follows the text
+    instead of being uniform (and no stacked CSM trailing-silence). `progress(done, total)`
     fires after each chunk; `should_stop()` aborts early (e.g. client gone).
     `base_temperature`, when given, is the reading tone's delivery temperature —
     each chunk's actual temperature is nudged around it per `_expressive_temperature`
     so delivery varies with content rather than staying uniform for the whole read."""
     sr = synth.sample_rate
-    gap = np.zeros(int(gap_sec * sr), dtype=np.float32)
-    chunks = chunk_text(text)
-    if not chunks:
+    spans = chunk_spans(text)
+    if not spans:
         return np.zeros(0, dtype=np.float32)
+    chunks = [c for c, _ in spans]
+    gaps = [_gap_for(ends, gap_sec, sr) for _, ends in spans]
 
     # Fast path: synthesize the chunks in batches through one CSM frame loop.
     # Each chunk keeps its own _expressive_temperature (per-row sampler), so
@@ -315,7 +361,7 @@ def synthesize_article(
     batched = _synthesize_batched(synth, chunks, temps, sr, progress, should_stop)
     if batched is not None:
         out: list[np.ndarray] = []
-        for audio in batched:
+        for audio, gap in zip(batched, gaps):
             if audio.size:
                 out.append(_fade_out_tail(audio, sr))
                 out.append(gap)
@@ -342,7 +388,7 @@ def synthesize_article(
             audio = np.zeros(0, dtype=np.float32)
         if audio.size:
             out.append(_fade_out_tail(audio, sr))
-            out.append(gap)
+            out.append(gaps[i])
         if progress is not None:
             progress(i + 1, len(chunks))
     if not out:

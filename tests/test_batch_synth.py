@@ -210,3 +210,26 @@ def test_pad_query_rows_are_never_fully_masked():
     m = np.asarray(prefill_mask(pad_key_mask([0, 3], 6), 6))
     assert m.any(axis=-1).all(), "every query row must attend to at least one key"
     assert m[1, 0, 0, 0] and not m[1, 0, 0, 1:].any()   # pad attends to itself only
+
+
+def test_paragraph_breaks_get_a_longer_gap_than_mid_paragraph_joins():
+    """⚠ The pause follows the TEXT: a paragraph end breathes, a mid-paragraph
+    split (an artifact of the random chunk cap) carries on."""
+    from readback.pipeline.speak import _MID_GAP_SCALE, _PARA_GAP_SCALE, chunk_spans
+
+    long_para = "This is a sentence that runs on for a while. " * 12
+    text = long_para.strip() + "\n" + "A short second paragraph goes here."
+    spans = chunk_spans(text)
+    assert sum(1 for _, e in spans if e) == 2, "one flagged chunk per paragraph"
+
+    gap_sec, voiced = 0.2, 2000
+    synth = _BatchSynth(batch_size=4)
+    out = synthesize_article(synth, text, gap_sec=gap_sec)
+
+    # Total silence must equal the per-join policy, not a flat gap for every join.
+    expected = sum(
+        int(gap_sec * (_PARA_GAP_SCALE if ends else _MID_GAP_SCALE) * SR)
+        for _, ends in spans
+    )
+    assert out.size == len(spans) * voiced + expected
+    assert _PARA_GAP_SCALE > _MID_GAP_SCALE

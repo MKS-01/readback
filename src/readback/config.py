@@ -103,7 +103,10 @@ class ReaderConfig(BaseModel):
     # to delete by accident. Relative paths resolve against config.yaml's dir.
     output_dir: Path = Path("../readback-audio-db/audio")
     default_mode: Literal["full", "summary"] = "full"
-    gap_sec: float = 0.18                 # silence between (trimmed) chunks
+    gap_sec: float = 0.18                 # base silence between (trimmed) chunks;
+                                          # scaled per join by speak._gap_for —
+                                          # paragraph ends breathe, mid-paragraph
+                                          # splits carry on
     # Cap article text for a single LLM pass before map-reducing. Qwen3.5-9B has
     # a 262K-token context, so 60K chars (~15K tokens) single-passes the vast
     # majority of articles instead of map-reducing.
