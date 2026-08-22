@@ -735,20 +735,17 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v4.3.0** — ~2x synthesis, without paying for it in quality.
-**Batched CSM synthesis** (`tts.csm.batch_size`, default 8): chunks share one
-frame loop, which is launch-latency bound, so 8 rows cost 1.64x the time of 1 —
-measured 61.3 s → 28.6 s of synthesis on the same summary. ⚠ The muffled voice
-that parked this work for weeks was a **missing padding mask**: batching
-left-pads prompts, and nothing stopped real tokens attending to the pads, which
-flattened the output distribution (codebook-0 top-1 0.193 → 0.049 at 8 pads).
-`_pad_key_mask`/`_prefill_mask` + `_frame_impl` fix it to bf16 noise. Pauses now
-follow the TEXT (`chunk_spans` → `_gap_for`: 2x at a paragraph end, 0.6x
-mid-paragraph) — which only mattered once the tone prompts started asking for
-**2-4 paragraphs** (the model had been returning one unbroken block) and
-`_trim_to_word_ceiling` stopped reflowing them away. The read cache gained
-`pipeline.RECIPE_VERSION` (new `recipe` column) so a pipeline change re-renders
-instead of replaying stale audio.
+Current: **v4.3.0** — ~2x synthesis, same quality.
+Batched CSM synthesis (`tts.csm.batch_size`, default 8): the frame loop is
+launch-latency bound, so 8 rows cost 1.64x the time of 1 — measured
+61.3 s → 28.6 s synthesizing the same summary. Fixed by masking left-pad
+tokens out of attention (`_pad_key_mask`/`_prefill_mask`), which had been
+flattening the output distribution (codebook-0 top-1 0.193 → 0.049 at 8 pads)
+and causing the muffled voice that stalled this work for weeks; masked, KL vs.
+unpadded is ~0.0002 (bf16 noise). Pauses now follow paragraph breaks
+(`_gap_for`: 2x at a paragraph end, 0.6x mid-paragraph). Read cache gained
+`pipeline.RECIPE_VERSION` so a pipeline change re-renders instead of replaying
+stale audio.
 
 Previously: v4.2.0 — summary quality + delivery + CLI playback speed
 (word-count anchor + 250-word ceiling trim, `_expressive_temperature`,

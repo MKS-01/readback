@@ -8,6 +8,10 @@
 </p>
 
 <p align="center">
+  <sub>⚡ ~5s average to summarize an article, ~2x faster synthesis than v4.2 — end-to-end reads in under a minute.</sub>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Runs-100%25_offline-6366f1?style=for-the-badge&logo=ghostery&logoColor=white" alt="Runs 100% offline">
   <img src="https://img.shields.io/badge/Apple_Silicon-MLX_·_Metal-black?style=for-the-badge&logo=apple&logoColor=white" alt="Apple Silicon">
   <img src="https://img.shields.io/badge/Voice-CSM--1B-ec4899?style=for-the-badge&logo=soundcharts&logoColor=white" alt="CSM-1B neural TTS">
