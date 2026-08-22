@@ -735,17 +735,25 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v4.2.0** — summary quality + delivery + CLI playback speed. Summary
-mode no longer pads short articles with invented filler (word-count anchor +
-code-enforced 250-word ceiling trim); map-reduce's length anchor now tracks
-the original source, not the compressed digests; CSM delivery temperature
-nudges per chunk from punctuation (`_expressive_temperature`); chunk
-boundaries randomize within a fast [280, 400]-char band instead of a fixed
-cap; `summary_max_chars` raised 16K→60K to skip needless map-reduce; CLI
-gained a playback speed controller (`/speed` + `+`/`-` in the player,
-pitch-preserving, persisted).
+Current: **v4.3.0** — ~2x synthesis, without paying for it in quality.
+**Batched CSM synthesis** (`tts.csm.batch_size`, default 8): chunks share one
+frame loop, which is launch-latency bound, so 8 rows cost 1.64x the time of 1 —
+measured 61.3 s → 28.6 s of synthesis on the same summary. ⚠ The muffled voice
+that parked this work for weeks was a **missing padding mask**: batching
+left-pads prompts, and nothing stopped real tokens attending to the pads, which
+flattened the output distribution (codebook-0 top-1 0.193 → 0.049 at 8 pads).
+`_pad_key_mask`/`_prefill_mask` + `_frame_impl` fix it to bf16 noise. Pauses now
+follow the TEXT (`chunk_spans` → `_gap_for`: 2x at a paragraph end, 0.6x
+mid-paragraph) — which only mattered once the tone prompts started asking for
+**2-4 paragraphs** (the model had been returning one unbroken block) and
+`_trim_to_word_ceiling` stopped reflowing them away. The read cache gained
+`pipeline.RECIPE_VERSION` (new `recipe` column) so a pipeline change re-renders
+instead of replaying stale audio.
 
-Previously: v4.1.0 — audio quality + performance (read cache, degenerate-chunk
+Previously: v4.2.0 — summary quality + delivery + CLI playback speed
+(word-count anchor + 250-word ceiling trim, `_expressive_temperature`,
+randomized [280, 400] chunk band, `summary_max_chars` 16K→60K, `/speed`);
+v4.1.0 — audio quality + performance (read cache, degenerate-chunk
 guard, chunk-join crossfade, `llm_model` column); v4.0.0 — full MLX LLM stack
 (Ollama removed); v3.0.0–v3.7.0 (see memory `version-history` for full changelog).
 Set in `pyproject.toml`, `src/readback/__init__.py`,
