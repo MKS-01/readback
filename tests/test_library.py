@@ -102,3 +102,26 @@ def test_llm_model_persisted(lib):
     lib.add(_rec("a", llm_model="mlx-community/Qwen3.5-9B-4bit"))
     row = lib.get("a")
     assert row["llm_model"] == "mlx-community/Qwen3.5-9B-4bit"
+
+
+def test_find_cached_miss_on_different_recipe(lib, tmp_path):
+    """⚠ A pipeline change must re-render, not replay audio the OLD code made."""
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    rec = _rec("a", url="https://ex.com", llm_model="m1")
+    rec.recipe = "r1"
+    lib.add(rec)
+    with lib._connect() as conn:
+        conn.execute("UPDATE reads SET audio_path = ? WHERE id = 'a'", (str(wav),))
+    assert lib.find_cached("https://ex.com", "full", "kay", "m1", "r1") is not None
+    assert lib.find_cached("https://ex.com", "full", "kay", "m1", "r2") is None
+
+
+def test_find_cached_ignores_rows_from_before_the_recipe_column(lib, tmp_path):
+    """Pre-migration rows carry recipe '' and must never match a real recipe."""
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    lib.add(_rec("a", url="https://ex.com", llm_model="m1"))     # recipe defaults ''
+    with lib._connect() as conn:
+        conn.execute("UPDATE reads SET audio_path = ? WHERE id = 'a'", (str(wav),))
+    assert lib.find_cached("https://ex.com", "full", "kay", "m1", "r2") is None

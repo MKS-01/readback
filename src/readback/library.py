@@ -48,6 +48,8 @@ class ReadRecord:
     excerpt: str = ""
     summary: Optional[str] = None
     llm_model: str = ""
+    # Pipeline recipe that produced the audio — see pipeline.RECIPE_VERSION.
+    recipe: str = ""
 
 
 class Library:
@@ -78,22 +80,26 @@ class Library:
                     audio_filename TEXT NOT NULL,
                     audio_path     TEXT NOT NULL,
                     created_at     TEXT NOT NULL,
-                    llm_model      TEXT NOT NULL DEFAULT ''
+                    llm_model      TEXT NOT NULL DEFAULT '',
+                    recipe         TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
             # Migration: add llm_model to existing DBs (must run before indexes
             # that reference it).
-            try:
-                conn.execute("ALTER TABLE reads ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
-            except sqlite3.OperationalError:
-                pass
+            for column in ("llm_model", "recipe"):
+                try:
+                    conn.execute(
+                        f"ALTER TABLE reads ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
+                    )
+                except sqlite3.OperationalError:
+                    pass        # already present
             # Sort key — every list query orders by it.
             conn.execute("CREATE INDEX IF NOT EXISTS idx_reads_created ON reads(created_at)")
-            # Cache lookup index — covers find_cached(source_url, mode, voice, llm_model).
+            # Cache lookup index — covers find_cached's full key.
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_reads_cache "
-                "ON reads(source_url, mode, voice, llm_model)"
+                "ON reads(source_url, mode, voice, llm_model, recipe)"
             )
 
     def add(self, rec: ReadRecord) -> None:
@@ -103,28 +109,33 @@ class Library:
                 INSERT OR REPLACE INTO reads
                     (id, title, summary, excerpt, source_url, mode, voice,
                      duration_sec, word_count, audio_filename, audio_path,
-                     created_at, llm_model)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     created_at, llm_model, recipe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     rec.id, rec.title, rec.summary, rec.excerpt, rec.source_url,
                     rec.mode, rec.voice, rec.duration_sec, rec.word_count,
                     rec.audio_filename, rec.audio_path, rec.created_at,
-                    rec.llm_model,
+                    rec.llm_model, rec.recipe,
                 ),
             )
 
     def find_cached(
         self, source_url: str, mode: str, voice: str, llm_model: str,
+        recipe: str = "",
     ) -> Optional[dict]:
         """Return the most recent read matching the cache key, or None. Only
-        returns a hit if the WAV file still exists on disk."""
+        returns a hit if the WAV file still exists on disk.
+
+        ⚠ `recipe` (pipeline.RECIPE_VERSION) is part of the key so a pipeline
+        change re-renders instead of replaying audio the OLD code produced."""
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM reads "
                 "WHERE source_url = ? AND mode = ? AND voice = ? AND llm_model = ? "
+                "AND recipe = ? "
                 "ORDER BY created_at DESC LIMIT 1",
-                (source_url, mode, voice, llm_model),
+                (source_url, mode, voice, llm_model, recipe),
             ).fetchone()
         if row is None:
             return None

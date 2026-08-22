@@ -183,10 +183,14 @@ readback/
   and (via `should_stop`) aborts synthesis. One job per socket; a second `read`
   while busy returns an error.
 - **Read cache** (step 0, before fetch): `library.find_cached(url, mode, voice,
-  llm_model)` checks for an existing WAV matching the exact cache key. On hit the
+  llm_model, recipe)` checks for an existing WAV matching the exact cache key. On hit the
   entire pipeline is skipped — `done` fires immediately with the cached record.
   The cache key includes the LLM model so a `/model` switch doesn't replay stale
-  audio. The lookup is backed by a composite index (`idx_reads_cache`). A hit
+  audio, **and `pipeline.RECIPE_VERSION`** so a change to the summary prompt,
+  chunking/pausing, or synthesis re-renders instead of replaying audio the OLD
+  code produced. ⚠ **Bump `RECIPE_VERSION` with any such change** — otherwise
+  you re-read an article to check a quality fix and hear the very output you
+  just fixed. Pre-migration rows carry `recipe = ''` and never match. The lookup is backed by a composite index (`idx_reads_cache`). A hit
   requires the WAV file to still exist on disk (deleted WAVs are misses).
 - **Phases** stream as `phase` messages (`loading` → `fetching` → `summarizing` →
   `synthesizing`), then per-chunk `progress {done, total}`, then `done`.
@@ -208,7 +212,8 @@ readback/
   SQLite library via `library.add(...)` (best-effort — wrapped in try/except +
   logged; a DB failure must never break playback). Full mode stores `excerpt`
   (article text[:300], summary=None); Summary mode stores both. `id` = the WAV's
-  uuid stem. `llm_model` stores the summary LLM used (part of the cache key).
+  uuid stem. `llm_model` stores the summary LLM used, `recipe` the
+  `RECIPE_VERSION` that produced the audio (both part of the cache key).
 - **Library REST** (read-only + delete, all `asyncio.to_thread` over blocking
   sqlite): `GET /api/library?q=&sort=newest|oldest&limit=&offset=` →
   **paged** `{items, total, limit, offset}` (limit capped 1–100, default 20;
@@ -242,7 +247,8 @@ readback/
 - **Tones** (`tones.py`): a `Tone` bundles a summary framing prompt + a CSM
   *base* delivery `temperature` (per-chunk `_expressive_temperature` in
   `speak.py` nudges it around this base — see Chunk + synth below).
-  `classify_source(src)` → `"book"` (image / folder / glob)
+  `classify_source(src)` (⚠ defined in `extract.py`, not `tones.py`) → `"book"`
+  (image / folder / glob)
   or `"article"` (URL); `tone_for(kind)` → `BOOK` (measured, **0.6**, opens by
   naming the chapter/topic) or `ARTICLE` (livelier explainer, **0.8**). Auto,
   server-side, invisible to the CLI — **no `/tone` override or config yet** (room
@@ -260,7 +266,12 @@ readback/
   and asks for natural spoken rhythm (varied sentence length, emphasis on a
   genuinely notable point) instead of a flat, even-register list of facts.
   The shared length policy lives ONCE, in `_LENGTH_RULES` (+ `_PLAIN_PROSE_RULE`),
-  `.format`-ed into both prompts — edit it there, not in the prompt bodies. The
+  `.format`-ed into both prompts — edit it there, not in the prompt bodies.
+  ⚠ `_PLAIN_PROSE_RULE` asks for **2-4 short paragraphs** — that is a DELIVERY
+  setting, not cosmetics: `speak.py` takes each pause's length from the
+  paragraph breaks (`chunk_spans` → `_gap_for`). The old "plain flowing
+  sentences" wording returned ONE unbroken block every time (measured 220 words,
+  zero newlines), so a Summary read had no structural pauses at all. The
   ceiling itself is `SUMMARY_WORD_CEILING` (250), exported because the prompt is
   only advisory: `summarize_article` **hard-enforces it post-hoc** with a
   sentence-boundary trim (`_trim_to_word_ceiling` — the model measured 313 words
@@ -275,7 +286,10 @@ readback/
   (`_summarize_once`). The framing prompt is the tone's `system` (passed by the
   server; defaults to the article tone).
   Longer input (book scans) → **map-reduce** (`_map_reduce`): `_batches` packs the
-  text into ≤`max_chars` batches (paragraph → sentence → hard-cut), each condensed
+  text into ≤`max_chars` batches (paragraph → sentence → hard-cut; ⚠ `_PARA_SPLIT`
+  is `\n+`, NOT `\n{2,}` — trafilatura emits each paragraph as a SINGLE line, so
+  a blank-line split matched nothing and every source silently fell through to
+  sentence-level packing), each condensed
   with `_MAP_SYSTEM`, the digests joined and reduced via `_summarize_once`;
   recurses (depth ≤ 3) if the joined digests still overflow. ⚠ This **replaced** the
   old hard truncation that silently dropped everything past ~10-12 pages. Optional
@@ -286,7 +300,9 @@ readback/
   anchoring the prompt's length target to *their* count mis-calibrates exactly
   the long inputs map-reduce exists for. Non-empty summaries are then clipped by
   `_trim_to_word_ceiling` (sentence-boundary cut at `SUMMARY_WORD_CEILING`,
-  always keeps ≥1 sentence) — the code-level backstop for the prompt's HARD
+  always keeps ≥1 sentence, ⚠ **and preserves paragraph breaks** — it used to
+  `" ".join()` the sentences, silently reflowing every summary into one line and
+  destroying the very breaks the pauses are derived from) — the code-level backstop for the prompt's HARD
   LIMIT, which also caps synthesis time (every overshoot word is paid for again
   in TTS).
 - **Chunk + synth** (`speak.py`):
@@ -633,9 +649,10 @@ readback/
   audio_path, created_at, llm_model`. **Connections are opened per call** (`_connect`) so
   it's safe across asyncio's threadpool — every call site wraps it in
   `asyncio.to_thread`. `CREATE TABLE IF NOT EXISTS` on init (idempotent);
-  `llm_model` is auto-migrated on existing DBs via `ALTER TABLE ADD COLUMN`.
+  `llm_model` and `recipe` are auto-migrated on existing DBs via `ALTER TABLE ADD
+  COLUMN`.
   `delete()` returns the `audio_path` so the server can unlink the WAV.
-  `find_cached(source_url, mode, voice, llm_model)` → the most recent matching
+  `find_cached(source_url, mode, voice, llm_model, recipe)` → the most recent matching
   read (or None if no match / WAV deleted). Backed by composite index
   `idx_reads_cache`.
 - `add()` is `INSERT OR REPLACE` (re-reads with the same id overwrite). `list()`

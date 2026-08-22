@@ -41,9 +41,19 @@ _LENGTH_RULES = (
     "a content point, never on an invitation or thanks. HARD LIMIT: never "
     f"exceed {SUMMARY_WORD_CEILING} words (roughly 10 to 15 sentences). "
 )
+# ⚠ The paragraph instruction is not cosmetic — it is a DELIVERY setting. speak.py
+# takes the length of each pause from the text's paragraph breaks (`chunk_spans` →
+# `_gap_for`: a paragraph end gets a full breath, a mid-paragraph join carries on).
+# With the old "plain flowing sentences" wording the model returned ONE unbroken
+# block every time (measured: 220 words, zero newlines), so every join was a
+# mid-paragraph one and a Summary read had no structural pauses at all. Asking for
+# a handful of paragraphs is what lets a spoken summary breathe between ideas.
 _PLAIN_PROSE_RULE = (
     "Use plain flowing sentences only — no markdown, no headings, no bullet "
-    "points, no special characters."
+    "points, no special characters. Break the text into 2 to 4 short paragraphs "
+    "separated by a blank line, each covering one idea. This is read aloud and "
+    "the reader pauses at every paragraph break, so put the breaks where a "
+    "speaker would naturally pause for breath between thoughts."
 )
 
 # Article / blog: turn written prose into a clear spoken explanation. (This is the

@@ -52,6 +52,7 @@ from readback.llm.client import LLMClient
 from readback.llm.models import installed_model_names, list_models
 from readback.pipeline import ExtractError, fetch_article
 from readback.pipeline.extract import _is_multi_page, classify_source, fetch_multi_page
+from readback.pipeline import RECIPE_VERSION
 from readback.pipeline.tones import tone_for
 from readback.pipeline.speak import synthesize_article, write_wav
 from readback.pipeline.summarize import summarize_article
@@ -152,6 +153,7 @@ async def _run_read_job(
     effective_model = model if model else cfg.llm.model
     cached = await asyncio.to_thread(
         library.find_cached, url, mode, effective_voice, effective_model,
+        RECIPE_VERSION,
     )
     if cached:
         log.info("cache hit: %s (%s)", cached["title"][:50], cached["audio_filename"])
@@ -296,6 +298,7 @@ async def _run_read_job(
             audio_path=str(audio_path),
             created_at=datetime.now(timezone.utc).isoformat(),
             llm_model=cfg.llm.model,
+            recipe=RECIPE_VERSION,
         )
         await asyncio.to_thread(library.add, rec)
     except Exception:
