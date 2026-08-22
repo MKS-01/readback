@@ -165,6 +165,16 @@ a:hover { text-decoration: underline; }
   animation: rise 0.6s var(--ease-out) 0.24s both;
 }
 
+.metrics {
+  font-family: "Martian Mono", monospace;
+  font-size: var(--text-sm);
+  color: var(--dim);
+  margin: 14px auto 0;
+  animation: rise 0.6s var(--ease-out) 0.3s both;
+}
+
+.metrics .accent { font-weight: 500; }
+
 @keyframes rise {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: none; }
@@ -509,7 +519,7 @@ code {
      comprehension (scroll-reveal fade, feature print-in, caret blink,
      caption/slide crossfade) — drop only movement. */
   .reveal { transform: none; }                     /* fade in place, no slide */
-  .wordmark, .tagline, .pitch, .cta { animation-name: fade-in; } /* opacity, no translate */
+  .wordmark, .tagline, .pitch, .metrics, .cta { animation-name: fade-in; } /* opacity, no translate */
   .playing .wave i.on { animation: none; }         /* no sway */
   .reveal .dash-card { transform: none; }          /* fade only, no slide */
   .demo-slide { filter: none; }                    /* no blur transition */
