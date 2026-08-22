@@ -798,7 +798,17 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v4.4.0** — feed picks: the CLI opens on what's new.
+Current: **v4.5.0** — dependency + CI maintenance, no behavior change.
+Bun bumped 1.3.14→1.4.0; CLI/dashboard patch bumps (react, vue, @types/bun,
+@types/react + transitives); pip/websockets bumped in the Python venv (no
+pyproject pin). GitHub Actions pinned to latest majors (`actions/checkout`
+v4→v7, `actions/setup-python` v5→v7, `actions/configure-pages` v5→v6,
+`actions/upload-pages-artifact` v3→v5, `actions/deploy-pages` v4→v5).
+Deliberately NOT bumped — real major-version jumps that need their own pass:
+ink 6→7, TypeScript 5→7 (the native Go-rewrite, not a point release), Vite
+6→8 + `@vitejs/plugin-vue` 5→6, vue-tsc 2→3.
+
+Previously: v4.4.0 — feed picks: the CLI opens on what's new.
 `reader.feeds` lists the sites you read; the server crawls them
 (`pipeline/feeds.py` — RSS/Atom autodiscovery, then conventional paths, then an
 HTML-index scrape for the ~half of blogs that ship no feed) and the CLI shows
@@ -810,7 +820,7 @@ retires and the next post is promoted, and are TTL-cached (`/feed` re-crawls).
 `config.example.yaml` as the checked-in template (`setup.sh` copies it;
 `Config.load()` falls back to it).
 
-Previously: v4.3.0 — ~2x synthesis, same quality.
+Older: v4.3.0 — ~2x synthesis, same quality.
 Batched CSM synthesis (`tts.csm.batch_size`, default 8): the frame loop is
 launch-latency bound, so 8 rows cost 1.64x the time of 1 — measured
 61.3 s → 28.6 s synthesizing the same summary. Fixed by masking left-pad
@@ -822,7 +832,7 @@ unpadded is ~0.0002 (bf16 noise). Pauses now follow paragraph breaks
 `pipeline.RECIPE_VERSION` so a pipeline change re-renders instead of replaying
 stale audio.
 
-Older: v4.2.0 — summary quality + delivery + CLI playback speed
+Further back: v4.2.0 — summary quality + delivery + CLI playback speed
 (word-count anchor + 250-word ceiling trim, `_expressive_temperature`,
 randomized [280, 400] chunk band, `summary_max_chars` 16K→60K, `/speed`);
 v4.1.0 — audio quality + performance (read cache, degenerate-chunk
