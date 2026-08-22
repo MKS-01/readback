@@ -21,7 +21,8 @@ gotchas, and exact knobs.
 ## Hardware
 
 - Apple M5 Pro, 48 GB unified memory (primary target). No CUDA.
-- **MLX/Metal (20-core GPU)** runs CSM-1B TTS + the summary LLM (mlx-lm) + vision OCR (mlx-vlm) — all in-process.
+- **MLX/Metal (20-core GPU)** runs CSM-1B TTS + the LLM — text via mlx-lm, OCR via
+  mlx-vlm on the SAME weights — all in-process.
 - **MLX is not multi-thread safe** — its default GPU stream binds to the thread
   that first touches the device, so `CsmEngine` owns a single-thread executor and
   runs all model work on it (see TTS section).
@@ -30,15 +31,18 @@ gotchas, and exact knobs.
 
 - **Extraction**: `trafilatura` (URL → clean article text) + a browser-UA urllib
   fallback for sites that 403 the default agent. Local images (`.png/.jpg/.heic/…`)
-  → mlx-vlm vision OCR (config-driven model). Folder or glob → multi-page
+  → mlx-vlm OCR on `cfg.llm.model`. Folder or glob → multi-page
   mode: pages OCR'd in natural-filename order and stitched into one continuous
   Article (a scanned page is a page, not a chapter — no synthetic headers), then
   summarized/read like any article.
  - **LLM**: **mlx-lm** (in-process on MLX/Metal), default
   **`mlx-community/Qwen3.5-9B-4bit`** (chain-of-thought disabled via
   `enable_thinking=False`; `<think>` stripping as backup — see LLM section). Used
-  **only by Summary mode** (`LLMClient.oneshot`) + title generation. Vision OCR
-  uses **mlx-vlm** (default `mlx-community/Qwen2.5-VL-7B-Instruct-4bit`).
+  by Summary mode (`LLMClient.oneshot`), title generation, **and image/book OCR**
+  (via mlx-vlm — same HF id, separate loader). ⚠ There is **no separate OCR
+  model**: Qwen3.5 is a VLM (`model_type: qwen3_5` + a `vision_config`, and
+  mlx-vlm ships a `qwen3_5` handler), so the old `ocr:` block was a redundant
+  ~5.6 GB download. A text-only `/model` pick disables image/book reads.
   `/model` can switch per-read; any downloaded MLX chat model works.
 - **TTS**: **CSM-1B** (`senstella/csm-1b-mlx`, Sesame Conversational Speech Model)
   via **`csm-mlx`** on Metal, bf16, 24 kHz native. 2 built-in
@@ -79,9 +83,10 @@ readback/
 │                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
-├── tests/                     # 44 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
+├── tests/                     # 54 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
 │                              # silence-tidy, fade-out, extract scrub, library + cache, think-stripper,
-│                              # tones, map-reduce batching, summary trim.
+│                              # tones, map-reduce batching, summary trim, batched-synth
+│                              # drive loop (order/progress/cancel/retry/fallback).
 │                              # Config in pyproject.toml; runnable on Linux (requirements-pi.txt subset).
 ├── .github/workflows/
 │   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10 + 3.12 on Ubuntu;
@@ -143,9 +148,9 @@ readback/
     │                          # BusyView,PlayerView,ModelList,LibraryView}.tsx
     └── readback/              # python package (src layout; wheel packages src/readback)
         ├── __main__.py        # `readback` CLI: argparse --host/--port/--model/--config, uvicorn boot
-        ├── config.py          # Pydantic config: LLMConfig / OcrConfig / CsmTTSConfig
+        ├── config.py          # Pydantic config: LLMConfig / CsmTTSConfig
         │                      # (+ CsmVoicePrompt) / ReaderConfig; load() resolves clone wav +
-        │                      # lora + library_db, migrates old llm.vision_model → ocr.model
+        │                      # lora + library_db; stale llm.vision_model / ocr: keys are ignored
         ├── library.py         # SQLite read library (stdlib sqlite3): Library class
         │                      # (add/list/get/delete/find_cached over a `reads` table) — powers
         │                      # the dashboard + the read cache
@@ -154,7 +159,7 @@ readback/
         │   └── models.py      # MLX model listing (HF cache scan) + RAM-fit verdict (GET /api/models)
         ├── pipeline/
         │   ├── extract.py     # fetch_article (URL/image) + fetch_multi_page (folder/glob);
-        │   │                  # trafilatura + UA fallback; mlx-vlm vision OCR; TTS-prep scrub
+        │   │                  # trafilatura + UA fallback; mlx-vlm OCR on cfg.llm.model; TTS-prep scrub
         │   ├── tones.py       # reading tones: Tone(summary_system, temperature);
         │   │                  # ARTICLE (URL) / BOOK (image) + tone_for(kind)
         │   ├── summarize.py   # summarize_article: LLM oneshot/map-reduce → spoken
@@ -178,10 +183,14 @@ readback/
   and (via `should_stop`) aborts synthesis. One job per socket; a second `read`
   while busy returns an error.
 - **Read cache** (step 0, before fetch): `library.find_cached(url, mode, voice,
-  llm_model)` checks for an existing WAV matching the exact cache key. On hit the
+  llm_model, recipe)` checks for an existing WAV matching the exact cache key. On hit the
   entire pipeline is skipped — `done` fires immediately with the cached record.
   The cache key includes the LLM model so a `/model` switch doesn't replay stale
-  audio. The lookup is backed by a composite index (`idx_reads_cache`). A hit
+  audio, **and `pipeline.RECIPE_VERSION`** so a change to the summary prompt,
+  chunking/pausing, or synthesis re-renders instead of replaying audio the OLD
+  code produced. ⚠ **Bump `RECIPE_VERSION` with any such change** — otherwise
+  you re-read an article to check a quality fix and hear the very output you
+  just fixed. Pre-migration rows carry `recipe = ''` and never match. The lookup is backed by a composite index (`idx_reads_cache`). A hit
   requires the WAV file to still exist on disk (deleted WAVs are misses).
 - **Phases** stream as `phase` messages (`loading` → `fetching` → `summarizing` →
   `synthesizing`), then per-chunk `progress {done, total}`, then `done`.
@@ -203,7 +212,8 @@ readback/
   SQLite library via `library.add(...)` (best-effort — wrapped in try/except +
   logged; a DB failure must never break playback). Full mode stores `excerpt`
   (article text[:300], summary=None); Summary mode stores both. `id` = the WAV's
-  uuid stem. `llm_model` stores the summary LLM used (part of the cache key).
+  uuid stem. `llm_model` stores the summary LLM used, `recipe` the
+  `RECIPE_VERSION` that produced the audio (both part of the cache key).
 - **Library REST** (read-only + delete, all `asyncio.to_thread` over blocking
   sqlite): `GET /api/library?q=&sort=newest|oldest&limit=&offset=` →
   **paged** `{items, total, limit, offset}` (limit capped 1–100, default 20;
@@ -220,8 +230,13 @@ readback/
 - **Extract** (`extract.py`): trafilatura first, browser-UA urllib fallback on
   empty/403. `_clean_for_tts` strips `https?://…`, `[12]` citation markers, and
   collapses whitespace. Missing title → slug from the URL tail. Local images →
-  `_ocr_via_mlx` (sips converts HEIC/TIFF/BMP/WebP → JPEG; mlx-vlm vision model
-  from `cfg.ocr.model`). **Multi-page** (`_is_multi_page` → folder or
+  `_ocr_via_mlx` (mlx-vlm, model = `cfg.llm.model` — the summary model does OCR
+  too). sips converts HEIC/TIFF/BMP/WebP → JPEG, and **also any image with an
+  alpha channel** (`_has_alpha`): ⚠ mlx-vlm flattens alpha onto BLACK, so a
+  transparent PNG of black text arrives as a solid black rectangle and OCR
+  returns confident garbage (`$$\frac{1}{2}$$`) instead of erroring — sips
+  flattens onto white. `_image_to_jpeg` returns the temp file's **path** (mlx-vlm
+  takes paths); don't reintroduce a bytes round-trip. **Multi-page** (`_is_multi_page` → folder or
   glob): `_collect_images` natural-sorts by filename, `fetch_multi_page` OCRs each
   page (the vision model is loaded once and cached across calls) and joins
   the pages with a single space at each seam (a book sentence runs across page
@@ -232,7 +247,8 @@ readback/
 - **Tones** (`tones.py`): a `Tone` bundles a summary framing prompt + a CSM
   *base* delivery `temperature` (per-chunk `_expressive_temperature` in
   `speak.py` nudges it around this base — see Chunk + synth below).
-  `classify_source(src)` → `"book"` (image / folder / glob)
+  `classify_source(src)` (⚠ defined in `extract.py`, not `tones.py`) → `"book"`
+  (image / folder / glob)
   or `"article"` (URL); `tone_for(kind)` → `BOOK` (measured, **0.6**, opens by
   naming the chapter/topic) or `ARTICLE` (livelier explainer, **0.8**). Auto,
   server-side, invisible to the CLI — **no `/tone` override or config yet** (room
@@ -250,7 +266,12 @@ readback/
   and asks for natural spoken rhythm (varied sentence length, emphasis on a
   genuinely notable point) instead of a flat, even-register list of facts.
   The shared length policy lives ONCE, in `_LENGTH_RULES` (+ `_PLAIN_PROSE_RULE`),
-  `.format`-ed into both prompts — edit it there, not in the prompt bodies. The
+  `.format`-ed into both prompts — edit it there, not in the prompt bodies.
+  ⚠ `_PLAIN_PROSE_RULE` asks for **2-4 short paragraphs** — that is a DELIVERY
+  setting, not cosmetics: `speak.py` takes each pause's length from the
+  paragraph breaks (`chunk_spans` → `_gap_for`). The old "plain flowing
+  sentences" wording returned ONE unbroken block every time (measured 220 words,
+  zero newlines), so a Summary read had no structural pauses at all. The
   ceiling itself is `SUMMARY_WORD_CEILING` (250), exported because the prompt is
   only advisory: `summarize_article` **hard-enforces it post-hoc** with a
   sentence-boundary trim (`_trim_to_word_ceiling` — the model measured 313 words
@@ -265,7 +286,10 @@ readback/
   (`_summarize_once`). The framing prompt is the tone's `system` (passed by the
   server; defaults to the article tone).
   Longer input (book scans) → **map-reduce** (`_map_reduce`): `_batches` packs the
-  text into ≤`max_chars` batches (paragraph → sentence → hard-cut), each condensed
+  text into ≤`max_chars` batches (paragraph → sentence → hard-cut; ⚠ `_PARA_SPLIT`
+  is `\n+`, NOT `\n{2,}` — trafilatura emits each paragraph as a SINGLE line, so
+  a blank-line split matched nothing and every source silently fell through to
+  sentence-level packing), each condensed
   with `_MAP_SYSTEM`, the digests joined and reduced via `_summarize_once`;
   recurses (depth ≤ 3) if the joined digests still overflow. ⚠ This **replaced** the
   old hard truncation that silently dropped everything past ~10-12 pages. Optional
@@ -276,7 +300,9 @@ readback/
   anchoring the prompt's length target to *their* count mis-calibrates exactly
   the long inputs map-reduce exists for. Non-empty summaries are then clipped by
   `_trim_to_word_ceiling` (sentence-boundary cut at `SUMMARY_WORD_CEILING`,
-  always keeps ≥1 sentence) — the code-level backstop for the prompt's HARD
+  always keeps ≥1 sentence, ⚠ **and preserves paragraph breaks** — it used to
+  `" ".join()` the sentences, silently reflowing every summary into one line and
+  destroying the very breaks the pauses are derived from) — the code-level backstop for the prompt's HARD
   LIMIT, which also caps synthesis time (every overshoot word is paid for again
   in TTS).
 - **Chunk + synth** (`speak.py`):
@@ -288,11 +314,20 @@ readback/
     input text produces a different chunk count/boundaries run to run — verified)
     varies pacing AND gives `_expressive_temperature` below more chances to land
     a short cap on a single sentence instead of merging it with a
-    differently-toned neighbor. ⚠ **Chunk count tracks the band's mean** — the
-    earlier [120, 200] band measured **2.5-3x** the chunks (= prefills = time) of
-    fixed 400, which is why the band sits at the fast end; randomization itself
-    adds ~zero chunks vs a fixed cap of the same size (see the guide in
-    `config.yaml`). The over-long-sentence safety net (comma split, then a
+    differently-toned neighbor. ⚠ **DON'T narrow this band for "finer
+    expression".** It was tried — batching made small chunks cheap, so the band
+    was moved to [120, 200] to give `_expressive_temperature` a per-sentence
+    window. It sounded WORSE: delivery shifted tone every sentence or two instead
+    of settling ("audio is not stable, tone keeps changing"), and it was
+    reverted. Chunk size is a DELIVERY setting; speed comes from
+    `tts.csm.batch_size`, which doesn't change how text is divided.
+    ⚠ `chunk_text` splits on EVERY `\n`, so hard-wrapped test fixtures produce one
+    chunk per LINE and silently defeat band changes — measure with real article
+    prose (trafilatura emits paragraphs as single lines).
+    ⚠ Measured drift metrics (per-chunk pitch sd, loudness sd) did NOT separate
+    good reads from bad here — a reference-quality read scored 23.0 Hz sd vs 22.4
+    for a read the user rejected. Judge delivery changes BY EAR.
+    The over-long-sentence safety net (comma split, then a
     space-level `_hard_split` for comma-free runs) measures against the fixed
     `_MAX_CHARS`, not the random per-chunk cap. Sub-`_MIN_CHARS` (8) fragments
     are stitched onto a neighbor — mid-paragraph they're carried into the next
@@ -310,16 +345,45 @@ readback/
     punctuation: `!` → +0.08 (emphatic), `?` → +0.04 (questioning), ≥3 commas and
     no `!`/`?` → −0.03 (dense/measured), clamped to `[0.55, 0.95]` (below ~0.55 a
     short clone reference destabilizes). Granularity is **per chunk, not per
-    sentence** — at the [280, 400] band a chunk usually spans a few sentences and
-    gets whichever punctuation rule matches first; finer granularity means a
-    lower band and 2.5-3x the synthesis time (see the speed/quality guide in
-    `config.yaml`).
-  - `synthesize_article` — synth each chunk (at its `_expressive_temperature`,
-    when `base_temperature` is passed — the server always passes the reading
-    tone's temperature), tidy, fade-out tail, join with
-    `reader.gap_sec` (0.18 s) gaps; `progress`/`should_stop` hooks; a chunk that
-    throws is skipped, not fatal. **Degenerate-chunk guard:** if `_tidy_silence`
-    returns empty (all silence), synthesis is retried once before dropping the chunk.
+    sentence** — at the [280, 400] band a chunk spans a few sentences and gets
+    whichever punctuation rule matches first. ⚠ That coarseness is DELIBERATE:
+    making the window per-sentence (the [120, 200] band) shifted tone too often
+    and sounded unstable. ⚠ In the batched path each row carries its own
+    temperature via `_make_batch_sampler` — batching does NOT flatten delivery.
+    See the speed/quality guide in `config.yaml`.
+  - `synthesize_article` — **batched by default** (`_synthesize_batched`): chunks
+    go to `synth.synthesize_batch` in groups of `tts.csm.batch_size` (8), each
+    row carrying its OWN `_expressive_temperature`, then tidy → fade-out tail →
+    join with `reader.gap_sec` (0.18 s) gaps. Measured **~2x** on synthesis
+    at the shipped [280, 400] band (61.3 s → 28.6 s on the same summary), and it
+    does NOT change how the text is divided. Falls back to the old
+    sequential loop when the engine has no `synthesize_batch`, `batch_size` is 1,
+    or the batch path raises — so a csm-mlx upgrade degrades to slow, not broken.
+    `progress` still fires once per chunk; `should_stop` is checked **per batch**
+    (measured cancel latency 8.0 s, better than the old per-chunk latency at the
+    old band). **Degenerate-chunk guard:** rows whose tidied audio is empty are
+    collected and retried once in a follow-up batch.
+  - `_length_buckets` + `_batches` — group chunks for the batch path.
+    `_length_buckets` sorts by text length so a batch's rows are near-equal
+    (prompts are left-padded to the batch max, and the frame loop runs until
+    EVERY row hits EOS, so a short row batched with a long one just idles). Since
+    the pads are masked out of attention, this is now purely a work saving — it
+    is no longer load-bearing for quality.
+    ⚠ `_batches` **evens the groups out** — 11 chunks at size 8 is 6+5, never
+    8+3: a batch's cost is nearly flat in batch size, so a 3-row tail batch costs
+    about as much as a full one (measured RTF 0.33 for 8+3 vs 0.26 for 6+5).
+    Grouping is by index, so document order is unaffected.
+  - `_gap_for` + `chunk_spans` — ⚠ **the pause follows the TEXT, not a flat
+    constant.** `chunk_spans` returns each chunk paired with *does it end a
+    paragraph*, and the join takes its length from that: a paragraph end is real
+    structure the author wrote (`_PARA_GAP_SCALE` **2.0**), while a mid-paragraph
+    join is an ARTIFACT of the random chunk cap splitting a running sentence, so
+    it carries on (`_MID_GAP_SCALE` **0.6**). Both are multiples of
+    `reader.gap_sec` (0.18), which still moves the whole read's pacing. Impact is
+    concentrated in Full mode / book reads: an 8-paragraph article goes 1.44 s →
+    2.88 s of join silence, while a Summary (the LLM emits ONE paragraph) barely
+    moves — 0.90 s → 0.79 s, i.e. slightly tighter. `chunk_text` is the
+    plain-text view of `chunk_spans` for callers that only need the strings.
   - `_fade_out_tail` — 100 ms linear fade-out on each chunk's tail before the
     silence gap, smoothing the voiced→silence transition (no hard cut → click).
   - `_peak_normalize` — ⚠ **levels every voice to the same loudness.** CSM matches
@@ -359,8 +423,52 @@ readback/
   (engine + Synthesizer) sets it per-read — `_make_sampler` reads `cfg.temperature`
   fresh each synth, so it takes effect on the next call with no reload (the server
   uses it to apply the reading tone; see Tones).
-- The reader synthesizes in **batch only** (`synthesize`); offline reads get no
-  benefit from streaming, so the csm-mlx `stream_generate` path was removed.
+- **`synthesize_batch(items)` is the throughput path** — ⚠ the single biggest
+  speed knob in the project. CSM emits one frame per 80 ms of audio and each frame
+  is 1 backbone step + 31 *sequential* decoder steps on a 1B model (~400 tiny
+  matmuls per audio-second), so it is **launch-latency bound, not compute bound**
+  and the GPU idles at batch 1. Measured (ms/frame → audio per wall-second):
+  1 → 51.6/1.55 · 2 → 80.5/1.99 · 4 → 82.1/3.90 · 8 → 84.8/**7.55** — 8x the work
+  for 1.64x the time. `_synthesize_batch_impl` mirrors `csm_mlx.generation.generate`
+  over the batch dim `generate_frame` already supports: prompts are
+  `ref ++ text` tokens **left-padded** to the batch max, one
+  `make_prompt_cache`, per-row EOS tracking, then `decode_audio` per
+  row. ⚠ It therefore leans on csm-mlx internals — `speak.py` falls back to the
+  sequential path if it raises. `_ref_tokens_for` caches the tokenized reference
+  per voice (csm-mlx re-runs that Mimi encode, ~0.03 s, on every `generate`).
+- ⚠ **The pads MUST be masked out of attention (`_pad_key_mask` /
+  `_prefill_mask`) — this is what fixed the muffled voice.** `token_mask` only
+  zeroes the pad *embeddings*; it does not stop real tokens from *attending* to
+  those positions. A zero embedding stays exactly zero through every layer
+  (RMSNorm(0)=0, no biases), so each pad is a key of 0 scoring q·0 = 0 — weight
+  exp(0)=1 in every softmax denominator against a value of 0. The pads act as a
+  bank of neutral sinks that dilute attention and flatten the output
+  distribution; measured on a 236-frame prompt, codebook-0 top-1 probability fell
+  0.193 → 0.049 at 8 pads (KL 0.72) and → 0.023 at 32 (KL 1.49). Flatter
+  distribution → noisier acoustic tokens → the soft, MUFFLED read that parked
+  this branch. With the mask, KL vs the unpadded prompt is ~0.0002 (bf16 noise),
+  i.e. batching is again a pure throughput change. Because
+  `LlamaModel.__call__` builds its own causal mask and accepts no mask argument,
+  `_frame_impl` drives the backbone layer by layer — a masked twin of
+  `generate_frame` (the decoder needs no mask: its per-frame inputs are 1-2
+  positions and never padded). ⚠ `_prefill_mask` force-enables the **diagonal**:
+  a pad query has no valid key at or before it, and a fully-masked softmax row
+  returns NaN that would poison the batch through the next layer's K/V. A
+  same-length batch skips the mask entirely and runs the original path.
+  ⚠ **Don't raise `batch_size` much past 8**: the loop runs until EVERY row hits
+  EOS, so one runaway row stalls the batch (16 measured RTF 0.17 and 0.37 on
+  consecutive runs; 8 measured 0.23 twice).
+- `_make_batch_sampler(temps)` — per-ROW sampling temperature, shape `(B, 1)`.
+  Mirrors mlx_lm's chain (`apply_top_k` then `categorical_sampling`, both
+  last-axis ops) so each chunk keeps its own `_expressive_temperature` inside a
+  shared batch. Without it, batching would flatten delivery across the batch.
+- One-chunk `synthesize` remains as the fallback path; offline reads get no
+  benefit from token streaming, so the csm-mlx `stream_generate` path was removed.
+- ⚠ **One engine per process.** `csm_mlx.generation` creates its `default_stream`
+  at import time, bound to whichever thread imported it — the executor thread of
+  the FIRST engine. A second `Synthesizer` in the same process gets a second
+  executor and dies with "no Stream(gpu, 0) in current thread". Benchmarks that
+  A/B two configs must fork a process per config.
 
 ### Voice cloning & fine-tuning
 
@@ -381,15 +489,16 @@ readback/
 
 ### Config (`config.py`)
 
-- `LLMConfig{model}` (`llm:`) — HuggingFace ID for mlx-lm (summary + title gen).
-- `OcrConfig{model}` (`ocr:`) — HuggingFace ID for mlx-vlm (image / book-scan OCR).
-  ⚠ OCR has its **own** top-level section (not under `llm:`) — different job,
-  different model family. `Config.load()` auto-migrates an old `llm.vision_model`
-  → `ocr.model`. On the wire the field stays `vision_model` (WS read /
-  `/api/config`) and `current_vision` (`/api/models`) — only the YAML/config
-  object moved.
+- `LLMConfig{model}` (`llm:`) — the ONE HuggingFace ID: mlx-lm for summary +
+  title gen, mlx-vlm for image / book-scan OCR. ⚠ The separate `OcrConfig`
+  (`ocr:` block) and the `vision_model` / `current_vision` wire fields were
+  **removed** — one model does both. Old configs still load: `llm.vision_model`
+  falls to pydantic's `extra="ignore"`, an `ocr:` block to `Config.load()`'s
+  unknown-top-level-key drop. Neither is migrated; nothing reads them.
 - `CsmTTSConfig{precision, speaker, temperature, top_k, max_audio_length_ms,
-  ref_max_sec, voices, lora_path}`. The checkpoint (`senstella/csm-1b-mlx`) is
+  ref_max_sec, batch_size, voices, lora_path}`. `batch_size` (**8**) is how many
+  chunks ride one CSM frame loop — the main speed knob (see TTS section); 1
+  restores the sequential path. The checkpoint (`senstella/csm-1b-mlx`) is
   fixed in the engine.
 - `ReaderConfig{output_dir, default_mode, gap_sec, summary_max_chars,
   library_db}`. `output_dir` + `library_db` default to a sibling
@@ -423,16 +532,17 @@ readback/
 - `_ThinkStripper` removes `<think>…</think>` across chunk boundaries. The
   streaming/tool-calling methods and the `tools/` module were removed in the
   v0.8.0 cleanup.
-- `llm/models.py` (`GET /api/models` + the `read` message's `model`/`vision_model`
-  fields): scans downloaded MLX models in the HuggingFace cache with a RAM-fit
+- `llm/models.py` (`GET /api/models` + the `read` message's `model` field):
+  scans downloaded MLX models in the HuggingFace cache with a RAM-fit
   verdict (need ≈ size×1.2+1 GiB; good ≤50% / tight ≤75% of total RAM via
-  `sysctl hw.memsize`) and recommends the largest good-fit chat model. Each model
-  is tagged `chat`/`vision`; the response carries `current` (summary) +
-  `current_vision`. A per-read `model` mutates `cfg.llm.model` and `vision_model`
-  mutates `cfg.ocr.model`, in place (process-wide, like `swap_voice`;
-  **not** written back to `config.yaml`) — the LLM client / vision loader detect
-  the change and reload on next use (`oneshot()` / `_ocr_via_mlx`). The read job
-  scans installed models once when either changed.
+  `sysctl hw.memsize`) and recommends the largest good-fit model. ⚠
+  **Vision-ONLY** checkpoints (`_VISION_MARKERS` — `VL`/`vision`/`vlm`) are
+  filtered OUT: the listed model must drive Summary mode through mlx-lm, which a
+  VL-only checkpoint can't. A dual-capable model (Qwen3.5) isn't matched by those
+  markers, so it stays listed. A per-read `model` mutates `cfg.llm.model` in
+  place (process-wide, like `swap_voice`; **not** written back to `config.yaml`)
+  — the LLM client and the vision loader each detect the change and reload on
+  next use (`oneshot()` / `_ocr_via_mlx`).
 
 ### CLI (`src/cli/`)
 
@@ -458,11 +568,10 @@ readback/
 - **Ink screen model** (`app.tsx`): `useReducer` switches one mounted screen
   (`input` | `busy` | `player` | `library` | `quitting`), so key handlers only
   land on the active screen. Slash commands: `/voice`, `/mode`, `/model` (lists
-  downloaded MLX **chat** models via `GET /api/models` with a RAM-fit verdict +
-  summary recommendation, switches the summary LLM per-read), `/vision` (same
-  flow filtered to **vision** models — switches the image/book OCR model
-  per-read; `handlePickModel(kind)` + `ModelList kind` serve both, no
-  recommendation marker for vision), `/speed [x]` (playback rate 0.5–2,
+  downloaded MLX models via `GET /api/models` with a RAM-fit verdict +
+  recommendation, switches the LLM per-read — it serves Summary mode AND
+  image/book OCR, so there is no second picker; `/vision` was removed along with
+  the separate OCR model), `/speed [x]` (playback rate 0.5–2,
   persisted; no server involvement — see Playback speed below), `/library` (alias `/lib` —
   `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, `space` to
   preview inline (plays audio without leaving the library; shows `♫` + elapsed;
@@ -524,7 +633,7 @@ readback/
   runtime `DEV` check the bundler can't eliminate. The binary is named
   `readback-cli` (not `readback`) so the server-lookup fallback
   `Bun.which("readback")` can't spawn the CLI itself.
-- **Prefs** (voice/mode/model/visionModel/speed) persist to `~/.readback/cli.json`. Theme = the
+- **Prefs** (voice/mode/model/speed) persist to `~/.readback/cli.json`. Theme = the
   Ghost palette (#f0f0f0 primary, #808080 dim, #ff5d5d errors/cancel —
   inherited from the deleted web UI)
   plus CLI-only fit colors (#5dd17a green / #e6c35a yellow, `/model` list only)
@@ -540,9 +649,10 @@ readback/
   audio_path, created_at, llm_model`. **Connections are opened per call** (`_connect`) so
   it's safe across asyncio's threadpool — every call site wraps it in
   `asyncio.to_thread`. `CREATE TABLE IF NOT EXISTS` on init (idempotent);
-  `llm_model` is auto-migrated on existing DBs via `ALTER TABLE ADD COLUMN`.
+  `llm_model` and `recipe` are auto-migrated on existing DBs via `ALTER TABLE ADD
+  COLUMN`.
   `delete()` returns the `audio_path` so the server can unlink the WAV.
-  `find_cached(source_url, mode, voice, llm_model)` → the most recent matching
+  `find_cached(source_url, mode, voice, llm_model, recipe)` → the most recent matching
   read (or None if no match / WAV deleted). Backed by composite index
   `idx_reads_cache`.
 - `add()` is `INSERT OR REPLACE` (re-reads with the same id overwrite). `list()`
@@ -625,17 +735,25 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v4.2.0** — summary quality + delivery + CLI playback speed. Summary
-mode no longer pads short articles with invented filler (word-count anchor +
-code-enforced 250-word ceiling trim); map-reduce's length anchor now tracks
-the original source, not the compressed digests; CSM delivery temperature
-nudges per chunk from punctuation (`_expressive_temperature`); chunk
-boundaries randomize within a fast [280, 400]-char band instead of a fixed
-cap; `summary_max_chars` raised 16K→60K to skip needless map-reduce; CLI
-gained a playback speed controller (`/speed` + `+`/`-` in the player,
-pitch-preserving, persisted).
+Current: **v4.3.0** — ~2x synthesis, without paying for it in quality.
+**Batched CSM synthesis** (`tts.csm.batch_size`, default 8): chunks share one
+frame loop, which is launch-latency bound, so 8 rows cost 1.64x the time of 1 —
+measured 61.3 s → 28.6 s of synthesis on the same summary. ⚠ The muffled voice
+that parked this work for weeks was a **missing padding mask**: batching
+left-pads prompts, and nothing stopped real tokens attending to the pads, which
+flattened the output distribution (codebook-0 top-1 0.193 → 0.049 at 8 pads).
+`_pad_key_mask`/`_prefill_mask` + `_frame_impl` fix it to bf16 noise. Pauses now
+follow the TEXT (`chunk_spans` → `_gap_for`: 2x at a paragraph end, 0.6x
+mid-paragraph) — which only mattered once the tone prompts started asking for
+**2-4 paragraphs** (the model had been returning one unbroken block) and
+`_trim_to_word_ceiling` stopped reflowing them away. The read cache gained
+`pipeline.RECIPE_VERSION` (new `recipe` column) so a pipeline change re-renders
+instead of replaying stale audio.
 
-Previously: v4.1.0 — audio quality + performance (read cache, degenerate-chunk
+Previously: v4.2.0 — summary quality + delivery + CLI playback speed
+(word-count anchor + 250-word ceiling trim, `_expressive_temperature`,
+randomized [280, 400] chunk band, `summary_max_chars` 16K→60K, `/speed`);
+v4.1.0 — audio quality + performance (read cache, degenerate-chunk
 guard, chunk-join crossfade, `llm_model` column); v4.0.0 — full MLX LLM stack
 (Ollama removed); v3.0.0–v3.7.0 (see memory `version-history` for full changelog).
 Set in `pyproject.toml`, `src/readback/__init__.py`,

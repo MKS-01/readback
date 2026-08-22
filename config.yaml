@@ -3,14 +3,16 @@
 # → audio you play in-browser, in the terminal CLI, or download. All on-device.
 
 llm:
-  # Summary mode (spoken explanation) + title generation. Runs in-process via
-  # mlx-lm — no external daemon needed.
+  # ONE model, three jobs: Summary mode (spoken explanation), title generation,
+  # and image / book-scan OCR. Runs in-process — mlx-lm for text, mlx-vlm for
+  # OCR — so no external daemon is needed.
+  #
+  # Qwen3.5 is a VLM (its config carries a vision_config, and mlx-vlm ships a
+  # qwen3_5 handler), which is why the old separate `ocr:` block is gone: it was
+  # a second ~5.6 GB download doing a job this model already does.
+  # ⚠ Switching to a text-only model disables image / book reads. Switchable
+  # per-read via the CLI /model command.
   model: "mlx-community/Qwen3.5-9B-4bit"
-
-ocr:
-  # Vision model (mlx-vlm) for image / book-scan OCR. Switchable per-read via the
-  # CLI /vision command; loaded lazily on the first image read.
-  model: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
 
 tts:
   # CSM-1B (Sesame) via csm-mlx (senstella). Two voices map to CSM speaker IDs;
@@ -45,27 +47,45 @@ tts:
     # empty context per the FINETUNING preset. See src/finetune/README.md.
     # lora_path: "src/finetune/runs/v1"
 
+    # How many chunks to synthesize in ONE CSM frame loop. ⚠ The single biggest
+    # speed knob — see the guide below. 1 = the old sequential path.
+    batch_size: 8
+
     # ── Synthesis speed vs quality guide ──
     #
-    # Three knobs control the speed/quality tradeoff. Each chunk pays a fixed
-    # CSM reference-prefill cost (~1–2 s), so fewer chunks = faster reads — and
-    # chunk count tracks the cap band's MEAN, so a low band is expensive: a
-    # [120, 200] band measured 2.5-3x the chunks (and prefills) of 400 for the
-    # same text. Smaller chunks do give the per-chunk expressive-temperature
-    # nudge (speak.py's _expressive_temperature) finer granularity, but the
-    # time cost dominates for Full-mode reads.
+    # CSM emits one frame per 80 ms of audio, and each frame is 1 backbone step +
+    # 31 sequential decoder steps on a 1B model — ~400 tiny sequential matmuls per
+    # second of audio. That is LAUNCH-LATENCY bound, not compute bound, so at
+    # batch 1 the GPU mostly waits. Measured on M5 Pro (ms per frame → audio
+    # produced per wall-second):
     #
-    #   Preset       precision   chunk cap (speak.py)     Notes
-    #   ─────────    ─────────   ────────────────────     ─────
-    #   Current      bf16        randomized [280, 400]    fast (near the fixed-400 chunk
-    #                                                      count) + varied breath cadence
-    #   Balanced     bf16        280                      more natural sentence breaks
-    #   Max prosody  bf16        randomized [120, 200]    finest expression granularity,
-    #                                                      2.5-3x the chunks — slow
-    #   Max fidelity fp32        200                      only if bf16 sounds off on a
-    #                                                      clone voice, ~2× vs Current
+    #   batch 1 — 51.6 ms → 1.55 s      batch 4 — 82.1 ms → 3.90 s
+    #   batch 2 — 80.5 ms → 1.99 s      batch 8 — 84.8 ms → 7.55 s
     #
-    # The band is [_MIN_CHUNK_CHARS, _MAX_CHARS] in src/readback/pipeline/speak.py.
+    # i.e. 8x the work for 1.64x the time. Batching is where the speed comes
+    # from — NOT chunk size. ⚠ Narrowing the chunk band to [120, 200] was tried
+    # (batching makes small chunks cheap) and REVERTED: it sounded unstable,
+    # shifting tone every sentence or two. Chunk size is a DELIVERY knob; leave
+    # it at [280, 400] and take speed from batch_size.
+    #
+    # End-to-end on one real summary, synthesis wall time at [280, 400]:
+    #   batch 1 (the old default) — 61.3 s   RTF 0.65
+    #   batch 8 (current)         — 28.6 s   RTF 0.25
+    #
+    # ⚠ Don't raise batch_size much past 8: the frame loop runs until EVERY row
+    # in the batch hits EOS, so one runaway row stalls the whole batch. At 16 the
+    # same text measured RTF 0.17 and 0.37 on consecutive runs; 8 measured 0.23
+    # twice. Batches are also evened out (11 chunks → 6+5, never 8+3) so no batch
+    # is too small to earn its frame loop.
+    #
+    #   Knob            Value                 Notes
+    #   ─────────       ─────────             ─────
+    #   batch_size      8                     the speed lever; 1 = sequential
+    #   chunk band      randomized [280, 400] DELIVERY, not speed — don't narrow;
+    #                                          [_MIN_CHUNK_CHARS, _MAX_CHARS] in
+    #                                          src/readback/pipeline/speak.py
+    #   precision       bf16                  fp32 only if bf16 sounds off on a
+    #                                          clone voice (~2x slower)
 
 reader:
   # Generated WAVs are written here and served for playback + download. Kept
@@ -74,7 +94,12 @@ reader:
   # wipe by accident.
   output_dir: "../readback-audio-db/audio"   # sibling of the repo (resolved from here)
   default_mode: "full"               # "full" (verbatim) or "summary" (LLM)
-  gap_sec: 0.18                      # silence between (trimmed) chunks
+  # Base pause between (trimmed) chunks. Scaled per join by the TEXT: a chunk
+  # that ends a paragraph gets 2x this (a full breath), a mid-paragraph join
+  # 0.6x (an artifact of chunking — the sentence should carry on). Moving this
+  # number moves the whole read's pacing; the scales live in speak.py
+  # (_PARA_GAP_SCALE / _MID_GAP_SCALE).
+  gap_sec: 0.18
   summary_max_chars: 60000           # cap article text fed to the LLM in one pass before
                                       # map-reducing (Qwen3.5-9B has a 262K-token context —
                                       # 60K chars/~15K tokens leaves it single-passing the

@@ -12,9 +12,9 @@ served from `cfg.reader.output_dir`.
 
 WS protocol (/ws):
   client → {"type":"read", "url": str, "mode": "full"|"summary", "voice"?: str,
-            "model"?: str, "vision_model"?: str}
-            # model: swap the summary LLM; vision_model: swap the image/book OCR
-            # model — both per-read, validated vs downloaded MLX models
+            "model"?: str}
+            # model: swap the LLM for this read (it does BOTH summary and image/
+            # book OCR) — validated vs downloaded MLX models
            {"type":"cancel"}   # abort the in-flight read job (stops synthesis)
   server → {"type":"phase",    "value":"loading"|"fetching"|"summarizing"|"synthesizing"}
            # value is a free-form display string; multi-page OCR streams
@@ -52,6 +52,7 @@ from readback.llm.client import LLMClient
 from readback.llm.models import installed_model_names, list_models
 from readback.pipeline import ExtractError, fetch_article
 from readback.pipeline.extract import _is_multi_page, classify_source, fetch_multi_page
+from readback.pipeline import RECIPE_VERSION
 from readback.pipeline.tones import tone_for
 from readback.pipeline.speak import synthesize_article, write_wav
 from readback.pipeline.summarize import summarize_article
@@ -133,28 +134,18 @@ async def _run_read_job(
     synth, llm = models.synth, models.llm
     assert synth is not None and llm is not None
 
-    # Optional per-read model switches before fetch: `model` is the summary LLM,
-    # `vision_model` is the image/book OCR model. Both validate against downloaded
-    # models (scan the HF cache once if either changed) and mutate cfg in place —
-    # the LLMClient / vision loader detect the change and reload on next use.
+    # Optional per-read model switch before fetch. One model serves both jobs
+    # (summary + image/book OCR), so this is a single knob. Validated against
+    # downloaded models and mutated in place — the LLMClient and the vision
+    # loader each detect the change and reload on next use.
     model = (payload.get("model") or "").strip()
-    vision_model = (payload.get("vision_model") or "").strip()
-    if (model and model != cfg.llm.model) or (
-        vision_model and vision_model != cfg.ocr.model
-    ):
+    if model and model != cfg.llm.model:
         installed = await asyncio.to_thread(installed_model_names, cfg.llm)
-        if model and model != cfg.llm.model:
-            if model in installed:
-                cfg.llm.model = model
-                log.info("summary model → %s", model)
-            else:
-                log.warning("ignoring unknown model %r", model)
-        if vision_model and vision_model != cfg.ocr.model:
-            if vision_model in installed:
-                cfg.ocr.model = vision_model
-                log.info("vision model → %s", vision_model)
-            else:
-                log.warning("ignoring unknown vision model %r", vision_model)
+        if model in installed:
+            cfg.llm.model = model
+            log.info("model → %s", model)
+        else:
+            log.warning("ignoring unknown model %r", model)
 
     # 0) Cache check — skip the entire pipeline if we already have audio for
     # this exact (url, mode, voice, llm_model) combination.
@@ -162,6 +153,7 @@ async def _run_read_job(
     effective_model = model if model else cfg.llm.model
     cached = await asyncio.to_thread(
         library.find_cached, url, mode, effective_voice, effective_model,
+        RECIPE_VERSION,
     )
     if cached:
         log.info("cache hit: %s (%s)", cached["title"][:50], cached["audio_filename"])
@@ -185,13 +177,15 @@ async def _run_read_job(
         def _page_progress(pi: int, tot: int):
             if not state["alive"]:
                 return
-            msg = {"type": "phase", "value": f"reading page {pi + 1} / {tot}"}
+            # fetch_multi_page fires a final progress(total, total) to signal
+            # completion, so clamp — otherwise a 2-page book shows "page 3 / 2".
+            msg = {"type": "phase", "value": f"reading page {min(pi + 1, tot)} / {tot}"}
             loop.call_soon_threadsafe(
                 lambda: asyncio.ensure_future(send(msg))
             )
         try:
             article = await asyncio.to_thread(
-                fetch_multi_page, url, cfg.llm, _page_progress, llm, cfg.ocr.model,
+                fetch_multi_page, url, cfg.llm, _page_progress, llm,
             )
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
@@ -202,7 +196,7 @@ async def _run_read_job(
             return
     else:
         try:
-            article = await asyncio.to_thread(fetch_article, url, cfg.llm, llm, cfg.ocr.model)
+            article = await asyncio.to_thread(fetch_article, url, cfg.llm, llm)
         except ExtractError as e:
             await send({"type": "error", "message": str(e)})
             return
@@ -304,6 +298,7 @@ async def _run_read_job(
             audio_path=str(audio_path),
             created_at=datetime.now(timezone.utc).isoformat(),
             llm_model=cfg.llm.model,
+            recipe=RECIPE_VERSION,
         )
         await asyncio.to_thread(library.add, rec)
     except Exception:
@@ -356,14 +351,13 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
             "model": cfg.llm.model,
-            "vision_model": cfg.ocr.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),   # where WAVs live (CLI same-machine shortcut)
         }
 
     @app.get("/api/models")
     async def api_models():
-        return await asyncio.to_thread(list_models, cfg.llm, cfg.ocr.model)
+        return await asyncio.to_thread(list_models, cfg.llm)
 
     # ── Library (dashboard) ──────────────────────────────────────────────
     @app.get("/api/library")
@@ -404,7 +398,6 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "voices_available": [{"id": v, "label": label} for v, label in voices_for(cfg.tts.csm)],
             "voice": cfg.tts.active.speaker,
             "model": cfg.llm.model,
-            "vision_model": cfg.ocr.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),
         })

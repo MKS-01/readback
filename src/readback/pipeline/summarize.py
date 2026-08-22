@@ -33,7 +33,10 @@ _MAP_SYSTEM = (
     "condensed content. Keep it tight but don't drop important specifics."
 )
 
-_PARA_SPLIT = re.compile(r"\n{2,}")
+# ⚠ `\n+`, not `\n{2,}`: trafilatura emits each paragraph as a SINGLE line, so a
+# blank-line-only split matched nothing on real articles and `_batches` silently
+# fell through to sentence-level packing for every source.
+_PARA_SPLIT = re.compile(r"\n+")
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _MAX_REDUCE_DEPTH = 3
 
@@ -99,16 +102,34 @@ def _trim_to_word_ceiling(text: str, ceiling: int = SUMMARY_WORD_CEILING) -> str
     prompt's HARD LIMIT is advisory — the model still overshoots on long sources
     (measured 313 words from a 3,446-word article) — and every word past the
     ceiling is paid for again in synthesis time. Always keeps at least one
-    sentence."""
-    kept: list[str] = []
+    sentence.
+
+    ⚠ **Paragraph breaks survive.** This used to flatten the summary with
+    `" ".join(...)` over sentences, which silently reflowed the whole thing into
+    one line — and `speak.py` takes its pause length from exactly those breaks
+    (`chunk_spans` / `_gap_for`), so a paragraphed summary would have been
+    de-paragraphed on the way to the synthesizer. Runs on every summary, not just
+    overlong ones, so the reflow hit every read.
+    """
+    kept_paras: list[str] = []
     words = 0
-    for sent in _SENT_SPLIT.split(text.strip()):
-        n = len(sent.split())
-        if kept and words + n > ceiling:
+    for para in _PARA_SPLIT.split(text.strip()):
+        para = para.strip()
+        if not para:
+            continue
+        kept: list[str] = []
+        for sent in _SENT_SPLIT.split(para):
+            n = len(sent.split())
+            # `kept_paras or kept` keeps the guarantee of at least one sentence.
+            if (kept_paras or kept) and words + n > ceiling:
+                break
+            kept.append(sent)
+            words += n
+        if kept:
+            kept_paras.append(" ".join(kept))
+        if words >= ceiling:
             break
-        kept.append(sent)
-        words += n
-    trimmed = " ".join(kept)
+    trimmed = "\n\n".join(kept_paras)
     if len(trimmed) < len(text.strip()):
         log.info("summary trimmed to the %d-word ceiling: %d -> %d words",
                  ceiling, len(text.split()), words)

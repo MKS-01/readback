@@ -47,3 +47,26 @@ def test_comma_free_overlong_sentence_is_hard_split():
     chunks = chunk_text(sentence)
     assert all(len(c) <= _MAX_CHARS for c in chunks)
     assert len(chunks) > 1
+
+
+def test_chunk_spans_flag_paragraph_ends():
+    """Only the LAST chunk of each paragraph ends one — that flag drives the gap."""
+    from readback.pipeline.speak import chunk_spans
+
+    para = "This is a sentence that runs on for a while. " * 12   # forces a split
+    spans = chunk_spans(para.strip() + "\n" + "A short second paragraph.")
+    assert len(spans) >= 3
+    assert spans[-1] == ("A short second paragraph.", True)
+    ends = [flag for _, flag in spans[:-1]]
+    assert ends[-1] is True, "last chunk of paragraph one must be flagged"
+    assert not any(ends[:-1]), "mid-paragraph joins must not be flagged"
+
+
+def test_chunk_spans_text_matches_chunk_text():
+    from readback.pipeline.speak import chunk_spans
+    import random
+
+    text = "One. Two. Three.\nFour, five and six."
+    random.seed(3); spans = chunk_spans(text)
+    random.seed(3); plain = chunk_text(text)
+    assert [c for c, _ in spans] == plain

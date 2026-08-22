@@ -44,3 +44,13 @@ class Synthesizer:
 
     def synthesize(self, text: str) -> np.ndarray:
         return self._engine.synthesize(text)
+
+    def synthesize_batch(self, items: list[tuple[str, float]]) -> list[np.ndarray]:
+        """Synthesize several (text, temperature) chunks in one frame loop.
+        Audio comes back in input order. See `CsmEngine.synthesize_batch` — this
+        is the throughput path; `synthesize` remains the one-chunk fallback."""
+        return self._engine.synthesize_batch(items)
+
+    @property
+    def batch_size(self) -> int:
+        return max(1, int(getattr(self.cfg.csm, "batch_size", 1) or 1))

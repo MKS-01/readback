@@ -6,6 +6,321 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-08-22 — Pauses that follow the text, and a Summary path that can use them
+
+**Status: done** — branch `perf/batched-synthesis`, on top of the padding-mask
+fix below. Two halves that only work together: pacing that reads structure out
+of the text, and a Summary path that actually produces structure.
+
+**Shaped pauses.** Every chunk join took a flat `reader.gap_sec` (0.18 s),
+whether it was a paragraph break the author wrote or a running sentence that the
+random chunk cap happened to split. That reads wrong in both directions:
+paragraph-sized silence dropped inside a sentence, and no extra breath at a real
+break. `chunk_spans` now returns each chunk paired with *does it end a
+paragraph*, and `_gap_for` scales the gap from that — `_PARA_GAP_SCALE` 2.0,
+`_MID_GAP_SCALE` 0.6. Scales rather than absolutes, so `gap_sec` still moves the
+whole read. `chunk_text` stays as the plain-text view.
+
+⚠ **On its own this did almost nothing**, and the reason is the interesting
+part. Measured on a real Summary read: 0.90 s → 0.79 s of join silence, i.e.
+slightly *tighter*, no new breathing. The win looked confined to Full mode (an
+8-paragraph article: 1.44 s → 2.88 s). Chasing why led to three defects in the
+Summary path:
+
+1. **The model emitted no paragraphs at all.** `_PLAIN_PROSE_RULE` said "plain
+   flowing sentences only" and the model obeyed literally — measured 220 words,
+   **zero newlines**, one block. So every join was mid-paragraph and a Summary
+   read had no structural pauses to shape. The prompt now asks for 2-4 short
+   paragraphs, one idea each. ⚠ That instruction is a DELIVERY setting, not
+   cosmetics — treat it as load-bearing.
+2. **`_trim_to_word_ceiling` destroyed paragraph breaks anyway.** It joined
+   sentences with `" "`, reflowing every summary into one line — and it runs on
+   ALL summaries, not just overlong ones, so even a paragraphed summary would
+   have arrived flat at the synthesizer. Now trims paragraph by paragraph,
+   keeping the ≥1-sentence guarantee.
+3. **`_PARA_SPLIT` was `\n{2,}`** while trafilatura emits each paragraph as a
+   SINGLE line — so it matched nothing on real articles and `_batches` fell
+   through to sentence-level packing for every source. Now `\n+`.
+
+After all three: same article, 164 words in **4 paragraphs**, join silence
+0.72 s → 1.44 s, landing where a speaker would breathe.
+
+**The read cache was quietly serving stale audio.** Keyed only on
+url/mode/voice/llm_model — nothing about the pipeline — so after any synthesis or
+prompt change a previously-read URL replayed a WAV made by the OLD code. ⚠ That
+is precisely the trap while A/B-ing a quality fix: you re-read the article to
+check and hear the output you just fixed. `pipeline.RECIPE_VERSION` is now part
+of the key, with a `recipe` column auto-migrated like `llm_model`; pre-migration
+rows carry `''` and never match. **Bump it with any change that alters the audio
+a given source produces.**
+
+**Verified.** 65 pytest pass (8 new). End-to-end on
+`claude.com/blog/bringing-claude-mythos-5-to-more-defenders`: 1,440 words →
+210-word summary in 4 paragraphs → 7 chunks (4 paragraph-ends) → 89.6 s of audio
+from 29.1 s of synthesis, 38.5 s total. **Judged good by ear.** Also corrected a
+CLAUDE.md error: `classify_source` lives in `extract.py`, not `tones.py`.
+
+**Open:** the summary still occasionally ends on a generic wrap-up sentence the
+length rules forbid ("These steps collectively aim to…") — prompt tweak, not a
+bug. Streaming playback and LLM speculative decoding remain the two big items.
+
+---
+
+## 2026-08-22 — The muffled voice: batched synthesis was missing a padding mask
+
+**Status: done** — branch `perf/batched-synthesis`. This **resolves the open
+symptom** that parked the entry below. The muffling was NOT the clone reference,
+not bf16, not `_peak_normalize`, and not `ref_max_sec` — it was a real defect in
+the batched path, and it is fixed.
+
+**The bug.** `_synthesize_batch_impl` left-pads every prompt to the batch's
+longest so all rows share a next position. It relied on `generate_frame`'s
+`token_mask` to neutralize the pads — but that mask only zeroes the pad
+*embeddings*. It does not stop real tokens from *attending* to those positions,
+and `LlamaModel.__call__` builds its own causal mask and accepts no mask
+argument, so nothing else was excluding them either. A zero embedding stays
+exactly zero through every layer (RMSNorm(0) = 0, and the attention/MLP are
+bias-free), so each pad presents a key of 0. Its score is q·0 = 0, i.e. weight
+exp(0) = 1 in *every* softmax denominator, against a value vector of 0. The pads
+were a bank of neutral sinks quietly diluting attention.
+
+**Measured, on a 236-frame prompt** (codebook-0 top-1 probability, unpadded
+0.193 → padded, and KL from the unpadded distribution):
+
+| pads | top-1 p | KL | with the mask |
+|---|---|---|---|
+| 1 | 0.165 | 0.018 | 0.0002 |
+| 4 | 0.093 | 0.250 | 0.0001 |
+| 8 | 0.049 | 0.722 | 0.0001 |
+| 32 | 0.023 | 1.487 | 0.0002 |
+
+A flatter distribution means the sampler draws noisier acoustic tokens — heard as
+a soft, muffled, less articulate voice. With the mask the padded row reproduces
+the unpadded one to bf16 noise, so batching is once again a pure throughput
+change.
+
+⚠ Note how this evaded the earlier investigation: the spectral-centroid check
+(1160 Hz batched vs 1158 Hz on a good reference) said "not muffled" because the
+defect does not shift the spectrum much — it degrades *articulation*. Yet another
+case for the rule in the entry below: **judge delivery by ear, use numbers only
+for gross breakage.** The number that did catch it was not an audio metric at
+all; it was the model's own output distribution.
+
+**What shipped.** `_pad_key_mask(pads, total)` builds the per-row key-validity
+mask; `_prefill_mask(key_ok, L)` combines it with causality for the prefill step;
+the decode steps slice `key_ok` (a single-token query is causal by construction).
+`_frame_impl` is a masked twin of `csm_mlx.generation.generate_frame` — identical
+maths, but it drives `model.backbone.layers` itself so it can pass the mask,
+since `LlamaModel` takes none. The decoder needs no mask (per-frame inputs are
+1-2 positions, never padded). ⚠ `_prefill_mask` force-enables the **diagonal**: a
+pad query has no valid key at or before it, and a fully-masked softmax row comes
+back NaN, which would poison the whole batch through the next layer's K/V. A
+batch with no padding skips the mask entirely and runs the original path.
+
+`_length_buckets` stays, but it is now only a work saving (smaller pads = fewer
+wasted positions), not a quality safeguard.
+
+**Verified.** 57 pytest pass (2 new, `importorskip("mlx.core")` so CI/Linux skips
+them). Same 7-chunk article rendered three ways on device:
+
+| path | wall | audio | RTF | ZCR |
+|---|---|---|---|---|
+| batched, old (unmasked) | 32.2 s | 104.4 s | 0.31 | 0.0830 |
+| batched, masked (new) | 34.0 s | 98.4 s | 0.35 | 0.0946 |
+| sequential reference | 66.8 s | 95.1 s | 0.70 | 0.0931 |
+
+The masked batch now tracks the sequential reference on both duration and ZCR,
+where the old path ran 10% long (meandering, over-generating) and measurably
+duller. The mask costs ~5% wall time; the ~2x speedup is intact.
+
+**Confirmed by ear (2026-08-22).** A/B'd against read
+`01c969b571cb4c32bd4f6e96d1c70e71` — "Preparing your app for broader memory
+limits", Summary mode, `codeword` voice, 226 words — generated from `main`
+before the branch. Its stored summary text re-rendered on the branch:
+
+| | wall | audio | centroid | >4 kHz | ZCR | quiet |
+|---|---|---|---|---|---|---|
+| reference (main) | ~57 s | 79.0 s | 1345.9 Hz | 6.57% | 0.1076 | 39.2% |
+| branch, batched 8 | **22.5 s** | 80.8 s | 1336.0 Hz | 6.64% | 0.1044 | 42.2% |
+| branch, sequential | 57.1 s | 82.5 s | 1363.2 Hz | 6.99% | 0.1053 | 41.9% |
+
+Verdict: **batched 8 judged better than the reference** — 2.5x faster at matching
+delivery. ⚠ The quiet-fraction gap (42.2% vs 39.2%) is NOT batching: the branch's
+own sequential run shows 41.9%. It is the randomized chunk band — a different
+chunk count means a different number of `gap_sec` (0.18 s) joins, and it varies
+run to run on `main` too. Don't chase it as a regression.
+
+**Not done:** streaming playback and LLM speculative decoding are still open.
+
+---
+
+## 2026-08-12 — Batched CSM synthesis (~2x); chunk band change tried and reverted
+
+**Status: SUPERSEDED by the 2026-08-22 entry above, which found and fixed the
+muffling (a missing padding mask in the batched attention).** Kept for the
+performance findings, which all still hold. Branch
+`perf/batched-synthesis` (2 commits, unpushed, based on `optimisation-2`). The
+speedup works and is verified, but **audio quality was judged not up to the
+mark** on real reads and the user parked it. Do NOT merge without redoing the
+listening check.
+
+⚠ **Open symptom: the voice sounds MUFFLED — SOLVED, see the entry above. The
+leads below (clone reference, bf16, `ref_max_sec`, `_peak_normalize`) were all
+wrong; the cause was the batched path's unmasked left-padding.** Not yet explained, and measurement
+says it is *not* the batching: mean spectral centroid and energy above 4 kHz came
+out batched 1160 Hz / 7.05%, sequential 1108 Hz / 5.46%, reference-quality read
+1158 Hz / 6.49% — i.e. batched is marginally *brighter* than sequential and
+matches the good reference. So muffling most likely predates this branch and
+lives in the VOICE path, not the batch path. Next leads, in order:
+  1. the `codeword` clone reference itself (`src/voice/voice_codeword.wav` — a
+     12 s CSM-bootstrapped clip, i.e. a copy of a copy) — try a clean human clip
+     or a built-in reading voice (`conversational_a`) as a control;
+  2. `tts.csm.precision` — bf16 vs fp32 (fp32 is the fidelity setting; ~2x slower);
+  3. `ref_max_sec` / reference length effects on timbre;
+  4. `_peak_normalize` (0.95 peak) interacting with quiet clone references.
+  A/B the SAME text on `conversational_a` vs `codeword` first — if only the clone
+  is muffled, it's the reference clip, and none of this is a synthesis bug.
+
+**What is already done and verified on the branch** (keep, don't redo): batched
+generation with per-row temperature and per-row frame bounds, evened batch
+splits, length bucketing, sequential fallback, 55 passing tests, and the two
+reverts/fixes below. Profiling a full read showed
+synthesis was **77%** of wall time (fetch 3.8 s · summarize 15.2 s ·
+synthesize 65.1 s, for 93 s of audio) at a flat RTF ~0.67 regardless of chunk
+size.
+
+**Why it was slow.** Not compute — *launch latency*. CSM emits one frame per
+80 ms of audio and each frame is 1 backbone step + 31 **sequential** decoder
+steps on a 1B model: ~400 tiny matmuls per audio-second, with the GPU idle in
+between. Measured per-frame cost barely moves with batch size (ms/frame → audio
+per wall-second): 1 → 51.6/1.55 · 2 → 80.5/1.99 · 4 → 82.1/3.90 · 8 →
+84.8/**7.55**. Eight times the work for 1.64x the time.
+
+**What shipped.** `CsmEngine.synthesize_batch` mirrors
+`csm_mlx.generation.generate` over the batch dimension `generate_frame` already
+supports — prompts are `ref ++ text` tokens left-padded to the batch max
+(`token_mask` zeroes the pads), one `make_prompt_cache`, per-row EOS tracking,
+`decode_audio` per row. `_make_batch_sampler` gives each row its **own**
+sampling temperature (shape `(B, 1)`, mirroring mlx_lm's `apply_top_k` →
+`categorical_sampling` chain), so batching does not flatten
+`_expressive_temperature`. `speak.py` drives it via `_length_buckets` (sort by
+length: pads stay small and rows finish together) + `_batches`, with the
+degenerate-chunk retry batched and a **fallback to the old sequential loop** if
+the batch path raises. New `tts.csm.batch_size` (default 8).
+
+**The chunk band change was tried and REVERTED.** Batching makes small chunks
+cheap, so the band was narrowed [280, 400] → [120, 200] to give
+`_expressive_temperature` a per-sentence window instead of a per-paragraph one.
+On device it sounded worse — delivery shifted tone every sentence or two instead
+of settling ("audio is not stable, tone keeps changing") — so the band is back at
+[280, 400], the config behind the reference-quality reads. ⚠ Chunk size is a
+DELIVERY setting, not a speed setting; speed comes from `batch_size`, which
+doesn't change how the text is divided.
+
+Instead, `max_audio_length_ms` was raised **20 s → 30 s**. At [280, 400] a
+370-char chunk measured 19.84 s of audio against the 20 s bound — right at the
+edge of being clipped mid-sentence (the same text yields 21.84 s given room).
+The bound is a runaway-generation guard, and generation stops at EOS, so a higher
+ceiling costs nothing (measured identical wall time at 20 s vs 60 s caps).
+
+⚠ **Per-row generation bounds are load-bearing.** The first version took a
+single batch-wide frame budget (the max over rows), so a SHORT row that never
+emitted EOS kept generating on the LONGEST row's budget and tailed off into
+babble — reported as "the ending is broken", and visible as a batch rendering
+13 s longer than the same text done sequentially. `frame_bounds()` now returns
+one bound per row, guarded by `test_frame_bounds_are_per_row_not_batch_wide`.
+
+Two more findings worth keeping:
+- ⚠ **A runty tail batch wastes the win.** A batch's cost is nearly flat in
+  batch size, so 11 chunks split 8+3 measured RTF 0.33 where an evened 6+5 gave
+  **0.26**. `_batches` now evens the groups out.
+- ⚠ **Don't raise `batch_size` much past 8** — the loop runs until *every* row
+  hits EOS, so one runaway row stalls the batch: 16 measured RTF 0.17 and 0.37
+  on consecutive runs, where 8 measured 0.23 twice.
+
+**Verified.** 55 pytest pass (11 new, all pure-logic with a fake synth: document
+order, per-chunk progress, cancel between batches, degenerate retry, per-row
+temperature, per-row frame bounds, even batch splits, and both fallback paths).
+On device at the shipped [280, 400] band, same summary: **61.3 s → 28.6 s**
+synthesis (RTF 0.65 → 0.25). Padding worst case — a 3-char row batched with a
+112-char row — produced proportionate audio for both. Live `/ws` reads:
+Wikipedia Fresnel lens **total 44.5 s vs the 84.1 s baseline**, plus posts from
+claude.com/blog and android-developers.googleblog.com. Cancel stops after one
+batch (8/36 chunks, 8.0 s) and keeps the partial audio. **Batched vs sequential
+output was judged by ear** and accepted; the band change was rejected the same
+way.
+
+⚠ **Automated audio-quality metrics failed here.** A drift script (per-chunk
+pitch sd, loudness sd, spectral centroid) scored a reference-quality read at
+23.0 Hz pitch sd and a read the user rejected at 22.4 Hz — i.e. it ranked the bad
+one better. It measures natural sentence-to-sentence variation, not delivery
+instability. Judge delivery changes BY EAR; use the numbers only to catch gross
+breakage (silence fraction, duration, ZCR).
+
+⚠ **Benchmark gotchas discovered here**, both of which produced wrong numbers
+before being caught: (1) `chunk_text` splits on every `\n`, so a hard-wrapped
+test fixture yields one chunk per *line* and silently defeats band changes —
+measure with real article prose; (2) `csm_mlx.generation` binds its
+`default_stream` to the thread that imports it, so a second `Synthesizer` in one
+process dies with "no Stream(gpu, 0)" — A/B benchmarks must fork per config.
+
+**Not done:** streaming playback (time-to-first-audio 84 s → ~8 s), LLM
+speculative decoding for the 15–25 s summary step.
+
+---
+
+## 2026-08-12 — One model for summary + OCR (the `ocr:` block removed)
+
+**Status: done** — branch `optimisation-2`. A dependency audit found the OCR
+model redundant: `mlx-community/Qwen3.5-9B-4bit`, already loaded for summaries,
+is `Qwen3_5ForConditionalGeneration` with a `vision_config` — a VLM — and the
+installed mlx-vlm 0.6.3 ships a `qwen3_5` handler. So `ocr.model`
+(`Qwen2.5-VL-7B-Instruct-4bit`, 5.65 GB) was a second download doing a job the
+summary model already covers. **Supersedes** the 2026-06-20 entries that split
+OCR into its own `ocr:` section and added `/vision`.
+
+**What shipped.** OCR runs on `cfg.llm.model`. Deleted: `OcrConfig` + the `ocr:`
+YAML block, the `vision_model` field on the WS `read` message / `/api/config` /
+WS `config`, `current_vision` + the per-model `vision` tag on `/api/models`, the
+CLI `/vision` command, `ModelList`'s `kind` prop, the `visionModel` pref, and
+`fetch_article`/`fetch_multi_page`'s `vision_model` parameter. `list_models`
+now *filters out* vision-only checkpoints (`_is_vision_model`) rather than
+tagging them — the listed model must also drive Summary mode through mlx-lm.
+Old configs still load unchanged: `llm.vision_model` hits pydantic's
+`extra="ignore"`, an `ocr:` block hits the unknown-top-level-key drop.
+`llm.model` stays `Qwen3.5-9B-4bit` — the audit floated a 4B for both, but URL
+summary quality is the priority and OCR was the riskier half of that downgrade.
+
+Two bugs found while verifying, both fixed here:
+- ⚠ **Transparent PNGs OCR'd to garbage.** mlx-vlm flattens alpha onto BLACK, so
+  a page of black-on-transparent text arrives as a solid black rectangle; the
+  model doesn't error, it confidently returns `$$\frac{1}{2}$$`. `_has_alpha`
+  (sips) now routes any alpha image through the JPEG conversion, which flattens
+  onto white. This was pre-existing, not introduced by the model swap.
+- `reading page N / M` showed "page 3 / 2" on a 2-page book — `fetch_multi_page`
+  fires a final `progress(total, total)` as a completion signal; the server's
+  phase string now clamps with `min(pi + 1, tot)`.
+
+Also removed a redundant temp-file round-trip: `_image_to_jpeg` wrote a temp
+JPEG, read it back to bytes, deleted it, and the caller wrote those bytes to a
+*second* temp file. It now returns the path directly.
+
+**Verified.** 44 pytest pass; `Config.load()` on a config carrying both stale
+keys loads clean with no `ocr` attribute; `/api/config` + `/api/models` carry no
+vision fields and the old Qwen2.5-VL correctly drops out of the picker; CLI
+`tsc --noEmit` + `bun build` clean. End-to-end over a live `/ws`: a Wikipedia
+URL → Summary mode read (5209 words, 93 s audio, summarize 15.2 s / synthesize
+65.1 s), and a 2-page transparent-PNG book folder → both pages OCR'd verbatim,
+sentence stitched across the page seam, title `Chapter Four` from the opening
+lines. Single-image OCR reproduces the source text exactly.
+
+**Not done:** the 4B model swap (11.6 GB → 3.06 GB) and any translation path
+from the same audit; the unreferenced 19 GB `Qwen3.6-35B-A3B-4bit-DWQ` in the HF
+cache is still there. The older "auto-pick OCR model by source" follow-up is
+moot — there's one model now.
+
+---
+
 ## 2026-07-02 — CLI playback speed controller (/speed + player +/- keys)
 
 **Status: done** — branch `fix/summary-padding-short-articles`. User found the

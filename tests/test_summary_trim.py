@@ -27,3 +27,20 @@ def test_single_giant_sentence_is_kept():
 def test_custom_ceiling():
     text = "One two three. Four five six. Seven eight nine."
     assert _trim_to_word_ceiling(text, ceiling=6) == "One two three. Four five six."
+
+
+def test_trim_preserves_paragraph_breaks():
+    """⚠ speak.py takes its pause lengths from these breaks — the trim used to
+    reflow the whole summary into one line with ' '.join()."""
+    text = "One two three. Four five six.\n\nSeven eight nine. Ten."
+    assert "\n\n" in _trim_to_word_ceiling(text)
+
+
+def test_trim_stops_at_the_ceiling_across_paragraphs():
+    text = "One two three.\n\nFour five six.\n\nSeven eight nine."
+    assert _trim_to_word_ceiling(text, ceiling=6) == "One two three.\n\nFour five six."
+
+
+def test_trim_keeps_one_sentence_even_when_it_exceeds_the_ceiling():
+    text = "One two three four five six seven.\n\nSecond paragraph here."
+    assert _trim_to_word_ceiling(text, ceiling=3) == "One two three four five six seven."

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "readback"
-version = "4.2.0"
+version = "4.3.0"
 description = "Local offline article & book reader: URL or image → text → audio, via CSM-1B TTS + MLX on Apple Silicon"
 requires-python = ">=3.10,<3.13"
 authors = [{ name = "mks" }]

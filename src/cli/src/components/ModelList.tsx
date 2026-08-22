@@ -8,14 +8,12 @@ export interface ModelInfo {
   params: string | null;
   fit: "good" | "tight" | "no";
   chat: boolean;
-  vision: boolean;
 }
 
 export interface ModelsResp {
   models: ModelInfo[];
   recommended: string | null;
   current: string;
-  current_vision: string;
   total_ram_gb: number;
   error?: string;
 }
@@ -29,21 +27,21 @@ const FIT_LABEL: Record<ModelInfo["fit"], { text: string; color: string }> = {
 interface Props {
   resp: ModelsResp;
   active: string;
-  // "chat" → /model (summary LLM); "vision" → /vision (image/book OCR).
-  kind?: "chat" | "vision";
 }
 
-export function ModelList({ resp, active, kind = "chat" }: Props) {
-  const models = resp.models.filter((m) => (kind === "vision" ? m.vision : m.chat));
-  const heading = kind === "vision" ? "vision (OCR) models" : "models";
-  const cmd = kind === "vision" ? "/vision" : "/model";
-  const purpose = kind === "vision" ? "image / book OCR" : "Summary mode only";
+// One list, one model: the pick drives Summary mode AND image / book OCR, so
+// the server filters vision-only checkpoints out before we ever see them.
+export function ModelList({ resp, active }: Props) {
+  const models = resp.models;
+  const heading = "models";
+  const cmd = "/model";
+  const purpose = "Summary mode + image / book OCR";
 
   if (models.length === 0) {
     return (
       <Box flexDirection="column" paddingX={1} marginBottom={1}>
         <Text color={DIM}>
-          no downloaded {kind === "vision" ? "vision" : "chat"} models found —
+          no downloaded models found —
           download one with <Text color={BLUE}>hf download {"<id>"}</Text>
         </Text>
       </Box>
@@ -61,8 +59,7 @@ export function ModelList({ resp, active, kind = "chat" }: Props) {
       <Box marginTop={0} flexDirection="column">
         {models.map((m) => {
           const isActive = m.name === active;
-          // The summary recommendation only applies to the chat picker.
-          const isRec = kind === "chat" && m.name === resp.recommended;
+          const isRec = m.name === resp.recommended;
           const fit = FIT_LABEL[m.fit];
 
           const marker = isActive ? "★" : isRec ? "→" : " ";
