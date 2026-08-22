@@ -73,9 +73,24 @@ The masked batch now tracks the sequential reference on both duration and ZCR,
 where the old path ran 10% long (meandering, over-generating) and measurably
 duller. The mask costs ~5% wall time; the ~2x speedup is intact.
 
-**Not done:** the listening confirmation is the user's call — render a read and
-judge by ear before merging. Streaming playback and LLM speculative decoding are
-still open.
+**Confirmed by ear (2026-08-22).** A/B'd against read
+`01c969b571cb4c32bd4f6e96d1c70e71` — "Preparing your app for broader memory
+limits", Summary mode, `codeword` voice, 226 words — generated from `main`
+before the branch. Its stored summary text re-rendered on the branch:
+
+| | wall | audio | centroid | >4 kHz | ZCR | quiet |
+|---|---|---|---|---|---|---|
+| reference (main) | ~57 s | 79.0 s | 1345.9 Hz | 6.57% | 0.1076 | 39.2% |
+| branch, batched 8 | **22.5 s** | 80.8 s | 1336.0 Hz | 6.64% | 0.1044 | 42.2% |
+| branch, sequential | 57.1 s | 82.5 s | 1363.2 Hz | 6.99% | 0.1053 | 41.9% |
+
+Verdict: **batched 8 judged better than the reference** — 2.5x faster at matching
+delivery. ⚠ The quiet-fraction gap (42.2% vs 39.2%) is NOT batching: the branch's
+own sequential run shows 41.9%. It is the randomized chunk band — a different
+chunk count means a different number of `gap_sec` (0.18 s) joins, and it varies
+run to run on `main` too. Don't chase it as a regression.
+
+**Not done:** streaming playback and LLM speculative decoding are still open.
 
 ---
 
