@@ -88,6 +88,50 @@ def frame_bounds(items: list[tuple[str, float]], cap_ms: int) -> list[int]:
     return [int(_max_ms_for(text, cap_ms) / 80) for text, _ in items]
 
 
+def _pad_key_mask(pads: list[int], total: int):
+    """Key-validity mask for a LEFT-PADDED batch: (B, 1, 1, total), True = attend.
+
+    ⚠ Load-bearing for audio quality. The batched path left-pads every prompt to
+    the batch's longest, and `generate_frame`'s `token_mask` only zeroes the pad
+    EMBEDDINGS — it does not stop real tokens from ATTENDING to those positions.
+    A zero embedding stays exactly zero through every layer (RMSNorm(0) = 0, and
+    the MLP/attention are bias-free), so each pad contributes a key of 0, scoring
+    q·0 = 0 — i.e. weight exp(0) = 1 in every softmax denominator, against a
+    value vector of 0. The pads therefore act as a bank of neutral sinks that
+    DILUTE attention and flatten the output distribution. Measured on a 236-frame
+    prompt (top-1 codebook-0 probability, unpadded → padded):
+
+        1 pad  0.193 → 0.165     8 pads  0.193 → 0.049 (KL 0.72, argmax flips)
+        4 pads 0.193 → 0.093    32 pads  0.193 → 0.023 (KL 1.49)
+
+    A flatter distribution means the sampler draws noisier acoustic tokens, which
+    is heard as a soft, MUFFLED, less articulate voice — the exact symptom that
+    parked this branch. Masking the pads out restores the unpadded distribution
+    (KL ~0), so batching becomes a pure throughput change.
+    """
+    import mlx.core as mx
+
+    keys = mx.arange(total)[None, :]                    # (1, total)
+    ok = keys >= mx.array(pads, dtype=mx.int32)[:, None]
+    return ok.reshape(len(pads), 1, 1, total)
+
+
+def _prefill_mask(key_ok, length: int):
+    """Causal + padding mask for the prefill step: (B, 1, L, L), True = attend.
+
+    ⚠ The diagonal is force-enabled. A pad QUERY has no valid key at or before
+    it, and a fully-masked softmax row comes back NaN, which would poison the
+    whole batch through the next layer's K/V. Letting a pad attend to itself
+    yields 0 (its own zero value vector) and keeps it inert.
+    """
+    import mlx.core as mx
+
+    q = mx.arange(length)[:, None]
+    k = mx.arange(length)[None, :]
+    causal = q >= k
+    return (causal & key_ok[..., :length]) | (q == k)
+
+
 def _to_numpy(audio) -> np.ndarray:
     """Coerce an mlx/np audio array to 1-D float32."""
     if audio is None:
@@ -350,17 +394,59 @@ class CsmEngine:
         mx.eval(audio)
         return _to_numpy(audio)
 
+    def _frame_impl(self, model, tokens, token_mask, sampler, cache, mask, stream):
+        """Masked twin of `csm_mlx.generation.generate_frame`.
+
+        Identical maths, with ONE addition: the backbone is driven layer by layer
+        so we can hand it an attention `mask` that excludes the batch's left-pad
+        frames (see `_pad_key_mask`). `LlamaModel.__call__` builds its own causal
+        mask and takes no mask argument, which is why the loop is inlined here.
+        The decoder needs no mask — its per-frame inputs are 1-2 positions long
+        and never padded.
+        """
+        import mlx.core as mx
+        from mlx_lm.models.cache import make_prompt_cache
+
+        embeds = model.embed_tokens(tokens) * mx.expand_dims(token_mask, axis=-1)
+        with mx.stream(stream):
+            h = embeds.sum(-2)
+            for layer, layer_cache in zip(model.backbone.layers, cache):
+                h = layer(h, mask, cache=layer_cache)
+            last = model.backbone.norm(h)[:, -1, :]
+
+            c0_logits = model.codebook0_head(last)
+            c0_logprobs = c0_logits - mx.logsumexp(c0_logits, axis=-1, keepdims=True)
+            c0_sample = mx.expand_dims(sampler(c0_logprobs), axis=-1)
+
+            decoder_inputs = mx.concat(
+                [mx.expand_dims(last, axis=1), model.embed_audio(0, c0_sample)], axis=1,
+            )
+            out = mx.zeros((tokens.shape[0], model.n_audio_codebooks), dtype=tokens.dtype)
+            out[:, :1] = c0_sample
+
+            decoder_cache = make_prompt_cache(model.decoder)
+            for index in range(1, model.n_audio_codebooks):
+                hidden = model.decoder(model.projection(decoder_inputs), cache=decoder_cache)
+                ci_logits = mx.matmul(hidden[:, -1, :], model.audio_head[index - 1])
+                ci_logprobs = ci_logits - mx.logsumexp(ci_logits, axis=-1, keepdims=True)
+                ci_sample = mx.expand_dims(sampler(ci_logprobs), axis=-1)
+                decoder_inputs = model.embed_audio(index, ci_sample)
+                out[:, index:index + 1] = ci_sample
+        return out
+
     def _synthesize_batch_impl(self, items: list[tuple[str, float]]) -> list[np.ndarray]:
         """Batched twin of csm-mlx's `generate`, run on the executor thread.
 
         ⚠ Mirrors `csm_mlx.generation.generate` (frame loop → `decode_audio`) but
-        over a batch dimension `generate_frame` already supports. It therefore
-        depends on csm-mlx internals (`generate_frame`, `tokenize_*`,
-        `decode_audio`); the caller falls back to the sequential path if this
-        raises, so a csm-mlx upgrade degrades to slow rather than broken.
+        over a batch dimension, with a padding-aware attention mask (see
+        `_pad_key_mask` — without it the pads flatten the output distribution and
+        the voice comes out muffled). It therefore depends on csm-mlx internals
+        (`generate_frame`'s maths, `tokenize_*`, `decode_audio`) and on mlx-lm's
+        Llama layer signature; the caller falls back to the sequential path if
+        this raises, so an upstream change degrades to slow rather than broken.
         """
         import mlx.core as mx
-        from csm_mlx.generation import generate_frame
+        from csm_mlx.generation import default_stream
         from csm_mlx.tokenizers import decode_audio, tokenize_text_segment
         from mlx_lm.models.cache import make_prompt_cache
 
@@ -380,13 +466,13 @@ class CsmEngine:
             prompts.append(tok.astype(mx.int32))
             masks.append(msk.astype(mx.bool_))
 
-        # LEFT-pad to the batch's longest prompt. `generate_frame` multiplies the
-        # embeddings by token_mask, so a zero-masked pad frame contributes
-        # nothing to the summed input. Padding still occupies causal positions,
-        # which is why the caller buckets by length to keep pads to a few frames
-        # against the ~204-frame reference prefix.
+        # LEFT-pad to the batch's longest prompt so every row's NEXT position is
+        # the same, which is what lets one frame loop serve the whole batch. The
+        # pads are then masked OUT of attention (`_pad_key_mask`); the caller
+        # still buckets by length, which now only saves work, not quality.
         width = prompts[0].shape[1]            # codebooks + the text column
         L = max(p.shape[0] for p in prompts)
+        pads = [L - p.shape[0] for p in prompts]
         padded, padded_masks = [], []
         for tok, msk in zip(prompts, masks):
             pad = L - tok.shape[0]
@@ -410,13 +496,19 @@ class CsmEngine:
         row_max = frame_bounds(items, self.cfg.max_audio_length_ms)
         max_frames = max(row_max)
 
+        # One key-validity mask covering prompt + every frame we could generate;
+        # each step slices the prefix it needs (cheap, lazy). Skipped entirely
+        # when nothing is padded, so a same-length batch runs the original path.
+        key_ok = _pad_key_mask(pads, L + max_frames) if any(pads) else None
+        mask = _prefill_mask(key_ok, L) if key_ok is not None else "causal"
+
         model.eval()                            # csm-mlx's generate() does this
         cache = make_prompt_cache(model.backbone)
         frames: list[list] = [[] for _ in range(B)]
         done = [False] * B
-        for _ in range(max_frames):
-            sample = generate_frame(
-                model, inp, token_mask=inp_mask, sampler=sampler, cache=cache,
+        for step in range(max_frames):
+            sample = self._frame_impl(
+                model, inp, inp_mask, sampler, cache, mask, default_stream,
             )
             mx.eval(sample)
             zeros = np.asarray(mx.sum(mx.abs(sample), axis=1)) == 0   # per-row EOS
@@ -435,6 +527,10 @@ class CsmEngine:
             inp_mask = mx.expand_dims(
                 mx.concat([mx.ones_like(sample), mx.zeros((B, 1))], axis=1), 1,
             ).astype(mx.bool_)
+            # Single-token step: the query is the newest position, so causality is
+            # implicit and only the pad columns need masking.
+            if key_ok is not None:
+                mask = key_ok[..., :L + step + 1]
 
         model.train()
         out: list[np.ndarray] = []

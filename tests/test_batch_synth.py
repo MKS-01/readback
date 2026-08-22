@@ -167,3 +167,46 @@ def test_batch_failure_falls_back_to_sequential():
     # synthesize_article must still produce audio via the sequential loop.
     out = synthesize_article(synth, "A sentence that will be synthesized anyway.")
     assert out.size > 0
+
+
+# ---- padding attention mask (needs MLX; skipped on CI/Linux) ----
+
+def _mask_helpers():
+    pytest.importorskip("mlx.core")
+    from readback.tts.csm_engine import _pad_key_mask, _prefill_mask
+
+    return _pad_key_mask, _prefill_mask
+
+
+def test_pad_keys_are_masked_out_of_attention():
+    """⚠ The quality fix: real tokens must NOT attend to a row's left pads.
+
+    Unmasked, each pad contributes a zero-valued key scoring q·0 = 0, i.e. weight
+    exp(0)=1 in every softmax — measured flattening of the codebook-0 top-1
+    probability from 0.193 to 0.049 at 8 pads, heard as a muffled voice.
+    """
+    pad_key_mask, prefill_mask = _mask_helpers()
+    import numpy as np
+
+    pads = [0, 3]
+    key_ok = np.asarray(pad_key_mask(pads, 6))
+    assert key_ok.shape == (2, 1, 1, 6)
+    assert key_ok[0, 0, 0].all()                       # unpadded row: every key valid
+    assert not key_ok[1, 0, 0, :3].any()               # padded row: pads excluded
+    assert key_ok[1, 0, 0, 3:].all()
+
+    m = np.asarray(prefill_mask(pad_key_mask(pads, 6), 6))
+    assert m.shape == (2, 1, 6, 6)
+    assert not m[1, 0, 5, :3].any()                    # last real query ignores pads
+    assert m[1, 0, 5, 3:].all()                        # ...and sees every real key
+
+
+def test_pad_query_rows_are_never_fully_masked():
+    """A fully-masked softmax row returns NaN, which would poison the whole batch
+    through the next layer's K/V — so a pad query keeps its own (zero) diagonal."""
+    pad_key_mask, prefill_mask = _mask_helpers()
+    import numpy as np
+
+    m = np.asarray(prefill_mask(pad_key_mask([0, 3], 6), 6))
+    assert m.any(axis=-1).all(), "every query row must attend to at least one key"
+    assert m[1, 0, 0, 0] and not m[1, 0, 0, 1:].any()   # pad attends to itself only

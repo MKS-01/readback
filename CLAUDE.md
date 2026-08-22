@@ -350,7 +350,9 @@ readback/
   - `_length_buckets` + `_batches` — group chunks for the batch path.
     `_length_buckets` sorts by text length so a batch's rows are near-equal
     (prompts are left-padded to the batch max, and the frame loop runs until
-    EVERY row hits EOS, so a short row batched with a long one just idles).
+    EVERY row hits EOS, so a short row batched with a long one just idles). Since
+    the pads are masked out of attention, this is now purely a work saving — it
+    is no longer load-bearing for quality.
     ⚠ `_batches` **evens the groups out** — 11 chunks at size 8 is 6+5, never
     8+3: a batch's cost is nearly flat in batch size, so a 3-row tail batch costs
     about as much as a full one (measured RTF 0.33 for 8+3 vs 0.26 for 6+5).
@@ -402,11 +404,30 @@ readback/
   1 → 51.6/1.55 · 2 → 80.5/1.99 · 4 → 82.1/3.90 · 8 → 84.8/**7.55** — 8x the work
   for 1.64x the time. `_synthesize_batch_impl` mirrors `csm_mlx.generation.generate`
   over the batch dim `generate_frame` already supports: prompts are
-  `ref ++ text` tokens **left-padded** to the batch max (`token_mask` zeroes the
-  pads), one `make_prompt_cache`, per-row EOS tracking, then `decode_audio` per
+  `ref ++ text` tokens **left-padded** to the batch max, one
+  `make_prompt_cache`, per-row EOS tracking, then `decode_audio` per
   row. ⚠ It therefore leans on csm-mlx internals — `speak.py` falls back to the
   sequential path if it raises. `_ref_tokens_for` caches the tokenized reference
   per voice (csm-mlx re-runs that Mimi encode, ~0.03 s, on every `generate`).
+- ⚠ **The pads MUST be masked out of attention (`_pad_key_mask` /
+  `_prefill_mask`) — this is what fixed the muffled voice.** `token_mask` only
+  zeroes the pad *embeddings*; it does not stop real tokens from *attending* to
+  those positions. A zero embedding stays exactly zero through every layer
+  (RMSNorm(0)=0, no biases), so each pad is a key of 0 scoring q·0 = 0 — weight
+  exp(0)=1 in every softmax denominator against a value of 0. The pads act as a
+  bank of neutral sinks that dilute attention and flatten the output
+  distribution; measured on a 236-frame prompt, codebook-0 top-1 probability fell
+  0.193 → 0.049 at 8 pads (KL 0.72) and → 0.023 at 32 (KL 1.49). Flatter
+  distribution → noisier acoustic tokens → the soft, MUFFLED read that parked
+  this branch. With the mask, KL vs the unpadded prompt is ~0.0002 (bf16 noise),
+  i.e. batching is again a pure throughput change. Because
+  `LlamaModel.__call__` builds its own causal mask and accepts no mask argument,
+  `_frame_impl` drives the backbone layer by layer — a masked twin of
+  `generate_frame` (the decoder needs no mask: its per-frame inputs are 1-2
+  positions and never padded). ⚠ `_prefill_mask` force-enables the **diagonal**:
+  a pad query has no valid key at or before it, and a fully-masked softmax row
+  returns NaN that would poison the batch through the next layer's K/V. A
+  same-length batch skips the mask entirely and runs the original path.
   ⚠ **Don't raise `batch_size` much past 8**: the loop runs until EVERY row hits
   EOS, so one runaway row stalls the batch (16 measured RTF 0.17 and 0.37 on
   consecutive runs; 8 measured 0.23 twice).

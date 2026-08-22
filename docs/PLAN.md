@@ -6,15 +6,92 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-08-22 — The muffled voice: batched synthesis was missing a padding mask
+
+**Status: done** — branch `perf/batched-synthesis`. This **resolves the open
+symptom** that parked the entry below. The muffling was NOT the clone reference,
+not bf16, not `_peak_normalize`, and not `ref_max_sec` — it was a real defect in
+the batched path, and it is fixed.
+
+**The bug.** `_synthesize_batch_impl` left-pads every prompt to the batch's
+longest so all rows share a next position. It relied on `generate_frame`'s
+`token_mask` to neutralize the pads — but that mask only zeroes the pad
+*embeddings*. It does not stop real tokens from *attending* to those positions,
+and `LlamaModel.__call__` builds its own causal mask and accepts no mask
+argument, so nothing else was excluding them either. A zero embedding stays
+exactly zero through every layer (RMSNorm(0) = 0, and the attention/MLP are
+bias-free), so each pad presents a key of 0. Its score is q·0 = 0, i.e. weight
+exp(0) = 1 in *every* softmax denominator, against a value vector of 0. The pads
+were a bank of neutral sinks quietly diluting attention.
+
+**Measured, on a 236-frame prompt** (codebook-0 top-1 probability, unpadded
+0.193 → padded, and KL from the unpadded distribution):
+
+| pads | top-1 p | KL | with the mask |
+|---|---|---|---|
+| 1 | 0.165 | 0.018 | 0.0002 |
+| 4 | 0.093 | 0.250 | 0.0001 |
+| 8 | 0.049 | 0.722 | 0.0001 |
+| 32 | 0.023 | 1.487 | 0.0002 |
+
+A flatter distribution means the sampler draws noisier acoustic tokens — heard as
+a soft, muffled, less articulate voice. With the mask the padded row reproduces
+the unpadded one to bf16 noise, so batching is once again a pure throughput
+change.
+
+⚠ Note how this evaded the earlier investigation: the spectral-centroid check
+(1160 Hz batched vs 1158 Hz on a good reference) said "not muffled" because the
+defect does not shift the spectrum much — it degrades *articulation*. Yet another
+case for the rule in the entry below: **judge delivery by ear, use numbers only
+for gross breakage.** The number that did catch it was not an audio metric at
+all; it was the model's own output distribution.
+
+**What shipped.** `_pad_key_mask(pads, total)` builds the per-row key-validity
+mask; `_prefill_mask(key_ok, L)` combines it with causality for the prefill step;
+the decode steps slice `key_ok` (a single-token query is causal by construction).
+`_frame_impl` is a masked twin of `csm_mlx.generation.generate_frame` — identical
+maths, but it drives `model.backbone.layers` itself so it can pass the mask,
+since `LlamaModel` takes none. The decoder needs no mask (per-frame inputs are
+1-2 positions, never padded). ⚠ `_prefill_mask` force-enables the **diagonal**: a
+pad query has no valid key at or before it, and a fully-masked softmax row comes
+back NaN, which would poison the whole batch through the next layer's K/V. A
+batch with no padding skips the mask entirely and runs the original path.
+
+`_length_buckets` stays, but it is now only a work saving (smaller pads = fewer
+wasted positions), not a quality safeguard.
+
+**Verified.** 57 pytest pass (2 new, `importorskip("mlx.core")` so CI/Linux skips
+them). Same 7-chunk article rendered three ways on device:
+
+| path | wall | audio | RTF | ZCR |
+|---|---|---|---|---|
+| batched, old (unmasked) | 32.2 s | 104.4 s | 0.31 | 0.0830 |
+| batched, masked (new) | 34.0 s | 98.4 s | 0.35 | 0.0946 |
+| sequential reference | 66.8 s | 95.1 s | 0.70 | 0.0931 |
+
+The masked batch now tracks the sequential reference on both duration and ZCR,
+where the old path ran 10% long (meandering, over-generating) and measurably
+duller. The mask costs ~5% wall time; the ~2x speedup is intact.
+
+**Not done:** the listening confirmation is the user's call — render a read and
+judge by ear before merging. Streaming playback and LLM speculative decoding are
+still open.
+
+---
+
 ## 2026-08-12 — Batched CSM synthesis (~2x); chunk band change tried and reverted
 
-**Status: PARKED — not shipped, retry in a later session.** Branch
+**Status: SUPERSEDED by the 2026-08-22 entry above, which found and fixed the
+muffling (a missing padding mask in the batched attention).** Kept for the
+performance findings, which all still hold. Branch
 `perf/batched-synthesis` (2 commits, unpushed, based on `optimisation-2`). The
 speedup works and is verified, but **audio quality was judged not up to the
 mark** on real reads and the user parked it. Do NOT merge without redoing the
 listening check.
 
-⚠ **Open symptom: the voice sounds MUFFLED.** Not yet explained, and measurement
+⚠ **Open symptom: the voice sounds MUFFLED — SOLVED, see the entry above. The
+leads below (clone reference, bf16, `ref_max_sec`, `_peak_normalize`) were all
+wrong; the cause was the batched path's unmasked left-padding.** Not yet explained, and measurement
 says it is *not* the batching: mean spectral centroid and energy above 4 kHz came
 out batched 1160 Hz / 7.05%, sequential 1108 Hz / 5.46%, reference-quality read
 1158 Hz / 6.49% — i.e. batched is marginally *brighter* than sequential and
