@@ -21,7 +21,9 @@ WS protocol (/ws):
            # "reading page N / M" and long-doc summaries "summarizing section N / M"
            {"type":"progress", "done": int, "total": int}
            {"type":"done", "title","audio_url","duration_sec","word_count","mode",
-                           "text": str|None (summary text for transcript; None in full mode)}
+                           "text": str|None (summary text for transcript; None in full mode),
+                           "timings": {"model_load"?,"fetch","summarize",
+                                       "synthesize","write","total"}}  # secs, 1 dp
            {"type":"error", "message": str}
 
 Each finished read is also recorded in the SQLite read library (library.py) and

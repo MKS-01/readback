@@ -57,7 +57,7 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v3.2.0; csm-mlx (git dep) + mlx-lm + mlx-vlm + trafilatura + fastapi
+├── pyproject.toml             # v4.3.0; csm-mlx (git dep) + mlx-lm + mlx-vlm + trafilatura + fastapi
 ├── config.yaml                # user-editable: llm / tts.csm / reader blocks (cwd-resolved)
 ├── .env.example               # Pi deployment config template (PI_USER/PI_HOST/PI_PATH/PI_PORT etc.)
 │                              # ⚠ copy to .env (gitignored) and fill in real values — never commit .env
@@ -83,7 +83,7 @@ readback/
 │                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
-├── tests/                     # 54 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
+├── tests/                     # 65 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
 │                              # silence-tidy, fade-out, extract scrub, library + cache, think-stripper,
 │                              # tones, map-reduce batching, summary trim, batched-synth
 │                              # drive loop (order/progress/cancel/retry/fallback).
@@ -145,7 +145,7 @@ readback/
     │                          # switch), theme.ts (Ghost + BLUE accent),
     │                          # server.ts (spawn), ws.ts, player.ts (afplay + seek),
     │                          # prefs.ts, components/{Header,UrlInput,StatusLine,
-    │                          # BusyView,PlayerView,ModelList,LibraryView}.tsx
+    │                          # BusyView,PlayerView,ModelList,LibraryView,HelpView}.tsx
     └── readback/              # python package (src layout; wheel packages src/readback)
         ├── __main__.py        # `readback` CLI: argparse --host/--port/--model/--config, uvicorn boot
         ├── config.py          # Pydantic config: LLMConfig / CsmTTSConfig

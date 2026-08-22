@@ -1,4 +1,4 @@
-# Architecture — readback (v4.2.0)
+# Architecture — readback (v4.3.0)
 
 How the pieces fit together and why. System-level companion to
 [CLAUDE.md](../CLAUDE.md) (implementation notes, gotchas, exact knobs) and
@@ -7,17 +7,18 @@ doubt, CLAUDE.md is authoritative.
 
 ## 1. What it is
 
-A fully **on-device**, terminal-first article reader. You paste a URL into the
-CLI; the server fetches and extracts the article, optionally summarizes it with
-a local LLM, synthesizes the whole thing offline with CSM-1B, and hands back an
-audio file the CLI plays via `afplay`. One server process (`readback`) with two
-clients: the **terminal CLI** (`src/cli/`, Bun + Ink, macOS) drives *live* reads
-over a WebSocket, and the **web dashboard** (`src/dashboard/`, Vue 3) replays
-*past* reads over plain REST.
+A fully **on-device**, terminal-first article reader. You hand the CLI a source —
+a URL, an image, or a folder/glob of book scans; the server extracts the text,
+optionally summarizes it with a local LLM, synthesizes the whole thing offline
+with CSM-1B, and hands back an audio file the CLI plays via `afplay`. One server
+process (`readback`) with two clients: the **terminal CLI** (`src/cli/`, Bun +
+Ink, macOS) drives *live* reads over a WebSocket, and the **web dashboard**
+(`src/dashboard/`, Vue 3) replays *past* reads over plain REST.
 
 ```
-URL ─▶ fetch + extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ afplay
-       (trafilatura)    (mlx-lm)            (CSM-1B / csm-mlx)            └▶ library (SQLite) ─▶ dashboard replay
+URL · image · scans ─▶ extract ─▶ [summary] ─▶ chunk ─▶ TTS (offline) ─▶ WAV ─▶ afplay
+                    (trafilatura   (mlx-lm)          (CSM-1B / csm-mlx)     │
+                     / mlx-vlm)                                             └▶ library (SQLite) ─▶ dashboard replay
 ```
 
 Unlike the real-time voice assistant this project began as, synthesis is **batch,
@@ -34,7 +35,7 @@ on the Mac); **replay** is a separate, model-free path that only lists library
 rows and serves a finished WAV. This is why the dashboard can stay tiny (no
 WebSocket, no models) and why the split deploy is clean — a home Pi hosts the
 lightweight UI + audio while the Mac remains the only thing that needs the GPU
-(see §6).
+(see §7).
 
 ## 2. Process & concurrency model
 
@@ -54,21 +55,47 @@ responsive while a read job runs because all heavy work is pushed off it:
 
 ## 3. The pipeline (`src/readback/pipeline/`)
 
-1. **Extract** (`extract.py`) — `fetch_article(url)` downloads via trafilatura,
-   falling back to a browser-UA `urllib` fetch when a site 403s the default
-   agent, then `trafilatura.extract(..., favor_precision=True)` pulls the article
-   body. Light TTS-prep scrubbing strips URLs, `[12]` citation markers, and
-   collapses whitespace so the voice doesn't read markup aloud. Returns an
-   `Article{title, text, url}`.
+0. **Cache check** (`library.find_cached`) — before anything is fetched, the
+   server looks for a finished read matching `(source, mode, voice, llm_model,
+   recipe)`. On a hit the whole pipeline is skipped and `done` fires immediately
+   with the existing WAV. `recipe` is `pipeline.RECIPE_VERSION` (currently
+   `"r2"`), so a change to the summary prompts, chunking/pausing, or synthesis
+   invalidates old audio instead of replaying what the previous code produced —
+   ⚠ **bump it whenever you change any of those**. A hit also requires the WAV to
+   still exist on disk.
+1. **Extract** (`extract.py`) — the source decides the path (`classify_source`):
+   - **URL** → `fetch_article` downloads via trafilatura, falling back to a
+     browser-UA `urllib` fetch when a site 403s the default agent, then
+     `trafilatura.extract(..., favor_precision=True)` pulls the article body.
+   - **Image** → `_ocr_via_mlx` runs mlx-vlm OCR on `cfg.llm.model` (the summary
+     model does double duty; there is no separate OCR model). `sips` converts
+     HEIC/TIFF/BMP/WebP — and ⚠ **any image with an alpha channel**, which
+     mlx-vlm would otherwise flatten onto black and OCR as confident garbage.
+   - **Folder or glob** → `fetch_multi_page` OCRs each page in natural-filename
+     order and joins the seams into **one continuous document** (a scanned page
+     is a page, not a chapter), streaming `reading page N / M` as it goes.
+
+   All paths return an `Article{title, text, url}` after TTS-prep scrubbing that
+   strips URLs, `[12]` citation markers, and collapses whitespace so the voice
+   doesn't read markup aloud.
 2. **Summarize** (`summarize.py`, Summary mode only) — `summarize_article` calls
    `LLMClient.oneshot(system, user)` with a spoken-explanation system prompt when
    the article fits in one pass (≤ `reader.summary_max_chars`); longer input
    (book scans) is map-reduced across batches of that size instead of truncated.
-   The result is clipped to a 250-word ceiling at a sentence boundary
+   The result is clipped to a `SUMMARY_WORD_CEILING` (250) at a sentence boundary
    (`_trim_to_word_ceiling`, which preserves paragraph breaks) — the prompt's
    limit alone is advisory. The tone prompts ask for **2-4 short paragraphs**;
    that is a delivery setting, since step 3 derives its pause lengths from those
    breaks. Full mode skips this and reads `article.text` verbatim.
+
+   The framing prompt comes from **`tones.py`**, chosen server-side from the
+   source kind — `ARTICLE` (livelier explainer, base temperature **0.8**) for a
+   URL, `BOOK` (measured, **0.6**, opens by naming the chapter) for a scan. A
+   tone shifts the *delivery temperature*, never the user's chosen voice, and
+   there is no override: it is automatic and invisible to the client.
+   ⚠ The **original** source's word count rides through map-reduce as
+   `source_words` — anchoring the length target to the compressed digests would
+   mis-calibrate exactly the long inputs map-reduce exists for.
 3. **Chunk + synthesize** (`speak.py`) — `chunk_text` splits into TTS-sized,
    paragraph-respecting chunks (sentence-aware, each chunk's cap randomized in
    [280, 400] chars for varied pacing; over-long sentences split on commas, then
@@ -94,15 +121,19 @@ responsive while a read job runs because all heavy work is pushed off it:
    reports this dir as `audio_dir` in `/api/config` so the CLI can play a
    same-machine WAV without re-downloading.
 5. **Record** — the read's metadata (title, summary/excerpt, source URL, mode,
-   voice, duration, word count, WAV filename + absolute path, timestamp) is
-   written to the SQLite **read library** (`library.py`, `reader.library_db`).
+   voice, duration, word count, WAV filename + absolute path, timestamp, plus
+   the `llm_model` and `recipe` that produced it — the last two are what make
+   step 0's cache key exact) is written to the SQLite **read library**
+   (`library.py`, `reader.library_db`).
    Best-effort: a DB failure is logged, never breaks playback. This is what the
    web dashboard lists and replays.
 
 ## 4. TTS engine (`src/readback/tts/`)
 
 - **`CsmEngine`** (`csm_engine.py`) wraps **CSM-1B via csm-mlx** (`senstella/csm-1b-mlx`),
-  float32 @ 24 kHz (Mimi-native — matches the WS contract, no resample).
+  float32 @ 24 kHz (Mimi-native — matches the WS contract, no resample). Weights
+  are cast to **bf16** by default (`tts.csm.precision`: `bf16`/`fp16`/`fp32`) —
+  ~6% faster than fp32 with no audible loss at normal listening.
 - **MLX single-thread rule.** MLX binds its GPU stream to the first thread that
   touches the device, so the engine owns a `ThreadPoolExecutor(max_workers=1)` and
   runs **all** model work (load + synth) on it; public methods submit and block.
@@ -121,12 +152,21 @@ responsive while a read job runs because all heavy work is pushed off it:
 
 ## 5. LLM (`src/readback/llm/client.py`)
 
-Only **Summary mode** uses the LLM, via `LLMClient.oneshot()` — a single
-non-streaming mlx-lm `generate` (low temperature) with `<think>` stripping for
-models that emit inline reasoning tags. Full mode skips the LLM entirely. This
-is the heaviest, most occasional step (see §1) — it runs only during
-generation, never on dashboard replay. The model + tokenizer are loaded lazily
-on first call and cached in-process.
+Only **Summary mode** uses the LLM for prose, via `LLMClient.oneshot()` — a
+single non-streaming mlx-lm `generate` (low temperature, `max_tokens=1024` as a
+runaway bound) with `<think>` stripping for models that emit inline reasoning
+tags. Full mode skips this step entirely. The same model is *also* loaded through
+mlx-vlm for image and book-scan OCR (§3 step 1) and for title generation, so a
+text-only pick disables image reads. The model + tokenizer are loaded lazily on
+first call and cached in-process.
+
+⚠ **`enable_thinking=False` is passed to `apply_chat_template`** — the single
+biggest lever on summary speed. Qwen3/3.5 default to chain-of-thought and
+otherwise spend the whole token budget on an *untagged* "Thinking Process:"
+preamble, which `_ThinkStripper` cannot catch and which then gets read aloud.
+With it off, a 215-word article summarizes in ~4 s instead of ~76 s. The
+`/no_think` token is ignored by the MLX builds; only the template kwarg works,
+and it is wrapped in try/except so a model whose template rejects it still runs.
 
 The model is switchable at runtime: `llm/models.py` scans downloaded MLX
 models in the HuggingFace cache with a RAM-fit verdict and a summary
@@ -152,9 +192,17 @@ written back to `config.yaml`.
     (`model` swaps the LLM — which serves Summary mode *and* image/book OCR —
     for this and later reads; validated against downloaded MLX models)
   - server → `phase {value}`, `progress {done, total}`,
-    `done {title, audio_url, duration_sec, word_count, mode, text?}`, `error {message}`
+    `done {title, audio_url, duration_sec, word_count, mode, text?, timings}`,
+    `error {message}`
+  - `phase.value` is a free-form display string — `loading` → `fetching` →
+    `summarizing` → `synthesizing`, plus `reading page N / M` for multi-page OCR
+    and `summarizing section N / M` for map-reduced long documents.
   - `done.text` carries the spoken summary (Summary mode only) for the
-    transcript panel.
+    transcript panel; the full article is never shipped back (it's on the
+    source page).
+  - `done.timings` = `{model_load?, fetch, summarize, synthesize, write, total}`
+    in seconds (1 dp) — server-side instrumentation the CLI shows as
+    "Xs to generate".
 - **Terminal client** (`src/cli/`) — Bun + TypeScript + Ink; the sole consumer
   of the WS protocol. It health-checks `/api/config`, fetches `/api/models` for
   its `/model` picker, auto-spawns `readback` when no server is running (and
@@ -164,9 +212,9 @@ written back to `config.yaml`.
 - **Web dashboard** (`src/dashboard/`) — Vue 3 + Vite + TS; a *second*, separate
   client that speaks **REST only** (not WS): lists/searches/sorts the read
   library, replays each WAV via an HTML5 `<audio>`, and can delete reads. Built
-  to static files (served by the server at `/`, or by a Pi host — see §9).
+  to static files (served by the server at `/`, or by a Pi host — see §7).
 
-## 9. Pi deployment (`scripts/`)
+## 7. Pi deployment (`scripts/`)
 
 The Mac is the sole generation host (CSM-1B + mlx-lm + mlx-vlm require MLX/Metal). A
 Raspberry Pi can serve as a network-accessible replay host:
@@ -195,14 +243,14 @@ Raspberry Pi can serve as a network-accessible replay host:
   section (wav files aren't synced). Pi config edits survive redeployment.
 - **Port** — Pi defaults to `:8090`; set `PI_PORT` in `.env` to change.
 
-## 7. Entry point (`src/readback/__main__.py`)
+## 8. Entry point (`src/readback/__main__.py`)
 
 `readback` parses args (`--host/--port/--model/--config`), loads `config.yaml`
 (resolved from the working directory by default), and boots uvicorn. The CLI
 spawns it with cwd = repo root so the bundled config and its relative
 `src/voice/` / `src/finetune/` paths resolve.
 
-## 8. Extension points
+## 9. Extension points
 
 - **New TTS engine** — implement the `Synthesizer` surface and branch on
   `tts.engine`.

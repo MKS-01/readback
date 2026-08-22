@@ -68,7 +68,7 @@ esc cancels a running read.
 | `/voice [id]` | Show / set the voice (persisted) |
 | `/model [name]` | List downloaded MLX models / set the LLM used for summaries + OCR (persisted) |
 | `/mode [full\|summary]` | Show / set the read mode (persisted) |
-| `/library` (or `/lib`) | Browse past reads — arrow keys, Enter to replay, `d` to delete |
+| `/library` (or `/lib`) | Browse past reads — arrow keys, `space` to preview inline, Enter to replay, `d` to delete |
 | `/speed [x]` | Show / set playback speed, 0.5–2 (persisted; also `+`/`-` in the player) |
 | `/help` | List commands |
 | `/quit` | Exit (or press `q` when the input field is empty) |
@@ -93,6 +93,7 @@ Prefs (voice/mode/model/speed) persist to `~/.readback/cli.json`.
 | Key | What |
 |---|---|
 | `↑` / `↓` | Move cursor |
+| `space` | Preview inline — plays without leaving the list (`♫` + elapsed); press again to stop |
 | `Enter` | Replay the selected read (drops into the player) |
 | `d` twice | Delete (first press shows a confirmation prompt) |
 | `n` | Load the next page (20 more) |
