@@ -65,19 +65,25 @@ responsive while a read job runs because all heavy work is pushed off it:
    the article fits in one pass (≤ `reader.summary_max_chars`); longer input
    (book scans) is map-reduced across batches of that size instead of truncated.
    The result is clipped to a 250-word ceiling at a sentence boundary
-   (`_trim_to_word_ceiling`) — the prompt's limit alone is advisory. Full mode
-   skips this and reads `article.text` verbatim.
+   (`_trim_to_word_ceiling`, which preserves paragraph breaks) — the prompt's
+   limit alone is advisory. The tone prompts ask for **2-4 short paragraphs**;
+   that is a delivery setting, since step 3 derives its pause lengths from those
+   breaks. Full mode skips this and reads `article.text` verbatim.
 3. **Chunk + synthesize** (`speak.py`) — `chunk_text` splits into TTS-sized,
    paragraph-respecting chunks (sentence-aware, each chunk's cap randomized in
    [280, 400] chars for varied pacing; over-long sentences split on commas, then
-   spaces). `synthesize_article` sends those chunks to the engine in **batches**
+   spaces). `chunk_spans` also reports whether each chunk **ends a paragraph**.
+   `synthesize_article` sends those chunks to the engine in **batches**
    of `tts.csm.batch_size` (8) — CSM's frame loop is launch-latency bound, so a
    batch of 8 produces ~4.9x the audio per wall-second that batch 1 does
-   (measured ~2x end-to-end on synthesis). It synthesizes each chunk fully,
+   (measured ~2x end-to-end on synthesis). Batched prompts are left-padded and
+   the pads are **masked out of attention**, so batching changes throughput only,
+   never the audio; each row keeps its own delivery temperature. It synthesizes each chunk fully,
    **silence-tidies** it (`_tidy_silence`: trim leading/trailing silence and cap
    internal pauses to ~300 ms), **fades out** the tail (100 ms linear fade via
-   `_fade_out_tail`), retries all-silence chunks once, and joins with `reader.gap_sec`
-   gap. The joined buffer is **peak-normalized** (`_peak_normalize`) so every
+   `_fade_out_tail`), retries all-silence chunks once, and joins with a pause
+   scaled from `reader.gap_sec` by that paragraph flag (`_gap_for`: 2x at a
+   paragraph end, 0.6x mid-paragraph, so pacing follows the text). The joined buffer is **peak-normalized** (`_peak_normalize`) so every
    voice lands at the same loudness — clone voices inherit their reference clip's
    level and would otherwise read far quieter than the built-ins.
    `progress(done, total)` fires per chunk; `should_stop()` aborts early.

@@ -128,12 +128,26 @@ flowchart LR
 
 1. **Extract** — `trafilatura` pulls article text (browser-UA fallback for 403s). Images/book scans → mlx-vlm OCR, on the same model that writes the summary (in-process). Folders/globs → multi-page: OCR'd in filename order and stitched into one document.
 2. **Summarize** *(optional)* — mlx-lm rewrites it as a spoken explanation (in-process). Full mode skips this entirely.
-3. **Synthesize** — sentence-aware chunks → CSM-1B (in-process) → silence-trimmed → fade-out → joined with small gaps. Re-reads skip the entire pipeline (cache hit by URL + mode + voice + model).
+3. **Synthesize** — sentence-aware chunks → CSM-1B (in-process) → silence-trimmed → fade-out → joined with pauses taken from the text itself: a paragraph break gets a full breath, a mid-paragraph join carries straight on. Chunks ride the GPU in **batches of 8**, which is where the speed comes from. Re-reads skip the entire pipeline (cache hit by URL + mode + voice + model + pipeline version).
 4. **Serve** — WAV over HTTP; progress streams live over the WebSocket.
 
 **Source-aware tone** — a URL reads as a livelier article explainer; a book scan reads calmer, opening by naming the chapter. Automatic, nothing to set. Long scans **map-reduce** instead of truncating.
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system view.
+
+### Fast *and* faithful
+
+Synthesis used to be 77% of a read's wall time. CSM emits one frame per 80 ms of audio, and each frame is 1 backbone step + 31 **sequential** decoder steps — roughly 400 tiny matmuls per second of audio. That's launch-latency bound, not compute bound, so the GPU sat idle waiting between kernels. Running 8 chunks through **one shared frame loop** does 8× the work in 1.64× the time:
+
+| batch | ms/frame | audio produced per wall-second |
+|---|---|---|
+| 1 | 51.6 | 1.55 s |
+| 4 | 82.1 | 3.90 s |
+| **8** | 84.8 | **7.55 s** |
+
+A real 1,440-word article now reads in **38 s end to end** — 0.7 s to fetch, 8.6 s to summarize, 29 s to synthesize 90 seconds of speech. Synthesis alone went **61 s → 29 s** on the same text.
+
+**None of it was paid for in quality.** Batching left-pads prompts so every chunk shares a frame loop, and those pad frames were silently diluting attention — measured, the model's top-1 confidence collapsed from 0.193 to 0.049, which you heard as a soft, muffled voice. Masking the pads out of attention restores the unpadded distribution to within bf16 noise, so batching is now a pure throughput change: same audio, less than half the wait. Every chunk still carries its own delivery temperature, nudged from its punctuation, so expression varies with the content instead of flattening across the batch.
 
 ---
 
@@ -187,9 +201,10 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `tts.csm.temperature` | Delivery: lower = composed, higher = livelier | `0.7` |
 | `tts.csm.voices` | Clone voices (`name`, `label`, `wav`, `ref_text`, `speaker`) | sample `codeword` |
 | `tts.csm.lora_path` | LoRA adapter dir from a `csm-mlx finetune` run | `null` |
+| `tts.csm.batch_size` | Chunks per CSM frame loop — the main speed knob. `1` restores the old sequential path | `8` |
 | `reader.default_mode` | `full` (verbatim) or `summary` (LLM) | `full` |
 | `reader.output_dir` | Where generated WAVs are written/served (a `readback-audio-db/` folder beside the repo) | `../readback-audio-db/audio` |
-| `reader.gap_sec` | Silence inserted between synthesized chunks | `0.18` |
+| `reader.gap_sec` | Base pause between synthesized chunks — scaled per join (2× at a paragraph break, 0.6× mid-paragraph) | `0.18` |
 | `reader.summary_max_chars` | Per-pass chunk size for Summary mode — longer inputs (book scans) are map-reduced across batches of this size, not truncated | `60000` |
 | `reader.library_db` | SQLite library of past reads (powers the dashboard) | `../readback-audio-db/library.db` |
 

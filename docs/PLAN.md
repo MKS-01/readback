@@ -6,6 +6,66 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-08-22 — Pauses that follow the text, and a Summary path that can use them
+
+**Status: done** — branch `perf/batched-synthesis`, on top of the padding-mask
+fix below. Two halves that only work together: pacing that reads structure out
+of the text, and a Summary path that actually produces structure.
+
+**Shaped pauses.** Every chunk join took a flat `reader.gap_sec` (0.18 s),
+whether it was a paragraph break the author wrote or a running sentence that the
+random chunk cap happened to split. That reads wrong in both directions:
+paragraph-sized silence dropped inside a sentence, and no extra breath at a real
+break. `chunk_spans` now returns each chunk paired with *does it end a
+paragraph*, and `_gap_for` scales the gap from that — `_PARA_GAP_SCALE` 2.0,
+`_MID_GAP_SCALE` 0.6. Scales rather than absolutes, so `gap_sec` still moves the
+whole read. `chunk_text` stays as the plain-text view.
+
+⚠ **On its own this did almost nothing**, and the reason is the interesting
+part. Measured on a real Summary read: 0.90 s → 0.79 s of join silence, i.e.
+slightly *tighter*, no new breathing. The win looked confined to Full mode (an
+8-paragraph article: 1.44 s → 2.88 s). Chasing why led to three defects in the
+Summary path:
+
+1. **The model emitted no paragraphs at all.** `_PLAIN_PROSE_RULE` said "plain
+   flowing sentences only" and the model obeyed literally — measured 220 words,
+   **zero newlines**, one block. So every join was mid-paragraph and a Summary
+   read had no structural pauses to shape. The prompt now asks for 2-4 short
+   paragraphs, one idea each. ⚠ That instruction is a DELIVERY setting, not
+   cosmetics — treat it as load-bearing.
+2. **`_trim_to_word_ceiling` destroyed paragraph breaks anyway.** It joined
+   sentences with `" "`, reflowing every summary into one line — and it runs on
+   ALL summaries, not just overlong ones, so even a paragraphed summary would
+   have arrived flat at the synthesizer. Now trims paragraph by paragraph,
+   keeping the ≥1-sentence guarantee.
+3. **`_PARA_SPLIT` was `\n{2,}`** while trafilatura emits each paragraph as a
+   SINGLE line — so it matched nothing on real articles and `_batches` fell
+   through to sentence-level packing for every source. Now `\n+`.
+
+After all three: same article, 164 words in **4 paragraphs**, join silence
+0.72 s → 1.44 s, landing where a speaker would breathe.
+
+**The read cache was quietly serving stale audio.** Keyed only on
+url/mode/voice/llm_model — nothing about the pipeline — so after any synthesis or
+prompt change a previously-read URL replayed a WAV made by the OLD code. ⚠ That
+is precisely the trap while A/B-ing a quality fix: you re-read the article to
+check and hear the output you just fixed. `pipeline.RECIPE_VERSION` is now part
+of the key, with a `recipe` column auto-migrated like `llm_model`; pre-migration
+rows carry `''` and never match. **Bump it with any change that alters the audio
+a given source produces.**
+
+**Verified.** 65 pytest pass (8 new). End-to-end on
+`claude.com/blog/bringing-claude-mythos-5-to-more-defenders`: 1,440 words →
+210-word summary in 4 paragraphs → 7 chunks (4 paragraph-ends) → 89.6 s of audio
+from 29.1 s of synthesis, 38.5 s total. **Judged good by ear.** Also corrected a
+CLAUDE.md error: `classify_source` lives in `extract.py`, not `tones.py`.
+
+**Open:** the summary still occasionally ends on a generic wrap-up sentence the
+length rules forbid ("These steps collectively aim to…") — prompt tweak, not a
+bug. Streaming playback and LLM speculative decoding remain the two big items.
+
+---
+
 ## 2026-08-22 — The muffled voice: batched synthesis was missing a padding mask
 
 **Status: done** — branch `perf/batched-synthesis`. This **resolves the open
