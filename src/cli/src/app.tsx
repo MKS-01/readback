@@ -17,6 +17,7 @@ import { PlayerView } from "./components/PlayerView";
 import { ModelList, type ModelsResp } from "./components/ModelList";
 import { LibraryView, type LibraryItem } from "./components/LibraryView";
 import { HelpView } from "./components/HelpView";
+import { PickList, type FeedItem } from "./components/PickList";
 
 interface State {
   screen: "input" | "busy" | "player" | "library" | "quitting";
@@ -39,10 +40,16 @@ interface State {
   confirmDelete: boolean;
   previewId: string | null;
   showHelp: boolean;
+  // Latest posts from the sites in `reader.feeds` — the numbered picks on the
+  // input screen. Crawled by the server, refreshed with /feed.
+  picks: FeedItem[];
+  picksLoading: boolean;
+  picksError: string | null;
+  pendingTitle: string | null;   // pick title shown while its read runs
 }
 
 type Action =
-  | { type: "submit" }
+  | { type: "submit"; title?: string | null }
   | { type: "phase"; value: string }
   | { type: "progress"; done: number; total: number }
   | { type: "done"; result: DoneMsg; wavPath: string }
@@ -63,6 +70,9 @@ type Action =
   | { type: "libraryConfirmDelete" }
   | { type: "libraryClearConfirm" }
   | { type: "preview"; id: string | null }
+  | { type: "picksLoading" }
+  | { type: "picks"; items: FeedItem[] }
+  | { type: "picksError"; message: string }
   | { type: "quitting" };
 
 function reducer(state: State, action: Action): State {
@@ -70,6 +80,7 @@ function reducer(state: State, action: Action): State {
     case "submit":
       return {
         ...state,
+        pendingTitle: action.title ?? null,
         screen: "busy",
         phase: "connecting",
         progress: null,
@@ -150,6 +161,13 @@ function reducer(state: State, action: Action): State {
       return { ...state, confirmDelete: false };
     case "preview":
       return { ...state, previewId: action.id };
+    case "picksLoading":
+      return { ...state, picksLoading: true, picksError: null };
+    case "picks":
+      // Clears the "refreshing…" notice /feed put up — the new list IS the result.
+      return { ...state, picks: action.items, picksLoading: false, picksError: null, notice: null };
+    case "picksError":
+      return { ...state, picksLoading: false, picksError: action.message };
     case "quitting":
       return { ...state, screen: "quitting" };
   }
@@ -159,6 +177,7 @@ function reducer(state: State, action: Action): State {
 // tell a command (`/model …`) from a local source path (`/Users/…`) at submit.
 const KNOWN_COMMANDS = new Set([
   "help", "quit", "exit", "mode", "voice", "model", "library", "lib", "speed",
+  "feed",
 ]);
 
 const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -227,9 +246,17 @@ export function App({ handle, prefs, onQuit }: Props) {
     confirmDelete: false,
     previewId: null,
     showHelp: false,
+    picks: [],
+    picksLoading: false,
+    picksError: null,
+    pendingTitle: null,
   });
 
   const sockRef = useRef<ReadbackSocket | null>(null);
+  // loadPicks is defined below the socket effect but called from inside it —
+  // the ref keeps the effect off its dependency list (it must not re-open the
+  // socket) while still calling the current closure.
+  const loadPicksRef = useRef<(() => void) | null>(null);
   const modelsRef = useRef<ModelsResp | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -250,6 +277,12 @@ export function App({ handle, prefs, onQuit }: Props) {
               .then((wavPath) => {
                 dispatch({ type: "done", result: msg, wavPath });
                 player.play(wavPath, msg.duration_sec);
+                // What you just heard is now in the library, so the server will
+                // filter it out of the picks and promote the next post. Re-ask
+                // (no refresh flag — the crawl is cached, this is just a
+                // re-filter) so the list is already updated when you come back
+                // to the input screen.
+                loadPicksRef.current?.();
               })
               .catch((err) => dispatch({ type: "error", message: String(err.message ?? err) }));
             break;
@@ -288,6 +321,38 @@ export function App({ handle, prefs, onQuit }: Props) {
     player.setRate(r);
     const s = stateRef.current;
     savePrefs({ voice: s.voice, mode: s.mode, model: s.model, speed: player.getRate() });
+  };
+
+  // Picks are crawled server-side (live, TTL-cached) — fetch them once on boot
+  // so the latest posts are on screen by the time the banner settles, and again
+  // on /feed with refresh=1 to force a re-crawl.
+  const loadPicks = (refresh = false) => {
+    if (!cfg.feed_picks) return;   // no feeds configured → no picks section
+    dispatch({ type: "picksLoading" });
+    fetch(handle.base + `/api/feed?limit=${cfg.feed_picks}${refresh ? "&refresh=1" : ""}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`picks fetch failed (${res.status})`);
+        return res.json() as Promise<{ items: FeedItem[] }>;
+      })
+      .then(({ items }) => dispatch({ type: "picks", items }))
+      .catch((err) => dispatch({ type: "picksError", message: String(err.message ?? err) }));
+  };
+
+  loadPicksRef.current = () => loadPicks();
+
+  useEffect(() => {
+    loadPicks();
+  }, [handle.base]);
+
+  // A numbered pick reads in SUMMARY mode regardless of the current /mode: the
+  // point of the list is a quick briefing on what's new, and the user picked a
+  // headline, not a document they asked to hear in full.
+  const handlePick = (n: number) => {
+    const item = stateRef.current.picks[n - 1];
+    if (!item) return;
+    player.stop();
+    dispatch({ type: "submit", title: item.title });
+    sockRef.current?.read(item.url, "summary", stateRef.current.voice, stateRef.current.model);
   };
 
   const fetchModels = async (): Promise<ModelsResp> => {
@@ -393,6 +458,10 @@ export function App({ handle, prefs, onQuit }: Props) {
       case "model":
         handlePickModel(arg);
         break;
+      case "feed":
+        loadPicks(true);
+        dispatch({ type: "notice", text: "refreshing the latest…" });
+        break;
       case "library":
       case "lib":
         openLibrary();
@@ -454,6 +523,13 @@ export function App({ handle, prefs, onQuit }: Props) {
               <ModelList resp={state.modelList} active={state.model} />
             )}
             {state.showHelp && <HelpView />}
+            {!state.modelList && !state.showHelp && (
+              <PickList
+                items={state.picks}
+                loading={state.picksLoading}
+                error={state.picksError}
+              />
+            )}
             {state.notice && (
               <Box paddingX={1} marginBottom={1}>
                 <Text color={DIM}>{state.notice}</Text>
@@ -464,7 +540,12 @@ export function App({ handle, prefs, onQuit }: Props) {
                 <Text color={RED}>{state.error}</Text>
               </Box>
             )}
-            <UrlInput onSubmit={handleSubmit} onQuit={startQuit} />
+            <UrlInput
+              onSubmit={handleSubmit}
+              onQuit={startQuit}
+              onPick={handlePick}
+              pickCount={state.picks.length}
+            />
             <Box marginTop={1}>
               <StatusLine
                 model={state.model}
@@ -479,6 +560,7 @@ export function App({ handle, prefs, onQuit }: Props) {
         {state.screen === "busy" && (
           <BusyView
             phase={state.phase}
+            title={state.pendingTitle}
             progress={state.progress}
             onCancel={() => {
               sockRef.current?.cancel();

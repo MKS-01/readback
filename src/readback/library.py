@@ -144,6 +144,19 @@ class Library:
             return None
         return rec
 
+    def read_urls(self, limit: int = 500) -> set[str]:
+        """Source URLs of the most recent reads — what the picks list filters
+        against so something you've already heard stops being suggested.
+
+        Bounded (not the whole table) because it only has to cover the handful
+        of posts a feed crawl can currently return."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT source_url FROM reads "
+                "ORDER BY created_at DESC LIMIT ?", (limit,),
+            ).fetchall()
+        return {r["source_url"] for r in rows if r["source_url"]}
+
     @staticmethod
     def _where(q: str) -> tuple[str, tuple]:
         """Shared search filter for list() + count() so they always agree."""

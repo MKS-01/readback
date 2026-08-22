@@ -14,11 +14,14 @@ const PHASE_LABELS: Record<string, string> = {
 
 interface Props {
   phase: string;
+  /** What's being read — set when the read started from a numbered pick, where
+   * the user never typed a URL and would otherwise see an anonymous spinner. */
+  title?: string | null;
   progress: { done: number; total: number } | null;
   onCancel: () => void;
 }
 
-export function BusyView({ phase, progress, onCancel }: Props) {
+export function BusyView({ phase, title, progress, onCancel }: Props) {
   const [frame, setFrame] = useState(0);
   const { stdout } = useStdout();
   const barWidth = Math.max(20, Math.min((stdout?.columns ?? 80) - 8, 72));
@@ -38,6 +41,11 @@ export function BusyView({ phase, progress, onCancel }: Props) {
 
   return (
     <Box flexDirection="column" paddingX={1} marginY={1}>
+      {title && (
+        <Box marginBottom={1}>
+          <Text color={FG} bold>{title}</Text>
+        </Box>
+      )}
       <Box>
         <Text color={BLUE}>{SPINNER[frame]} </Text>
         <Text color={FG}>{label}</Text>

@@ -57,8 +57,12 @@ gotchas, and exact knobs.
 
 ```
 readback/
-├── pyproject.toml             # v4.3.0; csm-mlx (git dep) + mlx-lm + mlx-vlm + trafilatura + fastapi
-├── config.yaml                # user-editable: llm / tts.csm / reader blocks (cwd-resolved)
+├── pyproject.toml             # v4.4.0; csm-mlx (git dep) + mlx-lm + mlx-vlm + trafilatura + fastapi
+├── config.example.yaml        # the TEMPLATE that ships in git: llm / tts.csm / reader blocks
+├── config.yaml                # ⚠ GITIGNORED — the user's own copy (setup.sh cp's the
+│                              # example on first run and never overwrites it).
+│                              # Config.load() falls back to config.example.yaml when
+│                              # config.yaml is absent, so a fresh clone runs unchanged.
 ├── .env.example               # Pi deployment config template (PI_USER/PI_HOST/PI_PATH/PI_PORT etc.)
 │                              # ⚠ copy to .env (gitignored) and fill in real values — never commit .env
 ├── config.pi.example.yaml     # Pi config template: built-in speaker, same relative reader paths as Mac,
@@ -83,10 +87,12 @@ readback/
 │                              # --full forces a full sync (with --delete to clean orphans on Pi).
 │                              # SSH keep-alive flags prevent drop on large transfers over Wi-Fi.
 ├── README.md                  # user-facing (GitHub landing; stays at root)
-├── tests/                     # 65 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
+├── tests/                     # 79 pytest cases — PURE LOGIC only (no MLX/CSM/GPU): chunking,
 │                              # silence-tidy, fade-out, extract scrub, library + cache, think-stripper,
 │                              # tones, map-reduce batching, summary trim, batched-synth
-│                              # drive loop (order/progress/cancel/retry/fallback).
+│                              # drive loop (order/progress/cancel/retry/fallback),
+│                              # feed parsing (RSS/Atom, autodiscovery, index scrape,
+│                              # pick round-robin).
 │                              # Config in pyproject.toml; runnable on Linux (requirements-pi.txt subset).
 ├── .github/workflows/
 │   ├── ci.yml                # runs the pytest suite on push + PR, Python 3.10 + 3.12 on Ubuntu;
@@ -392,6 +398,49 @@ readback/
     peak-normalized to **0.95** before return (no limiter — CSM output has no stray
     transients). Applied unconditionally; clean speech so it's safe.
 
+### Feed picks (`pipeline/feeds.py`, `GET /api/feed`, `cli/.../PickList.tsx`)
+
+- **What it is**: the sites in `reader.feeds` are crawled for their newest posts
+  and listed as numbered picks on the CLI's input screen; `1`–`N` reads one
+  immediately. Stdlib only (`urllib` + `xml.etree` + regex) — no new dependency.
+- **Two-tier discovery** (`fetch_source`): ⚠ half of modern blogs ship no RSS.
+  1. the source URL is fetched once; if it IS a feed (`<?xml` / `<rss`) it's
+     parsed directly; 2. otherwise autodiscovery on the HTML
+     (`discover_feed_url`) then the conventional paths (`_FEED_PATHS`);
+  3. else `scrape_index_links` on the index HTML.
+  ⚠ `discover_feed_url` matches on `type=application/(rss|atom)+xml`, **not on
+  `rel="alternate"` alone** — `rel=alternate` is also how sites declare
+  translations (claude.com lists a dozen hreflang alternates), and following one
+  fetches a localized HTML page that parses to zero items.
+- **`scrape_index_links`** keeps only links one level below the index's own path
+  (`/blog/` → `/blog/post`, not `/blog/tag/x`, not `/pricing`), deduped, in
+  document order — a blog index lists newest first, so document order IS recency
+  and these items carry **no `published`**. ⚠ Anchor text is usually a "Read
+  more" button (`_GENERIC_ANCHOR`), so titles come from the slug
+  (`title_from_slug`).
+- **`interleave` is round-robin, not a global date sort** — a site that posts
+  daily would otherwise own every slot, and the point of the list is what's new
+  *across* the sites. Round 1 = each source's newest (dated newest-first among
+  themselves, undated last), round 2 = each source's second-newest, …
+- **Already-read posts retire from the list.** `/api/feed` filters the pool
+  against `library.read_urls()` and backfills from the rest of the crawl, so
+  finishing a pick promotes the next post instead of leaving a stale suggestion
+  (or a shorter list). The CLI re-asks for picks on every `done` — no `refresh`
+  flag, since the crawl is cached and only the filter changed. ⚠ Matching is on
+  `feeds.pick_key` (scheme+host+path, **query stripped**): a Medium feed hands
+  out `?source=rss----…` while the library stores whatever was read, so a raw
+  string compare would mark that post unread forever.
+- **`FeedCache`** (held by `create_app`) caches for `reader.feed_ttl_sec` (900)
+  so CLI launch is instant after the first crawl (~7 s over three sites). It
+  keeps the WHOLE crawl (`pool()`, `POOL` = 30), not just the displayed N — the
+  read-filter above needs spares to backfill from. `/api/feed?refresh=1` (the
+  CLI's `/feed`) always re-crawls. A source that
+  fails contributes nothing — picks degrade, they never error.
+- **Reads are forced to Summary mode** (`handlePick` in `app.tsx`) regardless of
+  the current `/mode`: the user picked a headline off a briefing list, not a
+  document they asked to hear in full. `BusyView` takes the pick's `title` so the
+  spinner isn't anonymous (there's no URL on screen to read).
+
 ### TTS — CSM-1B (`tts/csm_engine.py`, `tts/synthesizer.py`)
 
 - **Engine: `csm-mlx`** (`senstella/csm-1b-mlx`, `ckpt.safetensors`). float32 @
@@ -501,11 +550,20 @@ readback/
   restores the sequential path. The checkpoint (`senstella/csm-1b-mlx`) is
   fixed in the engine.
 - `ReaderConfig{output_dir, default_mode, gap_sec, summary_max_chars,
-  library_db}`. `output_dir` + `library_db` default to a sibling
+  library_db, feeds, feed_picks, feed_ttl_sec}`. `feeds` is a list of
+  `FeedSource{url, name?}`; a `field_validator(mode="before")` accepts bare URL
+  strings too, so `feeds: ["https://…"]` is valid YAML. `feed_picks` (5) is how
+  many picks the CLI shows and keys. `output_dir` + `library_db` default to a sibling
   `readback-audio-db/` folder next to the repo (`../readback-audio-db/audio` and
   `../readback-audio-db/library.db`) — audio + DB in one visible, back-up-able
   place, NOT a hidden `~/.readback` dir. ⚠ Defaults use **`../` relative
   notation** (no personal absolute path baked into the public repo).
+- ⚠ **`config.yaml` is gitignored**; `config.example.yaml` is the checked-in
+  template. `Config.load()` falls back to `config.example.yaml` when
+  `config.yaml` is missing (a fresh clone, or a run before `scripts/setup.sh`) —
+  bare defaults would silently drop the shipped clone voice, feeds, and reader
+  paths. `setup.sh` step 3b copies example → `config.yaml` and NEVER overwrites
+  an existing one. ⚠ Add a new key to BOTH files.
 - `Config.load()` resolves clone `wav` paths + `lora_path` relative to the config
   dir, and resolves **`output_dir` + `library_db`** the same way then `.resolve()`s
   them to clean absolute paths (`~` expands; absolute paths as-is). The absolute
@@ -572,14 +630,19 @@ readback/
   recommendation, switches the LLM per-read — it serves Summary mode AND
   image/book OCR, so there is no second picker; `/vision` was removed along with
   the separate OCR model), `/speed [x]` (playback rate 0.5–2,
-  persisted; no server involvement — see Playback speed below), `/library` (alias `/lib` —
+  persisted; no server involvement — see Playback speed below), `/feed`
+  (re-crawls the picks via `/api/feed?refresh=1`; the arriving list clears the
+  "refreshing…" notice), `/library` (alias `/lib` —
   `GET /api/library?sort=newest&limit=20&offset=N`, arrow-key nav, `space` to
   preview inline (plays audio without leaving the library; shows `♫` + elapsed;
   space again stops), Enter to open the full player, `d` twice to delete),
   `/help`, `/quit`; esc cancels a read. Every library row shows
   `mode · duration · words · date` inline (active row in accent blue).
   `q` when the URL input field is empty triggers quit — intercepted in
-  `UrlInput.onChange` before the controlled value updates. Quit path:
+  `UrlInput.onChange` before the controlled value updates. **Digits `1`–`9` are
+  intercepted the same way** (empty field only, bounded by `pickCount`) and read
+  that numbered pick; a digit inside a URL or path types normally because the
+  field isn't empty by then. Quit path:
   `dispatch("quitting")` → braille spinner renders for 300 ms → `shutdown()` +
   `exit()` (the delay lets Ink paint one frame before tearing down).
   **Input guard** (`handleSubmit`): an input is a command iff its FIRST token is
@@ -735,7 +798,19 @@ work: `Synthesizer(Config.load().tts).synthesize("…")` from a Python REPL.
 
 ## Version
 
-Current: **v4.3.0** — ~2x synthesis, same quality.
+Current: **v4.4.0** — feed picks: the CLI opens on what's new.
+`reader.feeds` lists the sites you read; the server crawls them
+(`pipeline/feeds.py` — RSS/Atom autodiscovery, then conventional paths, then an
+HTML-index scrape for the ~half of blogs that ship no feed) and the CLI shows
+the newest posts as numbered picks. `1`–`N` on the empty input reads one in
+Summary mode immediately. Picks round-robin the sources (one prolific blog can't
+own every slot), are filtered against the read library so a finished pick
+retires and the next post is promoted, and are TTL-cached (`/feed` re-crawls).
+⚠ Also in this release: **`config.yaml` is now gitignored**, with
+`config.example.yaml` as the checked-in template (`setup.sh` copies it;
+`Config.load()` falls back to it).
+
+Previously: v4.3.0 — ~2x synthesis, same quality.
 Batched CSM synthesis (`tts.csm.batch_size`, default 8): the frame loop is
 launch-latency bound, so 8 rows cost 1.64x the time of 1 — measured
 61.3 s → 28.6 s synthesizing the same summary. Fixed by masking left-pad
@@ -747,7 +822,7 @@ unpadded is ~0.0002 (bf16 noise). Pauses now follow paragraph breaks
 `pipeline.RECIPE_VERSION` so a pipeline change re-renders instead of replaying
 stale audio.
 
-Previously: v4.2.0 — summary quality + delivery + CLI playback speed
+Older: v4.2.0 — summary quality + delivery + CLI playback speed
 (word-count anchor + 250-word ceiling trim, `_expressive_temperature`,
 randomized [280, 400] chunk band, `summary_max_chars` 16K→60K, `/speed`);
 v4.1.0 — audio quality + performance (read cache, degenerate-chunk

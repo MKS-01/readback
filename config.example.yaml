@@ -1,6 +1,17 @@
-# readback — offline article reader (v4.1.0).
-# Paste a URL → fetch + extract the article → (optional LLM summary) → CSM-1B TTS
-# → audio you play in-browser, in the terminal CLI, or download. All on-device.
+# readback — example configuration.
+#
+# ⚠ This is the TEMPLATE that ships with the repo. Your own settings live in
+# `config.yaml`, which is gitignored so your feed list, voices, and paths stay
+# yours and never land in a commit.
+#
+#   cp config.example.yaml config.yaml      # (scripts/setup.sh does this for you)
+#
+# readback reads `config.yaml` from the directory it's started in; if that file
+# doesn't exist yet it falls back to this one, so a fresh clone runs unchanged.
+#
+# Offline article reader: paste a URL → fetch + extract the article →
+# (optional LLM summary) → CSM-1B TTS → audio you play in the terminal CLI, in
+# the dashboard, or download. All on-device.
 
 llm:
   # ONE model, three jobs: Summary mode (spoken explanation), title generation,
@@ -104,3 +115,26 @@ reader:
                                       # map-reducing (Qwen3.5-9B has a 262K-token context —
                                       # 60K chars/~15K tokens leaves it single-passing the
                                       # vast majority of articles instead of map-reducing)
+
+  # ── Feed picks ──────────────────────────────────────────────────────────
+  # The sites YOU read. Their newest posts show up as numbered picks the moment
+  # the CLI opens — press the number and it's fetched + summarized immediately
+  # (no URL to paste). Nothing is stored: the list is crawled live and cached
+  # for feed_ttl_sec, /feed in the CLI forces a refresh, and a post you've
+  # already read drops off so the next one takes its slot.
+  #
+  # Each entry is a blog INDEX url (a direct feed url also works). readback
+  # finds the RSS/Atom feed by autodiscovery, then by the usual paths (/feed,
+  # /rss.xml, /feeds/posts/default …), and falls back to scraping the index's
+  # own post links for sites that ship no feed at all. Optional `name:`
+  # overrides the label shown next to a pick (default: the site's host).
+  #
+  # Empty list = no picks section at all. Add your own, e.g.:
+  #
+  #   feeds:
+  #     - "https://some-engineering-blog.example/"        # bare url is fine
+  #     - url: "https://another-blog.example/blog"        # …or name it
+  #       name: "another"
+  feeds: []
+  feed_picks: 5        # how many picks to show; keyed 1..N in the CLI
+  feed_ttl_sec: 900    # re-crawl at most every 15 min (/feed refreshes now)

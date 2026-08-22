@@ -6,6 +6,49 @@ tracking. Each entry carries a date and a status (`proposed` / `in progress` /
 
 ---
 
+## 2026-08-22 — Feed picks: the CLI opens on what's new
+
+**Status: done** — branch `feat/feed-picks`.
+
+Every read started with pasting a URL, which means leaving the terminal, finding
+something worth reading, and coming back. `reader.feeds` now lists the sites you
+read; the CLI crawls them and shows the newest posts as numbered picks the moment
+it opens. Press `1`–`5` and that post is fetched, summarized, and read — no URL
+typed at all.
+
+**Discovery is two-tier, and the second tier is the point.** RSS/Atom
+autodiscovery plus the conventional paths covers sites that still ship a feed
+(netflixtechblog.com/feed, android-developers' `/feeds/posts/default`). Roughly
+half don't — claude.com/blog has no feed and wraps every post link in a "Read
+more" button — so `scrape_index_links` falls back to the index's own post links
+in document order (which on a blog index IS recency), titling them from the slug.
+Stdlib only: `urllib` + `xml.etree` + regex, no new dependency.
+
+**Picks round-robin the sources rather than sorting globally by date** — a
+daily-posting blog would otherwise own all five slots, and the list exists to
+show what's new *across* the sites. Verified live: rows 1–3 were each site's
+newest, rows 4–5 the second-newest ordered by date among themselves.
+
+**Finished reads retire from the list.** `/api/feed` filters the crawl against
+`library.read_urls()` and backfills from the pool, and the CLI re-asks for picks
+on every `done` — so the list is already updated by the time you're back on the
+input screen. Matching ignores query strings (`feeds.pick_key`): Medium's feed
+appends `?source=rss----…`, which a raw compare would never match against the
+stored read. Verified against a real library — the two sample posts already read
+were gone from the picks, the Medium one despite its query suffix.
+
+**Config split shipped alongside.** `config.yaml` is now gitignored (it holds a
+personal feed list) and `config.example.yaml` is the checked-in template;
+`setup.sh` copies it on first run and never overwrites, and `Config.load()` falls
+back to the example so a fresh clone still runs with the shipped voice and paths.
+
+**Verified**: 14 new pure-logic tests (79 total, green); live crawl of all three
+sample sites in ~7 s; driven in tmux — the list renders aligned, `/feed`
+re-crawls, and pressing `3` produced a finished 1:31 summary read of the Claude
+blog post in ~62 s.
+
+---
+
 ## 2026-08-22 — Pauses that follow the text, and a Summary path that can use them
 
 **Status: done** — branch `perf/batched-synthesis`, on top of the padding-mask

@@ -32,6 +32,12 @@ exposed over REST for the web dashboard (src/dashboard):
                                                # {items, total, limit, offset}
   GET    /api/library/{id}                     # one full record
   DELETE /api/library/{id}                     # remove the row + its WAV
+
+Feed picks (the CLI's numbered "what's new" list, from `reader.feeds`):
+  GET    /api/feed?limit=3&refresh=0           # {items:[{title,url,source,
+                                               #   published}], count} — crawled
+                                               # live, TTL-cached; refresh=1 forces
+
 The built dashboard (src/dashboard/dist) is mounted at / when present.
 """
 from __future__ import annotations
@@ -55,6 +61,7 @@ from readback.llm.models import installed_model_names, list_models
 from readback.pipeline import ExtractError, fetch_article
 from readback.pipeline.extract import _is_multi_page, classify_source, fetch_multi_page
 from readback.pipeline import RECIPE_VERSION
+from readback.pipeline.feeds import FeedCache, pick_key
 from readback.pipeline.tones import tone_for
 from readback.pipeline.speak import synthesize_article, write_wav
 from readback.pipeline.summarize import summarize_article
@@ -336,6 +343,10 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
     out_dir = cfg.reader.output_dir.expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     library = Library(cfg.reader.library_db)
+    # Picks are crawled live from `reader.feeds` and cached for feed_ttl_sec so
+    # opening the CLI is instant after the first fetch (a crawl is ~5-8 s over
+    # three sites). /api/feed?refresh=1 (the CLI's /feed) always re-crawls.
+    feeds = FeedCache(cfg.reader.feeds, cfg.reader.feed_ttl_sec)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -355,7 +366,33 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "model": cfg.llm.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),   # where WAVs live (CLI same-machine shortcut)
+            "feed_picks": cfg.reader.feed_picks if cfg.reader.feeds else 0,
         }
+
+    @app.get("/api/feed")
+    async def api_feed(limit: int = 0, refresh: int = 0):
+        """Newest posts across the configured sites — the CLI's numbered picks.
+
+        Blocking network work (urllib + a thread pool per source), so it runs
+        off the event loop. A source that fails contributes nothing; an empty
+        list just means no picks are shown."""
+        limit = max(1, min(limit or cfg.reader.feed_picks, 9))
+        try:
+            pool = await asyncio.to_thread(feeds.pool, bool(refresh))
+        except Exception:
+            log.exception("feed fetch failed")
+            pool = []
+        # Drop what's already in the read library and backfill from the rest of
+        # the crawl, so finishing a pick retires it and promotes the next post
+        # instead of leaving a stale suggestion (or a shorter list) behind.
+        try:
+            already = await asyncio.to_thread(library.read_urls)
+        except Exception:
+            log.exception("library lookup failed; showing unfiltered picks")
+            already = set()
+        seen = {pick_key(u) for u in already}
+        items = [i for i in pool if pick_key(i.url) not in seen][:limit]
+        return {"items": [i.to_dict() for i in items], "count": len(items)}
 
     @app.get("/api/models")
     async def api_models():
@@ -402,6 +439,8 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             "model": cfg.llm.model,
             "default_mode": cfg.reader.default_mode,
             "audio_dir": str(out_dir),
+            # 0 = no feeds configured → the CLI hides the picks section entirely.
+            "feed_picks": cfg.reader.feed_picks if cfg.reader.feeds else 0,
         })
         # The active read job runs as a background task so the receive loop stays
         # free to handle `cancel` (and disconnects) mid-synthesis.

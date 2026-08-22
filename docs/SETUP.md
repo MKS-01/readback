@@ -57,6 +57,16 @@ On the **first read**, CSM-1B downloads (~6 GB) from Hugging Face and the MLX gr
 warms up — the first synthesis takes noticeably longer; subsequent runs are fast.
 Weights cache in `~/.cache/huggingface/hub/`.
 
+### Your config file
+
+`scripts/setup.sh` creates **`config.yaml`** from the checked-in
+**`config.example.yaml`** on its first run, and never overwrites it afterwards —
+by hand it's `cp config.example.yaml config.yaml`. `config.yaml` is gitignored,
+so your feed list, voices, and paths stay on your machine; if it's missing
+entirely, readback falls back to reading the example, so a fresh clone runs
+unchanged. Add the sites you read under `reader.feeds` to get numbered picks in
+the CLI.
+
 Useful flags:
 
 ```bash
