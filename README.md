@@ -4,6 +4,7 @@
 
 <p align="center">
   <strong>Paste a URL or snap a book — hear it read aloud by a neural voice, entirely on your Mac.</strong><br>
+  Or skip the pasting: it opens on the newest posts from the blogs you follow.<br>
   No cloud. No API keys. Nothing leaves your machine.
 </p>
 
@@ -21,6 +22,7 @@
 <p align="center">
   <a href="https://mks-01.github.io/readback/">Landing page</a> ·
   <a href="#getting-started">Getting started</a> ·
+  <a href="#latest-picks">Latest picks</a> ·
   <a href="#library-dashboard">Dashboard</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#voices">Voices</a> ·
@@ -37,6 +39,20 @@
 ---
 
 **Your reading list, out loud.** Drop in a link, a photo of a page, or a folder of book scans. readback pulls out the text, optionally has a local LLM boil it down to a spoken briefing, and reads the whole thing to you in a voice you picked — then files it away so you can replay it any time, on any device in the house.
+
+**It opens on what's new.** Name the blogs you follow under `reader.feeds`; readback crawls them and their latest posts are waiting as numbered picks the second the CLI starts. Press `2` and that post is fetched, summarized, and read to you — no feed reader, no browser tab, no URL to paste.
+
+```
+ latest  —  press a number to hear the summary
+
+  1 A Tale of Two Flink Autoscalers                                    netflix · 21h
+  2 Preparing your app for broader memory limits                        android · 2d
+  3 Artifacts in Claude Code                                            claude · new
+  4 Tinder cuts app cold starts by 47% with new R8 Configuration An…    android · 3d
+  5 How and Why Netflix Built a Real-Time Distributed Graph: Part 3…    netflix · 2w
+```
+
+Sites that dropped RSS still work — readback falls back to reading the blog index itself. Details: [Latest picks](#latest-picks).
 
 **The model never leaves your Mac.** Summaries are written by an MLX model running in the *same process* as the TTS. That same model does the OCR on your book scans, so there's no second download and no second daemon. No Ollama, no API key, no token bill. Fetching a URL is the only thing here that touches the network; the thinking and the talking are entirely yours.
 
@@ -93,11 +109,32 @@ readback-cli                            # from anywhere; auto-starts the server
 
 Auto-starts the server, kills it on exit. A full player, in your shell:
 
-- **Latest picks** — the newest posts from the sites in `reader.feeds` are listed the moment it opens; press `1`–`5` and that post is fetched and read to you as a summary. No URL to paste. Anything you've already heard drops off the list and the next post takes its slot.
+- **Latest picks** — the newest posts from the sites you follow, listed the moment it opens; press a number to hear one. See [Latest picks](#latest-picks).
 - **Keys** — `space` pause · `←/→` seek ±5 s · `t` toggle transcript · `+/-` playback speed · `q` quit
 - **Commands** — `/voice` · `/model` (LLM for summary *and* OCR, with a RAM-fit check) · `/mode` · `/speed` · `/feed` (re-crawl the picks) · `/lib` (browse, `space` previews inline, `enter` opens the player) · `/help`
 - **Reads anything** — a URL, an image path, a folder or glob of book scans
 - macOS only (`afplay` playback) — internals: [`src/cli/README.md`](src/cli/README.md)
+
+---
+
+## Latest picks
+
+Your reading list, waiting for you. Add the sites you follow to `reader.feeds`:
+
+```yaml
+reader:
+  feeds:
+    - "https://some-engineering-blog.example/"     # a blog index url
+    - url: "https://another-blog.example/blog"     # …or name it
+      name: "another"
+  feed_picks: 5          # keyed 1–5 in the CLI
+```
+
+- **Press a number, hear the post.** A pick is fetched, summarized by the local LLM, and read aloud — always as a summary, since you picked a headline off a briefing list, not a document you asked to hear in full.
+- **No RSS required.** readback finds a site's feed by autodiscovery, then by the usual paths (`/feed`, `/rss.xml`, `/feeds/posts/default`…) — and when a site ships no feed at all, it reads the blog index's own post links instead. Roughly half of modern blogs land in that second case.
+- **One from each, in turn.** Picks round-robin your sources, so a blog that posts daily can't crowd out the one that posts monthly.
+- **Read once, gone.** Finishing a pick retires it and promotes the next post — matched ignoring URL query junk, so a feed's `?source=rss…` suffix still counts as the same article.
+- **`/feed`** re-crawls on demand; otherwise the crawl is cached for 15 minutes, so launch stays instant.
 
 ---
 
@@ -234,8 +271,7 @@ Point it anywhere with `--config path`. The defaults work out of the box.
 | `reader.feed_picks` | How many picks to show; keyed `1`–`N` in the CLI. `0` feeds = no picks section | `5` |
 | `reader.feed_ttl_sec` | How long a crawl is cached before re-fetching (`/feed` forces it) | `900` |
 
-- **Picks are unread-only.** A finished read retires that post from the list (matched ignoring URL query junk, so a feed's `?source=rss…` still counts), and the next-newest post is promoted into the gap.
-- **Feeds need no RSS.** readback finds a site's feed by autodiscovery, then by the usual paths (`/feed`, `/rss.xml`, `/feeds/posts/default`…), and falls back to scraping the index's own post links for sites that ship no feed at all. Picks round-robin the sources so one prolific blog can't take every slot.
+- **Feeds** — how the picks are found, ordered, and retired: [Latest picks](#latest-picks).
 - Audio + library DB live in a **`readback-audio-db/`** folder beside the repo. Point `output_dir` / `library_db` anywhere (absolute or `~` both work).
 - **Flags** — `readback --model <name>`, `--host`, `--port`, `--config`. Use `--host 0.0.0.0` for LAN access.
 
