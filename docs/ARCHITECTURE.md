@@ -1,4 +1,4 @@
-# Architecture — readback (v4.3.0)
+# Architecture — readback (v4.4.0)
 
 How the pieces fit together and why. System-level companion to
 [CLAUDE.md](../CLAUDE.md) (implementation notes, gotchas, exact knobs) and
@@ -182,6 +182,17 @@ written back to `config.yaml`.
   `/audio/`. It additionally mounts the **built dashboard at `/`** when
   `src/dashboard/dist` exists (registered last, so the API/audio/ws routes win);
   in dev that dir is absent so `GET /` is 404 and Vite serves the SPA on :5173.
+- **Feed picks REST** — `GET /api/feed?limit=&refresh=` returns
+  `{items:[{title, url, source, published}], count}`: the newest posts across
+  `reader.feeds`, crawled live (`pipeline/feeds.py`) and TTL-cached in a
+  `FeedCache` held by the app (`reader.feed_ttl_sec`); `refresh=1` forces a
+  re-crawl. Posts already in the read library are filtered out
+  (`library.read_urls()` vs `feeds.pick_key`, which ignores query strings) and
+  backfilled from the rest of the crawl, so a finished pick retires and the next
+  post is promoted. The crawl is blocking network work, so it runs in
+  `asyncio.to_thread` with its own per-source thread pool. `/api/config` and the
+  WS `config` message carry `feed_picks` (0 when no feeds are configured) so a
+  client knows how many picks to render and key.
 - **Read library REST** — `GET /api/library?q=&sort=newest|oldest&limit=&offset=`
   returns a page `{items, total, limit, offset}` (limit capped 1–100, default 20;
   the dashboard appends pages via "Load more"); `GET /api/library/{id}`,
@@ -258,6 +269,10 @@ spawns it with cwd = repo root so the bundled config and its relative
   (`tts.csm.lora_path` + `src/finetune/`); no code change.
 - **Different extractor / summary prompt** — swap inside `pipeline/extract.py` /
   `pipeline/summarize.py`; the rest of the pipeline is unaffected.
+- **New source of picks** — `pipeline/feeds.py` turns a site URL into
+  `FeedItem`s (feed parse, else index scrape); a different discovery strategy
+  slots in behind `fetch_source` and the rest (cache, REST, CLI keys) is
+  unchanged. A pick is just a URL handed to the normal read pipeline.
 - **New client** — talk the WS protocol (live reads, like the CLI) or just the
   REST library routes (replay past reads, like the dashboard); the server adds
   no per-client code.

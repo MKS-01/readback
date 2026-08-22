@@ -10,6 +10,8 @@ const CMDS: Array<[cmd: string, desc: string]> = [
   ["/mode",           "show current mode"],
   ["/mode full",      "read the whole article"],
   ["/mode summary",   "spoken summary (local LLM)"],
+  ["/feed",           "refresh the latest picks"],
+  ["1–9",             "read + summarize a pick"],
   ["/lib",            "browse past reads"],
   ["/speed <x>",      "playback speed 0.5–2 (persists)"],
   ["/quit",           "exit"],

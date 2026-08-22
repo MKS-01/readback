@@ -75,6 +75,17 @@ echo "  installing readback (csm-mlx is a git dep — this can take a few minute
 python -m pip install -q -e .
 ok "readback installed into .venv"
 
+# ── 3b. config.yaml (from the template) ─────────────────────────
+step "Configuration"
+if [ ! -f config.yaml ]; then
+  cp config.example.yaml config.yaml
+  ok "config.yaml created from config.example.yaml — edit it to add your feeds, voices, or paths"
+else
+  # Never overwrite: config.yaml is the user's own file (gitignored), and a
+  # re-run of this script must not clobber their edits.
+  ok "config.yaml already exists — left untouched"
+fi
+
 # ── 4. terminal CLI (Bun) ───────────────────────────────────────
 step "Building the terminal CLI"
 if command -v bun >/dev/null 2>&1; then

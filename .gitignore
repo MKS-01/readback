@@ -28,7 +28,14 @@ readback/web/frontend/vite.config.d.ts
 # --- Local state & secrets ---
 .env
 .env.local
+# Your own settings (feed list, voices, paths). The repo ships
+# config.example.yaml as the template; setup.sh copies it here on first run,
+# and Config.load() falls back to the example when this file is absent.
+config.yaml
 config.local.yaml
+# …but the templates themselves are checked in.
+!config.example.yaml
+!config.pi.example.yaml
 
 # --- Runtime artifacts ---
 # Crash-recovery JSONLs live under ~/.readback/sessions/, not in the repo,

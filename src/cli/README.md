@@ -70,6 +70,7 @@ esc cancels a running read.
 | `/mode [full\|summary]` | Show / set the read mode (persisted) |
 | `/library` (or `/lib`) | Browse past reads — arrow keys, `space` to preview inline, Enter to replay, `d` to delete |
 | `/speed [x]` | Show / set playback speed, 0.5–2 (persisted; also `+`/`-` in the player) |
+| `/feed` | Re-crawl the latest picks (otherwise cached server-side for 15 min) |
 | `/help` | List commands |
 | `/quit` | Exit (or press `q` when the input field is empty) |
 
@@ -85,6 +86,22 @@ drive Summary mode. ⚠ Picking a text-only model disables image/book reads.
 </p>
 
 Prefs (voice/mode/model/speed) persist to `~/.readback/cli.json`.
+
+### Latest picks
+
+The newest posts from the sites in `reader.feeds` are listed above the input box
+as soon as the CLI opens (`GET /api/feed`, crawled server-side and cached).
+Press `1`–`N` on an **empty** input field and that post is fetched and read as a
+**summary** — regardless of the current `/mode`, since a pick is a headline off a
+briefing list, not a document you asked to hear in full. The busy screen shows the
+pick's title, because there's no URL on screen to tell you what's being read.
+
+When a read finishes, the list refreshes: the post you just heard is in the read
+library now, so the server drops it from the picks and promotes the next one.
+
+A digit typed into a non-empty field types normally, so URLs and paths with
+numbers are unaffected. No feeds configured → the section doesn't render and the
+number keys do nothing.
 
 ### Library
 

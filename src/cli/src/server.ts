@@ -7,6 +7,7 @@ export interface ServerConfig {
   model: string;
   default_mode: "full" | "summary";
   audio_dir?: string;   // server's output_dir — same-machine playback shortcut
+  feed_picks?: number;  // numbered picks to show from reader.feeds (0 = none)
 }
 
 export interface ServerHandle {

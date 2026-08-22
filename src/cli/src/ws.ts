@@ -20,6 +20,7 @@ export type ServerMsg =
       model: string;
       default_mode: "full" | "summary";
       audio_dir?: string;   // where the server writes WAVs (same-machine shortcut)
+      feed_picks?: number;  // how many numbered picks to show (0 = no feeds configured)
     }
   | { type: "phase"; value: string }
   | { type: "progress"; done: number; total: number }

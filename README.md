@@ -93,8 +93,9 @@ readback-cli                            # from anywhere; auto-starts the server
 
 Auto-starts the server, kills it on exit. A full player, in your shell:
 
+- **Latest picks** — the newest posts from the sites in `reader.feeds` are listed the moment it opens; press `1`–`5` and that post is fetched and read to you as a summary. No URL to paste. Anything you've already heard drops off the list and the next post takes its slot.
 - **Keys** — `space` pause · `←/→` seek ±5 s · `t` toggle transcript · `+/-` playback speed · `q` quit
-- **Commands** — `/voice` · `/model` (LLM for summary *and* OCR, with a RAM-fit check) · `/mode` · `/speed` · `/lib` (browse, `space` previews inline, `enter` opens the player) · `/help`
+- **Commands** — `/voice` · `/model` (LLM for summary *and* OCR, with a RAM-fit check) · `/mode` · `/speed` · `/feed` (re-crawl the picks) · `/lib` (browse, `space` previews inline, `enter` opens the player) · `/help`
 - **Reads anything** — a URL, an image path, a folder or glob of book scans
 - macOS only (`afplay` playback) — internals: [`src/cli/README.md`](src/cli/README.md)
 
@@ -205,7 +206,12 @@ CSM conditions on a short reference clip — the clip's timbre and accent are wh
 
 ## Configuration
 
-Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
+The repo ships **`config.example.yaml`**; your own copy is `config.yaml`, which is
+gitignored so your feed list, voices, and paths never land in a commit.
+`scripts/setup.sh` makes it for you on first run (and never overwrites it after
+that) — by hand it's `cp config.example.yaml config.yaml`. If `config.yaml`
+doesn't exist yet, readback reads the example, so a fresh clone runs unchanged.
+Point it anywhere with `--config path`. The defaults work out of the box.
 
 | Key | What | Default |
 |---|---|---|
@@ -224,7 +230,12 @@ Edit `config.yaml` (or pass `--config path`). The defaults work out of the box.
 | `reader.gap_sec` | Base pause between chunks — scaled per join (2× at a paragraph break, 0.6× mid-paragraph) | `0.18` |
 | `reader.summary_max_chars` | Per-pass chunk size for Summary mode — longer inputs are map-reduced, not truncated | `60000` |
 | `reader.library_db` | SQLite library of past reads (powers the dashboard) | `../readback-audio-db/library.db` |
+| `reader.feeds` | Sites whose newest posts become the CLI's numbered picks — a blog index URL (a feed URL works too), optionally `{url, name}` | 3 sample blogs |
+| `reader.feed_picks` | How many picks to show; keyed `1`–`N` in the CLI. `0` feeds = no picks section | `5` |
+| `reader.feed_ttl_sec` | How long a crawl is cached before re-fetching (`/feed` forces it) | `900` |
 
+- **Picks are unread-only.** A finished read retires that post from the list (matched ignoring URL query junk, so a feed's `?source=rss…` still counts), and the next-newest post is promoted into the gap.
+- **Feeds need no RSS.** readback finds a site's feed by autodiscovery, then by the usual paths (`/feed`, `/rss.xml`, `/feeds/posts/default`…), and falls back to scraping the index's own post links for sites that ship no feed at all. Picks round-robin the sources so one prolific blog can't take every slot.
 - Audio + library DB live in a **`readback-audio-db/`** folder beside the repo. Point `output_dir` / `library_db` anywhere (absolute or `~` both work).
 - **Flags** — `readback --model <name>`, `--host`, `--port`, `--config`. Use `--host 0.0.0.0` for LAN access.
 

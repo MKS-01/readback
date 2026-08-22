@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class LLMConfig(BaseModel):
@@ -95,6 +95,20 @@ class TTSConfig(BaseModel):
         return self.csm
 
 
+class FeedSource(BaseModel):
+    """One site in `reader.feeds` — the URL of its blog index (or its feed).
+
+    `name` is optional: the picks list falls back to the host name. Written in
+    YAML either as a bare URL string or as a `{url, name}` mapping; the
+    validator below accepts both so the common case stays a one-line list."""
+    url: str
+    name: Optional[str] = None
+
+    @classmethod
+    def _coerce(cls, v):
+        return cls(url=v) if isinstance(v, str) else v
+
+
 class ReaderConfig(BaseModel):
     # Offline article reader (project pivot, v0.8.0). Generated WAVs are written
     # here and served for playback + download. Default keeps audio alongside the
@@ -116,6 +130,23 @@ class ReaderConfig(BaseModel):
     # repo; relative paths resolve against config.yaml's dir.
     library_db: Path = Path("../readback-audio-db/library.db")
 
+    # Sites whose newest posts are offered as picks the moment the CLI opens —
+    # pick one by number and it's summarized immediately, no URL to paste. Each
+    # entry is a blog INDEX url (a feed url works too); readback finds the RSS/
+    # Atom feed itself, and scrapes the index when a site has no feed. Empty
+    # list = no picks section at all.
+    feeds: list[FeedSource] = Field(default_factory=list)
+    feed_picks: int = 3          # how many picks to show (1–9; keyed 1..N in the CLI)
+    feed_ttl_sec: float = 900.0  # cache window before re-crawling (/feed forces it)
+
+    @field_validator("feeds", mode="before")
+    @classmethod
+    def _accept_bare_urls(cls, v):
+        """`feeds: ["https://…"]` is as valid as `[{url: …, name: …}]`."""
+        if isinstance(v, list):
+            return [FeedSource._coerce(item) for item in v]
+        return v
+
 
 class Config(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
@@ -126,8 +157,15 @@ class Config(BaseModel):
     def load(cls, path: Optional[Path] = None) -> "Config":
         if path is None:
             path = Path("config.yaml")
+        # `config.yaml` is the user's own file and is gitignored, so a fresh
+        # clone (or a run before setup.sh) has only the checked-in template.
+        # Fall back to it rather than to bare defaults — otherwise the shipped
+        # voice, feed list, and reader paths silently disappear.
         if not path.exists():
-            return cls()
+            example = path.parent / "config.example.yaml"
+            if not example.exists():
+                return cls()
+            path = example
         with open(path, "r") as f:
             data = yaml.safe_load(f) or {}
 
